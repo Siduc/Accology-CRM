@@ -10,6 +10,23 @@
     <a class="btn btn-sm" href="/clients/new">Add Client</a>
     <a class="btn btn-sm btn-secondary" href="/jobs/new">Add Job</a>
     <a class="btn btn-sm btn-outline" href="/import">Import</a>
+    <a class="btn btn-sm btn-secondary" href="/restore" title="Upload backup.json to restore clients, people and jobs">Restore from Backup</a>
+  </div>
+</div>
+
+{# Clear data-tools callout so Restore is hard to miss #}
+<div class="card" style="margin-bottom:1.25rem">
+  <div class="page-header" style="margin-bottom:0">
+    <div>
+      <h2 style="margin:0">Data tools</h2>
+      <p class="muted small" style="margin:0.25rem 0 0">
+        Import spreadsheets, or restore a previous <code>backup.json</code> export.
+      </p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-sm btn-outline" href="/import">Import data</a>
+      <a class="btn btn-sm" href="/restore">Restore from Backup</a>
+    </div>
   </div>
 </div>
 

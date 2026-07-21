@@ -10,17 +10,14 @@ Practice CRM: clients, people, jobs, Companies House job creation, imports, fee 
 
 ```bash
 pip install -r requirements.txt
+copy .env.example .env
+# edit .env — set AUTH_USERNAME / AUTH_PASSWORD
 python run.py
 ```
 
 Open http://127.0.0.1:8000  
 
-Default **development** login (override with env):
-
-- Username: `accountant`
-- Password: `password123`
-
-Copy `.env.example` to `.env` if you want custom credentials or Postgres locally.
+Login credentials are read from environment variables (loaded from `.env` via `python-dotenv` at startup). If `.env` is missing, development falls back to `accountant` / `password123`.
 
 ---
 

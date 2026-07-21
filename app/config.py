@@ -1,9 +1,15 @@
-"""Application configuration from environment variables."""
+"""Application configuration from environment variables.
+
+Loads project-root `.env` via python-dotenv at import time (before any reads).
+Existing OS / host env vars take precedence over `.env` (override=False).
+"""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -14,6 +20,10 @@ def _env(name: str, default: str | None = None) -> str | None:
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env as early as possible so AUTH_*, DATABASE_URL, etc. are available.
+# Does nothing if the file is missing (e.g. Render injects env vars instead).
+load_dotenv(BASE_DIR / ".env")
 
 # development | production
 ENV = (_env("ENV") or _env("ENVIRONMENT") or "development").lower()
@@ -48,7 +58,7 @@ else:
 
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
-# Auth — never hard-code production credentials
+# Auth — from environment / .env only (no hard-coded production secrets)
 if IS_PRODUCTION:
     AUTH_USERNAME = _env("AUTH_USERNAME")
     AUTH_PASSWORD = _env("AUTH_PASSWORD")
@@ -62,6 +72,7 @@ if IS_PRODUCTION:
             "SESSION_SECRET (min 16 chars) is required when ENV=production."
         )
 else:
+    # Dev defaults only if .env / OS env do not set them (first-run convenience)
     AUTH_USERNAME = _env("AUTH_USERNAME", "accountant") or "accountant"
     AUTH_PASSWORD = _env("AUTH_PASSWORD", "password123") or "password123"
     SESSION_SECRET = (

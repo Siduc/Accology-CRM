@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Restore from Backup · Accountant CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard">← Dashboard</a> · <a href="/import">Import hub</a></p>
+    <h1>Restore from Backup</h1>
+    <p class="muted">
+      Upload a <code>backup.json</code> file to insert or update clients, people, and jobs.
+      Exact duplicates are skipped. Existing rows matched by company number / person identity / job key are updated when data differs.
+    </p>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if result %}
+<div class="alert alert-success">
+  <strong>Restore complete</strong>
+  <table class="table" style="margin-top:0.75rem; max-width:28rem">
+    <thead>
+      <tr><th></th><th>Created</th><th>Updated</th><th>Skipped</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Clients</td>
+        <td>{{ result.clients_created }}</td>
+        <td>{{ result.clients_updated }}</td>
+        <td>{{ result.clients_skipped }}</td>
+      </tr>
+      <tr>
+        <td>People</td>
+        <td>{{ result.people_created }}</td>
+        <td>{{ result.people_updated }}</td>
+        <td>{{ result.people_skipped }}</td>
+      </tr>
+      <tr>
+        <td>Jobs</td>
+        <td>{{ result.jobs_created }}</td>
+        <td>{{ result.jobs_updated }}</td>
+        <td>{{ result.jobs_skipped }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% if result.errors %}
+<div class="alert alert-info">
+  <strong>Notes (first 30 of {{ result.errors|length }}):</strong>
+  <ul>
+    {% for e in result.errors[:30] %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+<p class="actions">
+  <a class="btn btn-sm" href="/clients">Clients</a>
+  <a class="btn btn-sm btn-secondary" href="/people">People</a>
+  <a class="btn btn-sm btn-outline" href="/jobs">Jobs</a>
+  <a class="btn btn-sm btn-outline" href="/dashboard">Dashboard</a>
+</p>
+{% endif %}
+
+<div class="card">
+  <h2>Upload backup</h2>
+  <form method="post" action="/restore" enctype="multipart/form-data" class="stack">
+    <label for="backup_file">backup.json</label>
+    <input id="backup_file" type="file" name="backup_file" accept=".json,application/json" required>
+    <div class="form-actions">
+      <button class="btn" type="submit">Restore</button>
+      <a class="btn btn-outline" href="/dashboard">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Expected format</h2>
+  <pre class="muted small" style="white-space:pre-wrap">{
+  "clients": [ { "id": 1, "company_number": "08056337", "company_name": "…", … } ],
+  "people":  [ { "id": 1, "full_name": "…", "client_id": 1, … } ],
+  "jobs":    [ { "id": 1, "client_id": 1, "type": "Accounts", "period_end": "2025-03-31", … } ]
+}</pre>
+  <p class="muted small">
+    Matching: clients by company number; people by email or name + NI/UTR; jobs by
+    <code>import_key</code> or client + type + period end + title.
+    Nested relationship dumps in older exports are ignored.
+  </p>
+</div>
+{% endblock %}

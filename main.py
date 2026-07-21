@@ -9,6 +9,9 @@ import os
 
 import uvicorn
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from app.main import app  # noqa: F401
 from app.config import HOST, PORT, IS_PRODUCTION
 
