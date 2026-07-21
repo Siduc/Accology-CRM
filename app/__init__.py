@@ -1,12 +1,5 @@
-"""Accountant CRM application package.
+"""Accountant CRM application package — bootstrap env before submodules."""
 
-Load project-root `.env` as early as possible (before any submodule config reads).
-OS / host environment variables always take precedence (override=False).
-"""
+from app.env_bootstrap import bootstrap_environment
 
-from pathlib import Path
-
-from dotenv import load_dotenv
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_PROJECT_ROOT / ".env", override=False)
+bootstrap_environment()

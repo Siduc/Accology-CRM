@@ -10,13 +10,16 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Absolute project .env before any app imports (cwd-independent)
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
-import uvicorn
+from app.env_bootstrap import bootstrap_environment  # noqa: E402
 
-from app.config import HOST, IS_PRODUCTION, PORT
-from app.main import app  # noqa: F401
+bootstrap_environment()
+
+import uvicorn  # noqa: E402
+
+from app.config import HOST, IS_PRODUCTION, PORT  # noqa: E402
+from app.main import app  # noqa: F401, E402
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -3,14 +3,19 @@
 import os
 from pathlib import Path
 
+# Absolute-path dotenv BEFORE any app.config / database imports
 from dotenv import load_dotenv
 
-# Absolute project .env before any app imports (cwd-independent)
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
-import uvicorn
+# Package bootstrap (logging + .env again, idempotent)
+from app.env_bootstrap import bootstrap_environment  # noqa: E402
 
-from app.config import HOST, IS_PRODUCTION, PORT
+bootstrap_environment()
+
+import uvicorn  # noqa: E402
+
+from app.config import HOST, IS_PRODUCTION, PORT  # noqa: E402
 
 if __name__ == "__main__":
     uvicorn.run(

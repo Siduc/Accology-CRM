@@ -7,19 +7,24 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-# Load env (.env via python-dotenv) and DATABASE_URL before database / routers.
-import app.config  # noqa: F401 — ensures load_environment() has run
-from app.config import (
+# Bootstrap dotenv/logging, then config (DATABASE_URL), then database / routers.
+from app.env_bootstrap import bootstrap_environment
+
+bootstrap_environment()
+
+from app.config import (  # noqa: E402
     APP_TITLE,
     APP_VERSION,
+    DATABASE_URL_SOURCE,
     DB_DIALECT,
     DB_HOST,
+    ENV,
     IS_PRODUCTION,
     SESSION_HTTPS_ONLY,
     SESSION_MAX_AGE,
     SESSION_SECRET,
 )
-from app.database import init_db, ping_database
+from app.database import init_db, ping_database  # noqa: E402
 
 from app.routers import (
     auth,
@@ -119,10 +124,12 @@ def health():
     body = {
         "status": status,
         "version": APP_VERSION,
+        "env": ENV,
         "database": db_ok,
         "dialect": DB_DIALECT,
+        "db_source": DATABASE_URL_SOURCE,  # env key name only, never the URL
     }
-    # Host only (never credentials) — helps confirm Render DATABASE_URL wiring
+    # Host only (never credentials) — confirms DATABASE_URL wiring on Render
     if DB_HOST:
         body["db_host"] = DB_HOST
     return JSONResponse(body, status_code=code)

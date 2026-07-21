@@ -1,12 +1,9 @@
 """Application configuration from environment variables.
 
-Production database connection:
-  - DATABASE_URL is read only from the environment (or project `.env` via python-dotenv)
+Production database:
+  - DATABASE_URL (or aliases) from OS env / .env via python-dotenv
   - Never hard-coded
-  - Required when ENV=production
-
-Render injects DATABASE_URL; local production tests can set ENV + DATABASE_URL in the shell
-or in `.env`.
+  - Required when ENV=production (no silent SQLite fallback)
 """
 
 from __future__ import annotations
@@ -14,32 +11,31 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from dotenv import load_dotenv
+# Earliest dotenv + logging (idempotent)
+from app.env_bootstrap import (
+    DOTENV_FILES_LOADED,
+    DOTENV_LOADED,
+    DOTENV_PATH,
+    PROJECT_ROOT,
+    bootstrap_environment,
+)
+
+bootstrap_environment()
 
 logger = logging.getLogger("accountant_crm.config")
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = PROJECT_ROOT
 
-
-def load_environment() -> bool:
-    """
-    Load project-root `.env` into os.environ via python-dotenv.
-
-    Safe to call multiple times (also invoked from app/__init__.py and entrypoints).
-    Returns True if a .env file was found.
-    Existing OS / host variables always win (override=False) so Render
-    dashboard values are not overwritten by a stray .env on disk.
-    """
-    env_path = BASE_DIR / ".env"
-    # encoding=utf-8 helps Windows .env files with BOM
-    return bool(load_dotenv(env_path, override=False, encoding="utf-8"))
-
-
-# Must run before any _env() / DATABASE_URL reads below.
-# (app/__init__.py already loads .env; this is the authoritative second pass.)
-_DOTENV_LOADED = load_environment()
+# Env keys checked for a database URL (first non-empty wins)
+_DB_URL_KEYS = (
+    "DATABASE_URL",  # Render / standard
+    "POSTGRES_URL",
+    "POSTGRESQL_URL",
+    "SQLALCHEMY_DATABASE_URI",
+)
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -65,13 +61,7 @@ APP_VERSION = _env("APP_VERSION", "1.0.0") or "1.0.0"
 
 
 def normalize_database_url(url: str, *, require_ssl: bool = True) -> str:
-    """
-    Normalise a database URL for SQLAlchemy + psycopg3.
-
-    - Strip wrapping quotes (common when pasting into dashboards)
-    - Render often supplies postgres:// → postgresql+psycopg://
-    - Append sslmode=require for Postgres when missing (Render best practice)
-    """
+    """Normalise URL for SQLAlchemy + psycopg3; add sslmode=require for Postgres."""
     url = _strip_wrapping_quotes(url)
     if not url:
         return url
@@ -79,7 +69,6 @@ def normalize_database_url(url: str, *, require_ssl: bool = True) -> str:
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://") :]
 
-    # Prefer psycopg3 driver for SQLAlchemy 2
     if url.startswith("postgresql://") and "+psycopg" not in url.split("://", 1)[0]:
         url = "postgresql+psycopg://" + url[len("postgresql://") :]
 
@@ -90,7 +79,6 @@ def normalize_database_url(url: str, *, require_ssl: bool = True) -> str:
 
 
 def _ensure_sslmode(url: str) -> str:
-    """Add sslmode=require if the URL has no sslmode query param."""
     parse_url = url
     use_psycopg = False
     if parse_url.startswith("postgresql+psycopg://"):
@@ -136,32 +124,82 @@ def _default_sqlite_url() -> str:
     return f"sqlite:///{path}"
 
 
-def _resolve_database_url() -> str:
+def _read_raw_database_url() -> Tuple[Optional[str], str]:
     """
-    Resolve DATABASE_URL from the environment (after dotenv).
+    Read the first non-empty database URL from known env keys.
 
-    Production: required, must be Postgres (or any non-empty URL you set).
-    Development: falls back to local SQLite if unset.
+    Returns (raw_url_or_None, source_label).
     """
-    raw = _env("DATABASE_URL")
-    if raw:
-        raw = _strip_wrapping_quotes(raw)
+    for key in _DB_URL_KEYS:
+        raw = _env(key)
+        if raw:
+            return _strip_wrapping_quotes(raw), key
+    return None, "unset"
+
+
+def _resolve_database_url() -> Tuple[str, str]:
+    """
+    Resolve final SQLAlchemy URL and source label.
+
+    Production: must come from env (or aliases). No SQLite fallback.
+    Development: SQLite file if no URL set.
+    """
+    raw, source = _read_raw_database_url()
+
     if raw:
         if raw.lower().startswith("sqlite"):
-            return raw
-        return normalize_database_url(raw, require_ssl=True)
-    if IS_PRODUCTION:
-        raise RuntimeError(
-            "DATABASE_URL is required when ENV=production. "
-            "Set it in the host environment (e.g. Render) or in .env."
+            logger.info(
+                "Database URL source=%s dialect=sqlite (explicit)",
+                source,
+            )
+            return raw, source
+        normalised = normalize_database_url(raw, require_ssl=True)
+        host = database_host(normalised)
+        logger.info(
+            "Database URL source=%s dialect=postgresql host=%s sslmode=require",
+            source,
+            host or "(unknown)",
         )
-    return _default_sqlite_url()
+        return normalised, source
+
+    if IS_PRODUCTION:
+        checked = ", ".join(_DB_URL_KEYS)
+        dotenv_note = (
+            f"dotenv_loaded={DOTENV_LOADED} files={DOTENV_FILES_LOADED or 'none'} "
+            f"primary_path={DOTENV_PATH} exists={DOTENV_PATH.is_file()}"
+        )
+        msg = (
+            "DATABASE_URL is required when ENV=production.\n"
+            f"  ENV={ENV!r}\n"
+            f"  Checked empty keys: {checked}\n"
+            f"  {dotenv_note}\n"
+            "  Set DATABASE_URL on the host (Render dashboard / blueprint) "
+            "or in project .env / .env.production."
+        )
+        logger.error(msg)
+        raise RuntimeError(msg)
+
+    url = _default_sqlite_url()
+    logger.info(
+        "Database URL source=sqlite_default dialect=sqlite path=%s",
+        BASE_DIR / "crm.db",
+    )
+    return url, "sqlite_default"
 
 
-DATABASE_URL = _resolve_database_url()
+DATABASE_URL, DATABASE_URL_SOURCE = _resolve_database_url()
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 DB_DIALECT = "sqlite" if IS_SQLITE else "postgresql"
 DB_HOST = database_host(DATABASE_URL)
+
+logger.info(
+    "Config ready ENV=%s production=%s dialect=%s host=%s source=%s",
+    ENV,
+    IS_PRODUCTION,
+    DB_DIALECT,
+    DB_HOST or "(local)",
+    DATABASE_URL_SOURCE,
+)
 
 # Auth — from environment / .env only (no hard-coded production secrets)
 if IS_PRODUCTION:
