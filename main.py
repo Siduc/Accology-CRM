@@ -6,14 +6,17 @@ Render:  uvicorn app.main:app --host 0.0.0.0 --port $PORT
 """
 
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Absolute project .env before any app imports (cwd-independent)
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 import uvicorn
 
-from dotenv import load_dotenv
-load_dotenv()
-
+from app.config import HOST, IS_PRODUCTION, PORT
 from app.main import app  # noqa: F401
-from app.config import HOST, PORT, IS_PRODUCTION
 
 if __name__ == "__main__":
     uvicorn.run(

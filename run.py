@@ -1,10 +1,16 @@
 """Start the Accountant CRM server (local or PaaS)."""
 
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Absolute project .env before any app imports (cwd-independent)
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 import uvicorn
 
-from app.config import HOST, PORT, IS_PRODUCTION
+from app.config import HOST, IS_PRODUCTION, PORT
 
 if __name__ == "__main__":
     uvicorn.run(

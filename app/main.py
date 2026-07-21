@@ -1,3 +1,5 @@
+"""FastAPI application entry — production DB URL comes from app.config (env / dotenv)."""
+
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -5,6 +7,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
+# Load env (.env via python-dotenv) and DATABASE_URL before database / routers.
+import app.config  # noqa: F401 — ensures load_environment() has run
 from app.config import (
     APP_TITLE,
     APP_VERSION,

@@ -1,8 +1,12 @@
 """Application configuration from environment variables.
 
-Loads project-root `.env` via python-dotenv at import time (before any reads).
-Existing OS / host env vars take precedence over `.env` (override=False).
-On Render, set DATABASE_URL (and ENV=production) in the service dashboard or blueprint.
+Production database connection:
+  - DATABASE_URL is read only from the environment (or project `.env` via python-dotenv)
+  - Never hard-coded
+  - Required when ENV=production
+
+Render injects DATABASE_URL; local production tests can set ENV + DATABASE_URL in the shell
+or in `.env`.
 """
 
 from __future__ import annotations
@@ -10,11 +14,32 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from dotenv import load_dotenv
 
 logger = logging.getLogger("accountant_crm.config")
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def load_environment() -> bool:
+    """
+    Load project-root `.env` into os.environ via python-dotenv.
+
+    Safe to call multiple times (also invoked from app/__init__.py and entrypoints).
+    Returns True if a .env file was found.
+    Existing OS / host variables always win (override=False) so Render
+    dashboard values are not overwritten by a stray .env on disk.
+    """
+    env_path = BASE_DIR / ".env"
+    # encoding=utf-8 helps Windows .env files with BOM
+    return bool(load_dotenv(env_path, override=False, encoding="utf-8"))
+
+
+# Must run before any _env() / DATABASE_URL reads below.
+# (app/__init__.py already loads .env; this is the authoritative second pass.)
+_DOTENV_LOADED = load_environment()
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -30,13 +55,6 @@ def _strip_wrapping_quotes(value: str) -> str:
         return value[1:-1].strip()
     return value
 
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Load .env as early as possible so AUTH_*, DATABASE_URL, etc. are available.
-# Does nothing if the file is missing (e.g. Render injects env vars instead).
-# override=False: real environment (Render) always wins over a local .env file.
-load_dotenv(BASE_DIR / ".env", override=False)
 
 # development | production
 ENV = (_env("ENV") or _env("ENVIRONMENT") or "development").lower()
@@ -73,15 +91,11 @@ def normalize_database_url(url: str, *, require_ssl: bool = True) -> str:
 
 def _ensure_sslmode(url: str) -> str:
     """Add sslmode=require if the URL has no sslmode query param."""
-    # urlparse needs a standard scheme for reliable parsing
     parse_url = url
-    driver_prefix = ""
+    use_psycopg = False
     if parse_url.startswith("postgresql+psycopg://"):
-        driver_prefix = "postgresql+psycopg://"
+        use_psycopg = True
         parse_url = "postgresql://" + parse_url[len("postgresql+psycopg://") :]
-    elif parse_url.startswith("postgresql://"):
-        driver_prefix = "postgresql://"
-        parse_url = parse_url  # already fine
 
     parsed = urlparse(parse_url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
@@ -98,15 +112,14 @@ def _ensure_sslmode(url: str) -> str:
             parsed.fragment,
         )
     )
-    # Restore driver scheme
-    if driver_prefix.startswith("postgresql+psycopg"):
+    if use_psycopg:
         return "postgresql+psycopg://" + rebuilt[len("postgresql://") :]
     return rebuilt
 
 
 def database_host(url: str | None = None) -> str | None:
     """Hostname only — safe for logs (never includes password)."""
-    raw = url or DATABASE_URL
+    raw = url if url is not None else DATABASE_URL
     if not raw or raw.startswith("sqlite"):
         return None
     try:
@@ -119,28 +132,33 @@ def database_host(url: str | None = None) -> str | None:
 
 
 def _default_sqlite_url() -> str:
-    # Forward slashes work on Windows with SQLAlchemy
     path = (BASE_DIR / "crm.db").as_posix()
     return f"sqlite:///{path}"
 
 
-_raw_db = _env("DATABASE_URL")
-if _raw_db:
-    _raw_db = _strip_wrapping_quotes(_raw_db)
+def _resolve_database_url() -> str:
+    """
+    Resolve DATABASE_URL from the environment (after dotenv).
 
-if _raw_db:
-    # Always SSL-normalise remote Postgres; SQLite URLs pass through unchanged
-    if _raw_db.lower().startswith("sqlite"):
-        DATABASE_URL = _raw_db
-    else:
-        DATABASE_URL = normalize_database_url(_raw_db, require_ssl=True)
-elif IS_PRODUCTION:
-    raise RuntimeError(
-        "DATABASE_URL is required when ENV=production (use Render Postgres)."
-    )
-else:
-    DATABASE_URL = _default_sqlite_url()
+    Production: required, must be Postgres (or any non-empty URL you set).
+    Development: falls back to local SQLite if unset.
+    """
+    raw = _env("DATABASE_URL")
+    if raw:
+        raw = _strip_wrapping_quotes(raw)
+    if raw:
+        if raw.lower().startswith("sqlite"):
+            return raw
+        return normalize_database_url(raw, require_ssl=True)
+    if IS_PRODUCTION:
+        raise RuntimeError(
+            "DATABASE_URL is required when ENV=production. "
+            "Set it in the host environment (e.g. Render) or in .env."
+        )
+    return _default_sqlite_url()
 
+
+DATABASE_URL = _resolve_database_url()
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 DB_DIALECT = "sqlite" if IS_SQLITE else "postgresql"
 DB_HOST = database_host(DATABASE_URL)
@@ -159,7 +177,6 @@ if IS_PRODUCTION:
             "SESSION_SECRET (min 16 chars) is required when ENV=production."
         )
 else:
-    # Dev defaults only if .env / OS env do not set them (first-run convenience)
     AUTH_USERNAME = _env("AUTH_USERNAME", "accountant") or "accountant"
     AUTH_PASSWORD = _env("AUTH_PASSWORD", "password123") or "password123"
     SESSION_SECRET = (
@@ -170,7 +187,7 @@ else:
 # Cookie / session
 SESSION_COOKIE_NAME = "crm_session"
 SESSION_MAX_AGE = int(_env("SESSION_MAX_AGE", str(60 * 60 * 12)) or str(60 * 60 * 12))
-SESSION_HTTPS_ONLY = IS_PRODUCTION  # Secure cookies behind Render TLS
+SESSION_HTTPS_ONLY = IS_PRODUCTION
 
 # Companies House
 COMPANIES_HOUSE_API_KEY = _env("COMPANIES_HOUSE_API_KEY")
