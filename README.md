@@ -50,7 +50,7 @@ Add a **PostgreSQL** database and link `DATABASE_URL` to the web service.
 | Variable | Required | Notes |
 |----------|----------|--------|
 | `ENV` | Yes | Must be `production` |
-| `DATABASE_URL` | Yes | Postgres connection string (Render injects this) |
+| `DATABASE_URL` | Yes | Postgres URL (Render injects via blueprint). App normalises `postgres://` → `postgresql+psycopg://` and adds `sslmode=require`. |
 | `AUTH_USERNAME` | Yes | Login username |
 | `AUTH_PASSWORD` | Yes | Login password |
 | `SESSION_SECRET` | Yes | Long random string (session cookie signing) |

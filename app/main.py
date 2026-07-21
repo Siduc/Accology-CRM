@@ -3,18 +3,20 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import (
     APP_TITLE,
     APP_VERSION,
+    DB_DIALECT,
+    DB_HOST,
     IS_PRODUCTION,
     SESSION_HTTPS_ONLY,
     SESSION_MAX_AGE,
     SESSION_SECRET,
 )
-from app.database import engine, init_db
+from app.database import init_db, ping_database
+
 from app.routers import (
     auth,
     dashboard,
@@ -106,20 +108,20 @@ app.include_router(restore.router)
 
 @app.get("/health")
 def health():
-    """Render / load balancer health check (public)."""
-    db_ok = False
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        db_ok = True
-    except Exception:
-        db_ok = False
+    """Render / load balancer health check (public). No secrets in response."""
+    db_ok = ping_database()
     status = "ok" if db_ok else "degraded"
     code = 200 if db_ok else 503
-    return JSONResponse(
-        {"status": status, "version": APP_VERSION, "database": db_ok},
-        status_code=code,
-    )
+    body = {
+        "status": status,
+        "version": APP_VERSION,
+        "database": db_ok,
+        "dialect": DB_DIALECT,
+    }
+    # Host only (never credentials) — helps confirm Render DATABASE_URL wiring
+    if DB_HOST:
+        body["db_host"] = DB_HOST
+    return JSONResponse(body, status_code=code)
 
 
 @app.on_event("startup")

@@ -1,22 +1,35 @@
-"""SQLAlchemy engine — SQLite (local) or PostgreSQL (production)."""
+"""SQLAlchemy engine — SQLite (local) or PostgreSQL (production / DATABASE_URL)."""
 
 from __future__ import annotations
+
+import logging
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-from app.config import DATABASE_URL, IS_SQLITE
+from app.config import DATABASE_URL, DB_DIALECT, DB_HOST, IS_SQLITE
+
+logger = logging.getLogger("accountant_crm.database")
 
 _engine_kwargs: dict = {"pool_pre_ping": True}
 if IS_SQLITE:
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
 else:
+    # Render Postgres: modest pool, recycle idle connections, fail fast
     _engine_kwargs["pool_size"] = 5
     _engine_kwargs["max_overflow"] = 10
+    _engine_kwargs["pool_recycle"] = 300
+    _engine_kwargs["connect_args"] = {"connect_timeout": 10}
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# Safe startup hint for Render logs (never log the full URL / password)
+if IS_SQLITE:
+    logger.info("Database: sqlite (local file)")
+else:
+    logger.info("Database: %s host=%s", DB_DIALECT, DB_HOST or "(unknown)")
 
 
 def get_db():
@@ -25,6 +38,16 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def ping_database() -> bool:
+    """Return True if a simple query succeeds."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def init_db():
