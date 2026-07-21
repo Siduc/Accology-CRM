@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}People · Accountant CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>People</h1>
+    <p class="muted small">
+      {{ people|length }} shown ·
+      <strong>{{ linked_count }}</strong> with companies ·
+      <strong>{{ individual_count }}</strong> individual clients ·
+      <strong>{{ unlinked_count }}</strong> contacts not yet assigned to a company
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm" href="/people/link">Bulk link companies</a>
+    <a class="btn btn-sm btn-secondary" href="/people/link-file">Link from file</a>
+    <a class="btn btn-sm btn-outline" href="/people/new">Add Person</a>
+  </div>
+</div>
+
+<form class="filters" method="get" action="/people">
+  <div>
+    <label class="small muted" for="filter">Show</label><br>
+    <select id="filter" name="filter" onchange="this.form.submit()">
+      <option value="" {% if not filter %}selected{% endif %}>All</option>
+      <option value="individual" {% if filter == 'individual' %}selected{% endif %}>Individual clients (tax only / no company)</option>
+      <option value="linked" {% if filter == 'linked' %}selected{% endif %}>With related companies</option>
+      <option value="unlinked" {% if filter == 'unlinked' %}selected{% endif %}>Contacts still needing a company</option>
+    </select>
+  </div>
+</form>
+
+<div class="alert alert-info">
+  <strong>Individual clients are fine with no company.</strong>
+  Mark them on Edit as <em>Client in their own right</em> (Self Assessment / personal tax).
+  Only use company linking for directors and contacts of limited companies, LLPs, etc.
+</div>
+
+<div class="card">
+  {% if people %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Companies</th>
+          <th>Role</th>
+          <th>Email</th>
+          <th>Phone</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in people %}
+        <tr>
+          <td><strong>{{ p.full_name }}</strong></td>
+          <td>
+            {% if p.is_individual_client %}
+            <span class="badge badge-active">Individual client</span>
+            {% elif p.company_clients %}
+            <span class="badge">Company contact</span>
+            {% else %}
+            <span class="badge">Contact</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if p.company_clients %}
+              {% for c in p.company_clients %}
+                <a href="/clients/{{ c.id }}">{{ c.company_name or c.company_number }}</a>{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            {% elif p.is_individual_client %}
+              <span class="muted small">No company (by design)</span>
+            {% else %}
+              <span class="muted small">—</span>
+            {% endif %}
+          </td>
+          <td>{{ p.role or '—' }}</td>
+          <td>{{ p.email or '—' }}</td>
+          <td>{{ p.phone or '—' }}</td>
+          <td><a class="btn btn-sm btn-outline" href="/people/{{ p.id }}/edit">Edit</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No people match this filter.</p>
+  {% endif %}
+</div>
+{% endblock %}

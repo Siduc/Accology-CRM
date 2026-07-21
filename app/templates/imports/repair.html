@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Repair Clients · Import{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/import">← Import hub</a></p>
+    <h1>Repair Client Data</h1>
+    <p class="muted">Re-parse mangled tab-separated fields into company_name, company_number, email, address, etc.</p>
+  </div>
+</div>
+
+{% if result %}
+<div class="alert alert-success">
+  Repaired {{ result.repaired }} clients, skipped {{ result.skipped }}{% if result.deleted_stubs is defined %}, deleted {{ result.deleted_stubs }} stub rows{% endif %}.
+</div>
+{% if result.errors %}
+<div class="alert alert-info">
+  <strong>Notes (first 30):</strong>
+  <ul>
+    {% for e in result.errors[:30] %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+<p><a href="/clients">View clients →</a></p>
+{% endif %}
+
+<div class="card">
+  <p>A backup was created as <code>crm.db.bak</code> when the project was scaffolded. This operation updates existing client rows in place.</p>
+  <form method="post" action="/repair-clients">
+    <div class="form-actions">
+      <button class="btn btn-secondary" type="submit">Run repair now</button>
+      <a class="btn btn-outline" href="/import">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

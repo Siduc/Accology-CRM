@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block title %}Jobs from Companies House · CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/jobs">← Jobs</a></p>
+    <h1>Create jobs from Companies House</h1>
+    <p class="muted">
+      Pulls <strong>Accounts</strong> and <strong>Confirmation Statement</strong> dates from the
+      Companies House company profile, then creates jobs using fixed profiles.
+    </p>
+  </div>
+</div>
+
+{# --- API key --- #}
+<div class="card">
+  <h2>1. Companies House API key</h2>
+  {% if key_message %}
+    <div class="alert {% if key_message.ok %}alert-success{% else %}alert-error{% endif %}" style="margin-bottom:0.75rem">
+      {{ key_message.text }}
+    </div>
+  {% elif api_key_set %}
+  <p class="alert alert-success" style="margin-bottom:0.75rem">API key is saved on this machine.</p>
+  {% else %}
+  <p class="alert alert-info">
+    Free <strong>REST API key</strong> from
+    <a href="https://developer.company-information.service.gov.uk/manage-applications" target="_blank" rel="noopener">
+      Companies House Developer Hub → Your applications
+    </a>
+    → your app → copy the <strong>key string only</strong> (not a web address).
+  </p>
+  {% endif %}
+  <form class="stack" method="post" action="/companies-house/jobs/save-key">
+    <label for="api_key">{% if api_key_set %}Replace{% else %}Paste{% endif %} REST API key</label>
+    <input id="api_key" type="text" name="api_key" required autocomplete="off"
+      placeholder="Long string of letters/numbers from Companies House — not a URL"
+      style="max-width:520px">
+    <p class="small muted">
+      It should look a bit like a password/random code — <em>not</em>
+      <code>http://127.0.0.1:8000/...</code> and not the words “REST” or “Streaming”.
+    </p>
+    <div class="form-actions">
+      <button class="btn btn-sm" type="submit">Save &amp; test API key</button>
+    </div>
+  </form>
+</div>
+
+{# --- Fix leading zeros --- #}
+<div class="card">
+  <h2>2. Fix company numbers (leading zeros)</h2>
+  <p class="muted">
+    Excel often drops leading zeros (e.g. <code>8056337</code> instead of <code>08056337</code>).
+    Companies House needs the full 8-digit number, so those lookups fail as “not found”.
+  </p>
+  <form method="post" action="/companies-house/jobs/pad-numbers">
+    <button class="btn btn-sm btn-secondary" type="submit">
+      Pad all short company numbers to 8 digits
+    </button>
+  </form>
+  <p class="small muted" style="margin-top:0.5rem">
+    Safe to run more than once. Then re-run job creation for clients that failed.
+  </p>
+</div>
+
+{# --- Profiles explained --- #}
+<div class="card">
+  <h2>3. Job profiles (how dates are used)</h2>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Profile</th>
+          <th>From Companies House</th>
+          <th>Job fields set</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Accounts</strong></td>
+          <td>
+            Next accounts <em>period end</em> / made up to<br>
+            Next accounts <em>due on</em>
+          </td>
+          <td>
+            Period end = CH period end<br>
+            Statutory due = CH due date<br>
+            Target start = period end + 90 days<br>
+            Target complete = period end + 120 days (capped before due)
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Confirmation Statement</strong></td>
+          <td>
+            Next CS <em>made up to</em><br>
+            Next CS <em>due</em>
+          </td>
+          <td>
+            Period end = CH made-up-to<br>
+            Statutory due = CH next due<br>
+            Target start = made-up-to − 7 days<br>
+            Target complete = statutory due
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="small muted">Open jobs with the same type + period end are not duplicated.</p>
+</div>
+
+{# --- Preview one company --- #}
+<div class="card">
+  <h2>4. Preview one company (optional)</h2>
+  <form class="stack" method="post" action="/companies-house/jobs/preview">
+    <div class="form-grid">
+      <div>
+        <label for="company_number">Company number</label>
+        <input id="company_number" name="company_number" placeholder="e.g. 12345678">
+      </div>
+      <div>
+        <label for="client_id">Or pick a client</label>
+        <select id="client_id" name="client_id">
+          <option value="">—</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}">{{ c.company_name or c.company_number }} ({{ c.company_number }})</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-sm btn-secondary" type="submit">Fetch dates from CH</button>
+    </div>
+  </form>
+
+  {% if preview %}
+    {% if preview.error %}
+    <div class="alert alert-error" style="margin-top:1rem">{{ preview.error }}</div>
+    {% else %}
+    <div class="alert alert-info" style="margin-top:1rem">
+      <strong>{{ preview.dates.company_name }}</strong> ({{ preview.company_number }})
+      — status: {{ preview.dates.company_status or '—' }}
+    </div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Job</th><th>Period end</th><th>Statutory due</th><th>Targets</th></tr>
+        </thead>
+        <tbody>
+          {% for d in preview.drafts %}
+          <tr>
+            <td>{{ d.type }}</td>
+            <td>{{ d.period_end or '—' }}</td>
+            <td>{{ d.statutory_due_date or '—' }}</td>
+            <td class="small">
+              start {{ d.target_start or '—' }}<br>
+              complete {{ d.target_completion or '—' }}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">No job dates available on this profile.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  {% endif %}
+</div>
+
+{# --- Bulk create --- #}
+<div class="card">
+  <h2>5. Create jobs</h2>
+
+  {% if result %}
+    {% if result.error is defined %}
+    <div class="alert alert-error">{{ result.error }}</div>
+    {% else %}
+    <div class="alert alert-success">
+      Created <strong>{{ result.total_created }}</strong> jobs ·
+      skipped {{ result.total_skipped }} duplicates ·
+      {{ result.total_errors }} companies with errors
+    </div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Client</th><th>Created</th><th>Skipped</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          {% for r in result.rows %}
+          <tr>
+            <td>
+              <a href="/clients/{{ r.client_id }}">{{ r.company_name or r.company_number }}</a>
+              <div class="small muted">{{ r.company_number }}</div>
+            </td>
+            <td>
+              {{ r.created }}
+              {% if r.created_jobs %}
+              <div class="small muted">{% for j in r.created_jobs %}{{ j }}{% if not loop.last %}<br>{% endif %}{% endfor %}</div>
+              {% endif %}
+            </td>
+            <td>
+              {{ r.skipped }}
+              {% if r.skipped_jobs %}
+              <div class="small muted">{% for j in r.skipped_jobs %}{{ j }}{% if not loop.last %}<br>{% endif %}{% endfor %}</div>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if r.errors %}
+                {% for e in r.errors %}<div class="badge badge-overdue">{{ e }}</div>{% endfor %}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p><a href="/jobs">View all jobs →</a></p>
+    {% endif %}
+  {% endif %}
+
+  <form class="stack" method="post" action="/companies-house/jobs/create">
+    <label>Which job profiles?</label>
+    <div class="actions" style="margin-bottom:0.75rem">
+      <label style="font-weight:500"><input type="checkbox" name="profiles" value="accounts" checked> Accounts</label>
+      <label style="font-weight:500"><input type="checkbox" name="profiles" value="confirmation_statement" checked> Confirmation Statement</label>
+    </div>
+
+    <div class="form-grid">
+      <div>
+        <label for="accounts_fee">Default Accounts fee (£)</label>
+        <input id="accounts_fee" name="accounts_fee" value="0">
+      </div>
+      <div>
+        <label for="cs_fee">Default CS fee (£)</label>
+        <input id="cs_fee" name="cs_fee" value="0">
+      </div>
+    </div>
+
+    <label>Clients</label>
+    <div class="actions" style="margin-bottom:0.5rem">
+      <label style="font-weight:500">
+        <input type="radio" name="scope" value="all"> All {{ clients|length }} company clients
+      </label>
+      <label style="font-weight:500">
+        <input type="radio" name="scope" value="selected" checked> Selected below
+      </label>
+    </div>
+
+    <div class="table-wrap" style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+      <table class="data">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Company</th>
+            <th>Number</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in clients %}
+          <tr>
+            <td><input type="checkbox" name="client_ids" value="{{ c.id }}"></td>
+            <td>{{ c.company_name or '—' }}</td>
+            <td>{{ c.company_number }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3">No company clients with a company number.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn" type="submit" {% if not api_key_set %}disabled title="Save API key first"{% endif %}>
+        Create jobs from Companies House
+      </button>
+      <a class="btn btn-outline" href="/jobs">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

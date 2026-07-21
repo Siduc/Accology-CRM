@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{% if job %}Edit Job{% else %}New Job{% endif %} · CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="{% if job %}/jobs/{{ job.id }}{% else %}/jobs{% endif %}">← Back</a></p>
+    <h1>{% if job %}Edit Job{% else %}New Job{% endif %}</h1>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+  <form class="stack" method="post" action="{% if job %}/jobs/{{ job.id }}/edit{% else %}/jobs/new{% endif %}">
+    <div class="form-grid">
+      <div>
+        <label for="client_id">Client *</label>
+        <select id="client_id" name="client_id" required>
+          <option value="">Select client…</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}"
+            {% if selected_client_id == c.id or (job and job.client_id == c.id) %}selected{% endif %}>
+            {{ c.display_name() }} ({{ c.company_number or 'no number' }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="type">Job type *</label>
+        <select id="type" name="type" required>
+          {% for t in job_types %}
+          <option value="{{ t }}" {% if job and job.type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="title">Title</label>
+        <input id="title" name="title" value="{{ job.title if job else '' }}" placeholder="Auto if blank">
+      </div>
+      <div>
+        <label for="period_end">Period end</label>
+        <input id="period_end" type="date" name="period_end"
+          value="{{ job.period_end.isoformat() if job and job.period_end else '' }}">
+      </div>
+      <div>
+        <label for="fee">Fee (£)</label>
+        <input id="fee" name="fee" value="{{ job.fee if job else '0' }}">
+      </div>
+      <div>
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          {% for s in statuses %}
+          <option value="{{ s }}" {% if (job and job.status == s) or (not job and s == 'Planned') %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="is_recurring">Recurring</label>
+        <select id="is_recurring" name="is_recurring">
+          <option value="Yes" {% if not job or job.is_recurring == 'Yes' %}selected{% endif %}>Yes</option>
+          <option value="No" {% if job and job.is_recurring == 'No' %}selected{% endif %}>No</option>
+        </select>
+      </div>
+      {% if job %}
+      <div>
+        <label for="recalculate_dates">Recalculate dates from period end?</label>
+        <select id="recalculate_dates" name="recalculate_dates">
+          <option value="">Keep existing</option>
+          <option value="yes">Yes, recalculate</option>
+        </select>
+      </div>
+      {% endif %}
+    </div>
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes">{{ job.notes if job and job.notes else '' }}</textarea>
+    <p class="small muted">Statutory and target dates are calculated automatically from job type and period end.</p>
+    <div class="form-actions">
+      <button class="btn" type="submit">Save</button>
+      <a class="btn btn-outline" href="{% if job %}/jobs/{{ job.id }}{% else %}/jobs{% endif %}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

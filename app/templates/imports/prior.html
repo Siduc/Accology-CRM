@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Import prior job analysis · CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/import">← Import hub</a></p>
+    <h1>Import prior job analysis</h1>
+    <p class="muted">
+      Loads historical fees/jobs from <code>PriorJobAnalysis.csv</code>.
+      Missing companies become <strong>Lost Clients</strong> (Inactive) with completed historical jobs.
+      Exact duplicates are skipped.
+    </p>
+  </div>
+</div>
+
+{% if result %}
+  {% if result.error is defined %}
+  <div class="alert alert-error">{{ result.error }}</div>
+  {% else %}
+  <div class="alert alert-success">
+    <div>Rows read: <strong>{{ result.rows_read }}</strong></div>
+    <div>Jobs added: <strong>{{ result.jobs_added }}</strong></div>
+    <div>Jobs skipped (duplicates / empty): <strong>{{ result.jobs_skipped }}</strong></div>
+    <div>Clients matched: <strong>{{ result.clients_matched }}</strong></div>
+    <div>Lost clients created: <strong>{{ result.clients_created }}</strong></div>
+  </div>
+  {% if result.created_client_names %}
+  <div class="alert alert-info">
+    <strong>New lost clients (first 30):</strong>
+    <ul>
+      {% for n in result.created_client_names[:30] %}<li>{{ n }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% if result.errors %}
+  <div class="alert alert-info">
+    <strong>Notes / errors (first 25):</strong>
+    <ul>
+      {% for e in result.errors[:25] %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  <p class="actions">
+    <a class="btn btn-sm" href="/lost/clients">Lost Clients</a>
+    <a class="btn btn-sm btn-secondary" href="/lost/jobs">Lost Jobs</a>
+    <a class="btn btn-sm btn-outline" href="/clients">Live Clients</a>
+  </p>
+  {% endif %}
+{% endif %}
+
+<div class="card">
+  <form class="stack" method="post" action="/import-prior-jobs" enctype="multipart/form-data">
+    {% if prior_csv_exists %}
+    <label>
+      <input type="checkbox" name="use_project_file" value="yes" checked>
+      Use project file: <code>{{ default_path }}</code>
+    </label>
+    {% else %}
+    <p class="alert alert-info">No <code>PriorJobAnalysis.csv</code> in the project folder — upload a file instead.</p>
+    {% endif %}
+    <label for="csv_file">Or upload CSV</label>
+    <input id="csv_file" type="file" name="csv_file" accept=".csv,.txt">
+    <div class="form-actions">
+      <button class="btn" type="submit">Import (safe / skip duplicates)</button>
+      <a class="btn btn-outline" href="/import">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

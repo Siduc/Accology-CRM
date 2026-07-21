@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{% if person %}Edit Person{% else %}New Person{% endif %} · CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/people">← People</a></p>
+    <h1>{% if person %}Edit Person{% else %}New Person{% endif %}</h1>
+    <p class="muted small">
+      People can be contacts at companies <em>and/or</em> clients in their own right
+      (e.g. Self Assessment only — no limited company).
+    </p>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<style>
+  .company-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.85rem;
+    max-width: 100%;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #f8fafc;
+  }
+  .company-checks label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.88rem;
+    font-weight: 500;
+    cursor: pointer;
+    margin: 0;
+  }
+  .company-checks input[type="checkbox"] {
+    width: auto;
+    max-width: none;
+  }
+</style>
+
+<div class="card">
+  <form class="stack" method="post" action="{% if person %}/people/{{ person.id }}/edit{% else %}/people/new{% endif %}">
+    <div class="form-grid">
+      <div>
+        <label for="full_name">Full name *</label>
+        <input id="full_name" name="full_name" required value="{{ person.full_name if person else '' }}">
+      </div>
+      <div>
+        <label for="is_individual_client">Client in their own right?</label>
+        <select id="is_individual_client" name="is_individual_client">
+          <option value="" {% if not person or not person.is_individual_client %}selected{% endif %}>No — company contact only</option>
+          <option value="yes" {% if person and person.is_individual_client %}selected{% endif %}>Yes — individual / tax-return client (no company required)</option>
+        </select>
+        <p class="small muted">Use Yes for SA / personal tax clients with no related companies.</p>
+      </div>
+    </div>
+
+    <label>Related companies (tick all that apply)</label>
+    <div class="company-checks">
+      {% for c in clients %}
+      <label>
+        <input type="checkbox" name="client_ids" value="{{ c.id }}"
+          {% if c.id in selected_client_ids %}checked{% endif %}>
+        {{ c.company_name or c.company_number }}{% if c.company_number %} ({{ c.company_number }}){% endif %}
+      </label>
+      {% else %}
+      <span class="muted small">No companies in the system yet.</span>
+      {% endfor %}
+    </div>
+    <p class="small muted">Leave unticked if they have no companies. You can tick several.</p>
+
+    <div class="form-grid">
+      <div>
+        <label for="email">Email</label>
+        <input id="email" type="email" name="email" value="{{ person.email if person and person.email else '' }}">
+      </div>
+      <div>
+        <label for="phone">Phone</label>
+        <input id="phone" name="phone" value="{{ person.phone if person and person.phone else '' }}">
+      </div>
+      <div>
+        <label for="role">Role</label>
+        <input id="role" name="role" placeholder="Director, Contact, Taxpayer…" value="{{ person.role if person and person.role else '' }}">
+      </div>
+      <div>
+        <label for="utr">UTR (useful for individual clients)</label>
+        <input id="utr" name="utr" value="{{ person.utr if person and person.utr else '' }}">
+      </div>
+      <div>
+        <label for="person_status">Status</label>
+        <input id="person_status" name="person_status" value="{{ person.person_status if person and person.person_status else 'Contact' }}">
+      </div>
+      <div>
+        <label for="is_primary">Primary contact flag?</label>
+        <select id="is_primary" name="is_primary">
+          <option value="" {% if not person or not person.is_primary %}selected{% endif %}>No</option>
+          <option value="yes" {% if person and person.is_primary %}selected{% endif %}>Yes</option>
+        </select>
+      </div>
+    </div>
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes">{{ person.notes if person and person.notes else '' }}</textarea>
+    <div class="form-actions">
+      <button class="btn" type="submit">Save</button>
+      <a class="btn btn-outline" href="/people">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

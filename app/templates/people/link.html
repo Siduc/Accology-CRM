@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Link People · CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/people">← People</a></p>
+    <h1>Bulk link people to companies</h1>
+    <p class="muted">
+      Tick <strong>every</strong> company that applies for each person (several is fine).
+      Ticked companies are <strong>added</strong> — existing links stay.
+    </p>
+  </div>
+</div>
+
+{% if result %}
+<div class="alert alert-success">Added {{ result.linked }} new company link(s).</div>
+{% endif %}
+
+<style>
+  .company-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.85rem;
+    max-width: 560px;
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #f8fafc;
+  }
+  .company-checks label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    margin: 0;
+  }
+  .company-checks input[type="checkbox"] {
+    width: auto;
+    max-width: none;
+    margin: 0;
+  }
+</style>
+
+{% if people %}
+<div class="card">
+  <form method="post" action="/people/link">
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th style="width:18%">Person</th>
+            <th style="width:22%">Already linked</th>
+            <th>Tick companies to add</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in people %}
+          <tr>
+            <td>
+              <strong>{{ p.full_name }}</strong>
+              {% if p.role %}<div class="small muted">{{ p.role }}</div>{% endif %}
+              {% if p.is_individual_client %}
+              <div><span class="badge badge-active">Individual client</span></div>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if p.linked_companies %}
+                {% for c in p.linked_companies %}
+                  {{ c.name }}{% if not loop.last %}<br>{% endif %}
+                {% endfor %}
+              {% else %}
+                <span class="muted">None yet</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="company-checks">
+                {% for c in clients %}
+                <label>
+                  <input type="checkbox" name="person_{{ p.id }}" value="{{ c.id }}"
+                    {% if c.id in p.linked_ids %}checked{% endif %}>
+                  {{ c.company_name or c.company_number }}
+                </label>
+                {% endfor %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="form-actions">
+      <button class="btn" type="submit">Save all ticked links</button>
+      <a class="btn btn-outline" href="/people">Cancel</a>
+      <a class="btn btn-secondary" href="/people/link-file">Link from file instead</a>
+    </div>
+  </form>
+</div>
+{% else %}
+<div class="card">
+  <p class="empty">No people found. <a href="/people">Back</a></p>
+</div>
+{% endif %}
+{% endblock %}

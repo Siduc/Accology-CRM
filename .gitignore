@@ -1,0 +1,32 @@
+# Secrets & local env
+.env
+.env.*
+!.env.example
+companies_house_api_key.txt
+
+# Local databases
+crm.db
+crm.db-*
+*.db.bak
+*.db.bak2
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs / coverage
+*.log
+.coverage
+htmlcov/

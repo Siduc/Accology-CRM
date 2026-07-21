@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title or 'Clients' }} · Accountant CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{{ page_title or 'Clients' }}</h1>
+    <p class="muted small">{{ clients|length }} matching</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm" href="/clients/new">Add Client</a>
+    <a class="btn btn-sm btn-outline" href="/import-clients">Import</a>
+  </div>
+</div>
+
+<div class="actions" style="margin-bottom:1rem">
+  <a class="btn btn-sm {% if view != 'lost' %}{% else %}btn-outline{% endif %}" href="/clients">Live clients</a>
+  <a class="btn btn-sm {% if view == 'lost' %}{% else %}btn-outline{% endif %}" href="/lost/clients">
+    Lost clients{% if lost_count is defined and view != 'lost' and lost_count %} ({{ lost_count }}){% endif %}
+  </a>
+</div>
+
+{% if view == 'lost' %}
+<div class="alert alert-info">
+  Clients set to <strong>Inactive</strong>. Their open jobs appear under
+  <a href="/lost/jobs">Lost jobs</a>.
+  Open a client and set status to <strong>Active</strong> to restore them.
+</div>
+{% endif %}
+
+<form class="filters" method="get" action="{% if view == 'lost' %}/lost/clients{% else %}/clients{% endif %}">
+  <div>
+    <label class="small muted" for="q">Search</label><br>
+    <input id="q" type="search" name="q" value="{{ q }}" placeholder="Name, number, email…">
+  </div>
+  {% if view != 'lost' %}
+  <div>
+    <label class="small muted" for="status">Filter list</label><br>
+    <select id="status" name="status">
+      <option value="">Live (not inactive)</option>
+      <option value="Active" {% if status == 'Active' %}selected{% endif %}>Active</option>
+      <option value="Prospect" {% if status == 'Prospect' %}selected{% endif %}>Prospect</option>
+      <option value="Former" {% if status == 'Former' %}selected{% endif %}>Former</option>
+    </select>
+  </div>
+  {% endif %}
+  <button class="btn btn-sm" type="submit">Filter</button>
+</form>
+
+<div class="card">
+  {% if clients %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Company</th>
+          <th>Number</th>
+          <th>Contact</th>
+          <th>Email</th>
+          <th>Phone</th>
+          <th>Town</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in clients %}
+        {% set cur = c.overall_status or 'Active' %}
+        <tr>
+          <td><a href="/clients/{{ c.id }}"><strong>{{ c.company_name or '—' }}</strong></a></td>
+          <td>{{ c.company_number or '—' }}</td>
+          <td>{{ c.contact_name or '—' }}</td>
+          <td>{{ c.email or '—' }}</td>
+          <td>{{ c.phone or '—' }}</td>
+          <td>{{ c.town or '—' }}</td>
+          <td>
+            {% if cur == 'Inactive' %}
+            <span class="badge badge-overdue">{{ cur }}</span>
+            {% else %}
+            <span class="badge badge-active">{{ cur }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">
+    {% if view == 'lost' %}
+    No lost (inactive) clients.
+    {% else %}
+    No clients found.
+    {% endif %}
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

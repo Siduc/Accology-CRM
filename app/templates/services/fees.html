@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Service fees · CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Services &amp; suggested fees</h1>
+    <p class="muted">
+      Fees by service and year. Year usually matches the job’s <strong>period end</strong>
+      (e.g. accounts to 31 Mar 2025 → 2025 fee). Used when creating jobs (including from Companies House) if fee is left at 0.
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm btn-outline" href="/jobs/accounts">Accounts jobs</a>
+    <a class="btn btn-sm btn-outline" href="/jobs/confirmation-statements">CS jobs</a>
+  </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success">{{ message }}</div>
+{% endif %}
+
+<div class="card">
+  <h2>Fee schedule</h2>
+  <form class="filters" method="get" action="/services/fees">
+    <div>
+      <label class="small muted" for="service">Service</label><br>
+      <select id="service" name="service" onchange="this.form.submit()">
+        <option value="">All</option>
+        {% for s in service_codes %}
+        <option value="{{ s }}" {% if service == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </form>
+
+  {% if fees %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th>Year</th>
+          <th>Suggested fee</th>
+          <th>Notes</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in fees %}
+        <tr>
+          <td><strong>{{ f.service_name or f.service_code }}</strong>
+            <div class="small muted">{{ f.service_code }}</div>
+          </td>
+          <td>{{ f.year }}</td>
+          <td>£{{ '%.2f'|format(f.fee or 0) }}</td>
+          <td class="small">{{ f.notes or '—' }}</td>
+          <td>
+            <form method="post" action="/services/fees/{{ f.id }}/delete" style="display:inline"
+              onsubmit="return confirm('Delete this fee row?');">
+              <button class="btn btn-sm btn-outline" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No fees yet. Add rows below or seed defaults.</p>
+  {% endif %}
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Add / update fee</h2>
+    <p class="small muted">If the service + year already exists, the fee is updated.</p>
+    <form class="stack" method="post" action="/services/fees">
+      <label for="service_code">Service</label>
+      <select id="service_code" name="service_code" required>
+        {% for s in default_services %}
+        <option value="{{ s }}">{{ s }}</option>
+        {% endfor %}
+        <option value="Other">Other</option>
+      </select>
+      <label for="service_name">Display name (optional)</label>
+      <input id="service_name" name="service_name" placeholder="Same as service if blank">
+      <label for="year">Year</label>
+      <input id="year" name="year" type="number" required value="2025" min="2000" max="2100">
+      <label for="fee">Suggested fee (£)</label>
+      <input id="fee" name="fee" required value="0">
+      <label for="notes">Notes</label>
+      <input id="notes" name="notes" placeholder="Optional">
+      <div class="form-actions">
+        <button class="btn" type="submit">Save fee</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Default schedule</h2>
+    <p class="muted small">Starter values (only fills missing years):</p>
+    <ul class="muted">
+      <li><strong>Accounts</strong> — 2025: £2,000 · 2026: £2,250 · 2027: £2,500</li>
+      <li><strong>Confirmation Statement</strong> — £50 each year 2025–2027</li>
+    </ul>
+    <form method="post" action="/services/fees/seed-defaults">
+      <button class="btn btn-sm btn-secondary" type="submit">Seed / restore defaults for missing years</button>
+    </form>
+    <form method="post" action="/services/fees/apply-to-zero-jobs" style="margin-top:0.75rem">
+      <button class="btn btn-sm" type="submit">Apply fees to open jobs currently at £0</button>
+    </form>
+    <p class="small muted" style="margin-top:1rem">
+      Existing fee rows you edited are not overwritten by seed.
+      Apply-to-zero only updates open jobs with no fee set — useful after the first CH import.
+    </p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Import · Accountant CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Import &amp; Data Tools</h1>
+    <p class="muted">Upload Excel (.xlsx) or CSV. Duplicate company numbers are skipped.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Recommended order</h2>
+  <ol class="muted">
+    <li><strong>Clients first</strong> — so people/jobs can link by company number</li>
+    <li><strong>People</strong> — include a company_number column to attach contacts</li>
+    <li><strong>Jobs</strong> — include company_number + period_end + type</li>
+  </ol>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Import Clients</h2>
+    <p class="muted small">Your Excel client list. Must include a company number column. Existing numbers are skipped.</p>
+    <a class="btn btn-sm" href="/import-clients">Import clients</a>
+  </div>
+  <div class="card">
+    <h2>Import People</h2>
+    <p class="muted small">Contacts from Excel. Link via company_number or company name.</p>
+    <a class="btn btn-sm" href="/import-people">Import people</a>
+  </div>
+  <div class="card">
+    <h2>Import Jobs</h2>
+    <p class="muted small">Jobs with auto date calculation from type + period end.</p>
+    <a class="btn btn-sm" href="/import-jobs">Import jobs</a>
+  </div>
+  <div class="card">
+    <h2>Repair Client Data</h2>
+    <p class="muted small">Fix rows where tab-delimited fields were imported into the wrong columns.</p>
+    <a class="btn btn-sm btn-secondary" href="/repair-clients">Repair clients</a>
+  </div>
+  <div class="card">
+    <h2>Prior job analysis</h2>
+    <p class="muted small">
+      Historical fees from <code>PriorJobAnalysis.csv</code>.
+      Missing companies → Lost Clients; jobs → history / Lost Jobs.
+      {% if prior_csv_exists %}<strong>File found in project.</strong>{% endif %}
+    </p>
+    <a class="btn btn-sm" href="/import-prior-jobs">Import prior jobs</a>
+  </div>
+</div>
+{% endblock %}

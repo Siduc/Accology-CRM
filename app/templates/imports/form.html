@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Import{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/import">← Import hub</a></p>
+    <h1>{{ title }}</h1>
+    {% if hint %}<p class="muted small">{{ hint }}</p>{% endif %}
+  </div>
+</div>
+
+{% if result %}
+  {% if result.error is defined %}
+  <div class="alert alert-error">{{ result.error }}</div>
+  {% else %}
+  <div class="alert alert-success">
+    {% if result.messages %}
+      {% for m in result.messages %}<div>{{ m }}</div>{% endfor %}
+    {% else %}
+      Imported {{ result.imported }}, skipped {{ result.skipped }}.
+    {% endif %}
+  </div>
+  {% if result.errors %}
+  <div class="alert alert-info">
+    <strong>Details (first 20):</strong>
+    <ul>
+      {% for e in result.errors[:20] %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% endif %}
+{% endif %}
+
+<div class="card">
+  <form class="stack" method="post" action="/import-{{ import_type }}" enctype="multipart/form-data">
+    <label for="csv_file">Upload Excel or CSV file</label>
+    <input id="csv_file" type="file" name="csv_file" accept=".xlsx,.xlsm,.csv,.tsv,.txt">
+    <p class="small muted">Preferred: .xlsx (first sheet) or .csv. Row 1 = headers.</p>
+    <label for="csv_data">Or paste CSV data</label>
+    <textarea id="csv_data" name="csv_data" rows="12" placeholder="Paste CSV here if you prefer…"></textarea>
+    <div class="form-actions">
+      <button class="btn" type="submit">Import</button>
+      <a class="btn btn-outline" href="/import">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

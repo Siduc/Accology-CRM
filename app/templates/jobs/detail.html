@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ job.title or job.type }} · Jobs{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/jobs">← Jobs</a></p>
+    <h1>{{ job.title or job.type }}</h1>
+    <p class="muted">
+      {% if job.client %}
+      <a href="/clients/{{ job.client_id }}">{{ job.client.display_name() }}</a> ·
+      {% endif %}
+      <span class="badge">{{ job.status }}</span>
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm" href="/jobs/{{ job.id }}/edit">Edit</a>
+  </div>
+</div>
+
+<div class="card">
+  <dl class="dl-grid">
+    <dt>Type</dt><dd>{{ job.type or '—' }}</dd>
+    <dt>Period end</dt><dd>{{ job.period_end or '—' }}</dd>
+    <dt>Statutory due</dt>
+    <dd>
+      {% if job.statutory_due_date %}
+        {% if job.statutory_due_date < today and job.status not in ['Completed','Cancelled'] %}
+        <span class="badge badge-overdue">{{ job.statutory_due_date }} OVERDUE</span>
+        {% else %}
+        {{ job.statutory_due_date }}
+        {% endif %}
+      {% else %}—{% endif %}
+    </dd>
+    <dt>Target start</dt><dd>{{ job.target_start or '—' }}</dd>
+    <dt>Target completion</dt><dd>{{ job.target_completion or '—' }}</dd>
+    <dt>Actual start</dt><dd>{{ job.actual_start or '—' }}</dd>
+    <dt>Actual completion</dt><dd>{{ job.actual_completion or '—' }}</dd>
+    <dt>Fee</dt><dd>£{{ '%.2f'|format(job.fee or 0) }}</dd>
+    <dt>Recurring</dt><dd>{{ job.is_recurring or '—' }}</dd>
+  </dl>
+  {% if job.notes %}
+  <h3>Notes</h3>
+  <p>{{ job.notes }}</p>
+  {% endif %}
+</div>
+{% endblock %}

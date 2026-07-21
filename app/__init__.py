@@ -1,0 +1,1 @@
+"""Accountant CRM application package."""

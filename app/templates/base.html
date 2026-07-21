@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Accountant CRM{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  {% if not hide_nav %}
+  <nav class="topnav">
+    <a class="brand" href="/dashboard">Accountant CRM</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/clients">Clients</a>
+    <a href="/lost/clients">Lost Clients</a>
+    <a href="/jobs">Jobs</a>
+    <a href="/jobs/accounts">Accounts</a>
+    <a href="/jobs/confirmation-statements">CS</a>
+    <a href="/lost/jobs">Lost Jobs</a>
+
+    <a href="/services/fees">Fees</a>
+    <a href="/companies-house/jobs">CH Jobs</a>
+    <a href="/people">People</a>
+    <a href="/import">Import</a>
+    <a href="/logout" style="margin-left:auto">Logout</a>
+  </nav>
+  {% endif %}
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="site-footer">Accountant CRM · Phase 1</footer>
+</body>
+</html>

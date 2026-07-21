@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Link from file · CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/people">← People</a></p>
+    <h1>Link people from Excel / CSV</h1>
+    <p class="muted">
+      Upload a sheet with <strong>person name</strong> and <strong>company number</strong>
+      (or company name). Matching people already in the CRM will be linked.
+      The same person can appear on multiple rows for different companies (many-to-many).
+    </p>
+  </div>
+</div>
+
+{% if result %}
+  {% if result.error is defined %}
+  <div class="alert alert-error">{{ result.error }}</div>
+  {% else %}
+  <div class="alert alert-success">
+    Linked {{ result.linked }} people. Skipped {{ result.skipped }}.
+  </div>
+  {% if result.errors %}
+  <div class="alert alert-info">
+    <strong>Details (first 40):</strong>
+    <ul>
+      {% for e in result.errors %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  <p><a href="/people">View people →</a></p>
+  {% endif %}
+{% endif %}
+
+<div class="card">
+  <h2>Expected columns</h2>
+  <ul class="muted">
+    <li><strong>full_name</strong> (or First Name + Surname) — must match a person already imported</li>
+    <li><strong>company_number</strong> (best) or <strong>company_name</strong> — must match a client</li>
+  </ul>
+  <p class="small muted">Tip: if your original people Excel already has a company number column, upload that same file here.</p>
+
+  <form class="stack" method="post" action="/people/link-file" enctype="multipart/form-data">
+    <label for="csv_file">Excel or CSV file</label>
+    <input id="csv_file" type="file" name="csv_file" accept=".xlsx,.xlsm,.csv,.tsv,.txt">
+    <label for="csv_data">Or paste CSV</label>
+    <textarea id="csv_data" name="csv_data" rows="8" placeholder="full_name,company_number&#10;Jane Smith,12345678"></textarea>
+    <div class="form-actions">
+      <button class="btn" type="submit">Link people</button>
+      <a class="btn btn-outline" href="/people/link">Bulk link manually instead</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

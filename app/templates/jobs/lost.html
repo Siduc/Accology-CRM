@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Lost Jobs · CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Lost Jobs</h1>
+    <p class="muted small">
+      Jobs for <strong>Inactive</strong> clients — understand what was lost and why patterns appear.
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm btn-outline" href="/lost/clients">Lost Clients</a>
+    <a class="btn btn-sm btn-outline" href="/import-prior-jobs">Import prior analysis</a>
+  </div>
+</div>
+
+<div class="metrics">
+  <div class="metric-card danger">
+    <div class="label">Jobs (filtered)</div>
+    <div class="value">{{ stats.count }}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Total fees</div>
+    <div class="value">£{{ '%.2f'|format(stats.total_fees) }}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Average fee</div>
+    <div class="value">£{{ '%.2f'|format(stats.average_fee) }}</div>
+  </div>
+  <div class="metric-card warning">
+    <div class="label">Marked late</div>
+    <div class="value">{{ stats.late_yes }}</div>
+    <div class="small muted">{{ stats.late_no }} on time</div>
+  </div>
+</div>
+
+<form class="filters" method="get" action="/lost/jobs">
+  <div>
+    <label class="small muted" for="q">Client search</label><br>
+    <input id="q" type="search" name="q" value="{{ q }}" placeholder="Name or number">
+  </div>
+  <div>
+    <label class="small muted" for="job_type">Job type</label><br>
+    <select id="job_type" name="job_type">
+      <option value="">All types</option>
+      {% for t in types %}
+      <option value="{{ t }}" {% if job_type == t %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="small muted" for="year">Year</label><br>
+    <select id="year" name="year">
+      <option value="">All years</option>
+      {% for y in years %}
+      <option value="{{ y }}" {% if year == y|string %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="small muted" for="fee_band">Fee size</label><br>
+    <select id="fee_band" name="fee_band">
+      <option value="">All</option>
+      {% for b in ['£0–250','£250–500','£500–1,000','£1,000–2,000','£2,000+'] %}
+      <option value="{{ b }}" {% if fee_band == b %}selected{% endif %}>{{ b }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="small muted" for="billing">Billing</label><br>
+    <select id="billing" name="billing">
+      <option value="">All</option>
+      {% for b in billings %}
+      <option value="{{ b }}" {% if billing == b %}selected{% endif %}>{{ b }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="small muted" for="late">Late?</label><br>
+    <select id="late" name="late">
+      <option value="">All</option>
+      <option value="Yes" {% if late == 'Yes' %}selected{% endif %}>Yes</option>
+      <option value="No" {% if late == 'No' %}selected{% endif %}>No</option>
+    </select>
+  </div>
+  <div>
+    <label class="small muted" for="include_completed">Include completed/historical</label><br>
+    <select id="include_completed" name="include_completed">
+      <option value="yes" {% if include_completed != 'no' %}selected{% endif %}>Yes</option>
+      <option value="no" {% if include_completed == 'no' %}selected{% endif %}>Open only</option>
+    </select>
+  </div>
+  <button class="btn btn-sm" type="submit">Apply filters</button>
+</form>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>By job type</h2>
+    {% if stats.type_rows %}
+    <table class="data">
+      <thead><tr><th>Type</th><th>Count</th><th>Fees</th></tr></thead>
+      <tbody>
+        {% for r in stats.type_rows %}
+        <tr>
+          <td>{{ r.type }}</td>
+          <td>{{ r.count }}</td>
+          <td>£{{ '%.2f'|format(r.fees) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="empty">No data</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>By year</h2>
+    {% if stats.year_rows %}
+    <table class="data">
+      <thead><tr><th>Year</th><th>Count</th><th>Fees</th></tr></thead>
+      <tbody>
+        {% for r in stats.year_rows %}
+        <tr>
+          <td>{{ r.year }}</td>
+          <td>{{ r.count }}</td>
+          <td>£{{ '%.2f'|format(r.fees) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="empty">No data</p>{% endif %}
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Top clients by fee</h2>
+    {% if stats.top_clients %}
+    <table class="data">
+      <thead><tr><th>Client</th><th>Jobs</th><th>Fees</th></tr></thead>
+      <tbody>
+        {% for r in stats.top_clients %}
+        <tr>
+          <td>{{ r.name }}</td>
+          <td>{{ r.count }}</td>
+          <td>£{{ '%.2f'|format(r.fees) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="empty">No data</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Fee size bands</h2>
+    {% if stats.fee_bands %}
+    <table class="data">
+      <thead><tr><th>Band</th><th>Count</th></tr></thead>
+      <tbody>
+        {% for r in stats.fee_bands %}
+        <tr><td>{{ r.band }}</td><td>{{ r.count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="empty">No data</p>{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Jobs ({{ jobs|length }})</h2>
+  {% if jobs %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Type</th>
+          <th>Period end</th>
+          <th>Fee</th>
+          <th>Billing</th>
+          <th>Late?</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for j in jobs %}
+        <tr>
+          <td>
+            {% if j.client %}
+            <a href="/clients/{{ j.client_id }}"><strong>{{ j.client.company_name or j.client.company_number }}</strong></a>
+            {% else %}—{% endif %}
+          </td>
+          <td><a href="/jobs/{{ j.id }}">{{ j.type or '—' }}</a></td>
+          <td>{{ j.period_end or '—' }}</td>
+          <td>£{{ '%.2f'|format(j.fee or 0) }}</td>
+          <td>{{ j.billing_status or '—' }}</td>
+          <td>{{ j.was_late or '—' }}</td>
+          <td><span class="badge">{{ j.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No lost jobs match these filters. Import prior analysis or mark clients Inactive.</p>
+  {% endif %}
+</div>
+{% endblock %}

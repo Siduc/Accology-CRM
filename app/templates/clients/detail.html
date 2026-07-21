@@ -1,0 +1,633 @@
+{% extends "base.html" %}
+{% block title %}{{ client.display_name() }} · Clients{% endblock %}
+{% block content %}
+{% set cur = client.overall_status or 'Active' %}
+{% set cn = (client.company_number or '')|upper %}
+
+{# Split current vs previous jobs #}
+{% set current_jobs = [] %}
+{% set previous_jobs = [] %}
+{% for j in jobs %}
+  {% if j.status in ['Completed', 'Cancelled'] or j.source == 'prior_job_analysis' %}
+    {% if previous_jobs.append(j) %}{% endif %}
+  {% else %}
+    {% if current_jobs.append(j) %}{% endif %}
+  {% endif %}
+{% endfor %}
+
+<div class="page-header">
+  <div>
+    <p class="small muted">
+      {% if cur == 'Inactive' %}
+      <a href="/lost/clients">← Lost clients</a>
+      {% else %}
+      <a href="/clients">← Clients</a>
+      {% endif %}
+    </p>
+    <h1>{{ client.company_name or 'Unnamed client' }}</h1>
+    <p class="muted">
+      {{ client.company_number or '—' }} ·
+      {% if cur == 'Inactive' %}
+      <span class="badge badge-overdue">{{ cur }}</span>
+      {% else %}
+      <span class="badge badge-active">{{ cur }}</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm btn-secondary" href="/jobs/new?client_id={{ client.id }}">Add Job</a>
+  </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success">{{ message }}</div>
+{% endif %}
+{% if cur == 'Inactive' %}
+<div class="alert alert-info">This client is currently <strong>Inactive (lost)</strong>.</div>
+{% endif %}
+
+<nav class="tabs" role="tablist" aria-label="Client sections">
+  <button type="button" class="tab-btn active" data-tab="overview" role="tab">Overview</button>
+  <button type="button" class="tab-btn" data-tab="details" role="tab">Details</button>
+  <button type="button" class="tab-btn" data-tab="fees" role="tab">Previous fees</button>
+</nav>
+
+{# ========== OVERVIEW (stacked) ========== #}
+<div class="tab-panel active" id="tab-overview" role="tabpanel">
+
+  {# 1. Fees summary (moved from Previous fees) #}
+  <div class="card">
+    <h2>Fee snapshot</h2>
+    {% if fee_history and fee_history.job_count %}
+    <div class="metrics" style="margin-bottom:1rem">
+      <div class="metric-card">
+        <div class="label">Historical avg / year</div>
+        <div class="value">£{{ '%.2f'|format(fee_history.historical_average) }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">{{ fee_history.current_year }} fees</div>
+        <div class="value">£{{ '%.2f'|format(fee_history.current_year_fee) }}</div>
+      </div>
+      <div class="metric-card {% if fee_history.variance < 0 %}danger{% elif fee_history.variance > 0 %}success{% endif %}">
+        <div class="label">vs historical avg</div>
+        <div class="value">
+          {% if fee_history.variance >= 0 %}+{% endif %}£{{ '%.2f'|format(fee_history.variance) }}
+        </div>
+        <div class="small muted">
+          {% if fee_history.variance_pct is not none %}
+          {% if fee_history.variance_pct >= 0 %}+{% endif %}{{ fee_history.variance_pct }}%
+          {% else %}—{% endif %}
+        </div>
+      </div>
+    </div>
+    {% if fee_history.chart_years %}
+    <p class="small muted">
+      Fees by service and year. Dashed line = average
+      (£{{ '%.2f'|format(fee_history.chart_average) }}).
+      Full history is on the <button type="button" class="btn btn-sm btn-outline" data-goto-tab="fees">Previous fees</button> tab.
+    </p>
+    <div class="chart-wrap">
+      <canvas id="feeChart" aria-label="Fees by year chart"></canvas>
+    </div>
+    {% endif %}
+    {% else %}
+    <p class="empty">No fee history yet. Import prior analysis or add jobs with fees.</p>
+    {% endif %}
+  </div>
+
+  {# 2. Contacts #}
+  <div class="card">
+    <div class="page-header" style="margin-bottom:0.75rem">
+      <h2 style="margin:0">Contacts ({{ people|length }})</h2>
+      <button type="button" class="btn btn-sm btn-outline" data-goto-tab="details">Manage on Details</button>
+    </div>
+    {% if people %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th></tr>
+        </thead>
+        <tbody>
+          {% for p in people %}
+          <tr>
+            <td>
+              <a href="/people/{{ p.id }}/edit">{{ p.full_name }}</a>
+              {% if p.is_primary %} <span class="badge badge-active">Primary</span>{% endif %}
+            </td>
+            <td>{{ p.role or '—' }}</td>
+            <td>{{ p.email or '—' }}</td>
+            <td>{{ p.phone or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No contacts linked. Add them on the Details tab.</p>
+    {% endif %}
+  </div>
+
+  {# 3. Current jobs only #}
+  <div class="card">
+    <div class="page-header" style="margin-bottom:0.75rem">
+      <h2 style="margin:0">Current jobs ({{ current_jobs|length }})</h2>
+      <a class="btn btn-sm btn-outline" href="/jobs/new?client_id={{ client.id }}">Add job</a>
+    </div>
+
+    <div class="subpanel">
+      <h3>Companies House</h3>
+      <p class="small muted">Create Accounts and Confirmation Statement jobs from CH dates.</p>
+      {% if cn and cn[:4] != 'IND-' %}
+      <form method="post" action="/clients/{{ client.id }}/jobs-from-ch" class="actions">
+        <label style="font-weight:500"><input type="checkbox" name="accounts" value="yes" checked> Accounts</label>
+        <label style="font-weight:500"><input type="checkbox" name="confirmation_statement" value="yes" checked> Confirmation Statement</label>
+        <input type="hidden" name="accounts_fee" value="0">
+        <input type="hidden" name="cs_fee" value="0">
+        <button class="btn btn-sm" type="submit">Pull dates &amp; create jobs</button>
+      </form>
+      {% else %}
+      <p class="muted small">No Companies House company number on this client.</p>
+      {% endif %}
+    </div>
+
+    {% if current_jobs %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Period end</th>
+            <th>Due</th>
+            <th>Status</th>
+            <th>Fee</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for j in current_jobs %}
+          <tr>
+            <td><a href="/jobs/{{ j.id }}"><strong>{{ j.type or j.title }}</strong></a></td>
+            <td>{{ j.period_end or '—' }}</td>
+            <td>
+              {% if j.statutory_due_date %}
+                {% if j.statutory_due_date < today %}
+                <span class="badge badge-overdue">{{ j.statutory_due_date }}</span>
+                {% else %}
+                {{ j.statutory_due_date }}
+                {% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td><span class="badge">{{ j.status }}</span></td>
+            <td>£{{ '%.2f'|format(j.fee or 0) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No open / current jobs. Completed work is under Previous fees.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# ========== DETAILS ========== #}
+<div class="tab-panel" id="tab-details" role="tabpanel" hidden>
+  <div class="card">
+    <div class="page-header" style="margin-bottom:1rem">
+      <h2 style="margin:0">Details</h2>
+      <div class="actions">
+        <button type="button" class="btn btn-sm" id="btn-edit-details">Edit</button>
+        <button type="button" class="btn btn-sm btn-outline" id="btn-cancel-edit" hidden>Cancel</button>
+      </div>
+    </div>
+
+    <div id="details-view">
+      <h3>Status</h3>
+      <p>
+        {% if cur == 'Inactive' %}
+        <span class="badge badge-overdue">{{ cur }}</span>
+        {% else %}
+        <span class="badge badge-active">{{ cur }}</span>
+        {% endif %}
+        <span class="small muted"> — change in Edit mode</span>
+      </p>
+
+      <h3>Core</h3>
+      <dl class="dl-grid">
+        <dt>Name</dt><dd>{{ client.company_name or '—' }}</dd>
+        <dt>Company number</dt><dd>{{ client.company_number or '—' }}</dd>
+        <dt>Type</dt><dd>{{ client.client_type or '—' }}</dd>
+        <dt>Contact</dt><dd>{{ client.contact_name or '—' }}</dd>
+        <dt>Email</dt><dd>{{ client.email or '—' }}</dd>
+        <dt>Phone</dt><dd>{{ client.phone or '—' }}</dd>
+        <dt>Address</dt><dd>{{ client.address_block() or '—' }}</dd>
+        <dt>VAT</dt><dd>{{ client.vat_number or '—' }}</dd>
+        <dt>UTR</dt><dd>{{ client.utr or '—' }}</dd>
+        <dt>PAYE reference</dt><dd>{{ client.paye_reference or '—' }}</dd>
+        <dt>Accounts Office Reference</dt><dd>{{ client.accounts_office_reference or '—' }}</dd>
+      </dl>
+
+      <h3>Access &amp; codes</h3>
+      <dl class="dl-grid">
+        <dt>Government Gateway ID</dt><dd>{{ client.gov_gateway_username or '—' }}</dd>
+        <dt>Government Gateway password</dt><dd>{% if client.gov_gateway_password %}••••••••{% else %}—{% endif %}</dd>
+        <dt>Accounts software ID</dt><dd>{{ client.accounts_software_id or client.xero_username or '—' }}</dd>
+        <dt>Accounts software password</dt><dd>{% if client.accounts_software_password or client.xero_password %}••••••••{% else %}—{% endif %}</dd>
+        <dt>CH authentication code</dt><dd>{{ client.ch_authentication_code or '—' }}</dd>
+        <dt>CH personal code</dt><dd>{{ client.ch_personal_code or '—' }}</dd>
+        <dt>Source</dt><dd>{{ client.source or '—' }}</dd>
+      </dl>
+
+      {% if client.notes %}
+      <h3>Notes</h3>
+      <p>{{ client.notes }}</p>
+      {% endif %}
+
+      <h3>Contacts on this client</h3>
+      {% if people %}
+      <ul class="muted">
+        {% for p in people %}
+        <li>{{ p.full_name }}{% if p.is_primary %} (primary){% endif %}{% if p.role %} — {{ p.role }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="small muted">None yet — use Edit to add or link contacts.</p>
+      {% endif %}
+    </div>
+
+    <div id="details-edit" hidden>
+      <form class="stack" method="post" action="/clients/{{ client.id }}/status" style="margin-bottom:1.25rem">
+        <h3>Status</h3>
+        <div class="actions" style="align-items:end">
+          <div>
+            <label class="small muted" for="overall_status">Client status</label><br>
+            <select id="overall_status" name="overall_status" class="status-select" style="min-width:12rem">
+              <option value="Active" {% if cur == 'Active' %}selected{% endif %}>Active</option>
+              <option value="Inactive" {% if cur == 'Inactive' %}selected{% endif %}>Inactive</option>
+              <option value="Prospect" {% if cur == 'Prospect' %}selected{% endif %}>Prospect</option>
+              <option value="Former" {% if cur == 'Former' %}selected{% endif %}>Former</option>
+            </select>
+          </div>
+          <button class="btn btn-sm" type="submit">Save status</button>
+        </div>
+        <p class="small muted" style="margin:0.5rem 0 0">
+          <strong>Inactive</strong> → Lost Clients / Lost Jobs.
+        </p>
+      </form>
+
+      <form class="stack" method="post" action="/clients/{{ client.id }}/details">
+        <h3>Core</h3>
+        <div class="form-grid">
+          <div>
+            <label for="company_name">Name</label>
+            <input id="company_name" name="company_name" value="{{ client.company_name or '' }}">
+          </div>
+          <div>
+            <label for="company_number">Company number (company / LLP)</label>
+            <input id="company_number" name="company_number" value="{{ client.company_number or '' }}">
+          </div>
+          <div>
+            <label for="client_type">Type</label>
+            <select id="client_type" name="client_type">
+              <option value="">—</option>
+              {% for t in client_types %}
+              <option value="{{ t }}" {% if client.client_type == t %}selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="primary_person_id">Primary contact (from people)</label>
+            <select id="primary_person_id" name="primary_person_id">
+              <option value="">— Keep contact fields as typed —</option>
+              {% for p in people %}
+              <option value="{{ p.id }}" {% if p.is_primary %}selected{% endif %}>
+                {{ p.full_name }}{% if p.role %} ({{ p.role }}){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="contact_name">Contact name</label>
+            <input id="contact_name" name="contact_name" value="{{ client.contact_name or '' }}">
+          </div>
+          <div>
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" value="{{ client.email or '' }}">
+          </div>
+          <div>
+            <label for="phone">Phone</label>
+            <input id="phone" name="phone" value="{{ client.phone or '' }}">
+          </div>
+          <div>
+            <label for="address_line1">Address line 1</label>
+            <input id="address_line1" name="address_line1" value="{{ client.address_line1 or '' }}">
+          </div>
+          <div>
+            <label for="address_line2">Address line 2</label>
+            <input id="address_line2" name="address_line2" value="{{ client.address_line2 or '' }}">
+          </div>
+          <div>
+            <label for="town">Town</label>
+            <input id="town" name="town" value="{{ client.town or '' }}">
+          </div>
+          <div>
+            <label for="postcode">Postcode</label>
+            <input id="postcode" name="postcode" value="{{ client.postcode or '' }}">
+          </div>
+          <div>
+            <label for="vat_number">VAT number</label>
+            <input id="vat_number" name="vat_number" value="{{ client.vat_number or '' }}">
+          </div>
+          <div>
+            <label for="utr">UTR</label>
+            <input id="utr" name="utr" value="{{ client.utr or '' }}">
+          </div>
+          <div>
+            <label for="paye_reference">PAYE reference</label>
+            <input id="paye_reference" name="paye_reference" value="{{ client.paye_reference or '' }}">
+          </div>
+          <div>
+            <label for="accounts_office_reference">Accounts Office Reference</label>
+            <input id="accounts_office_reference" name="accounts_office_reference" value="{{ client.accounts_office_reference or '' }}">
+          </div>
+        </div>
+
+        <h3>Access &amp; codes</h3>
+        <div class="form-grid">
+          <div>
+            <label for="gov_gateway_username">Government Gateway ID</label>
+            <input id="gov_gateway_username" name="gov_gateway_username" value="{{ client.gov_gateway_username or '' }}" autocomplete="off">
+          </div>
+          <div>
+            <label for="gov_gateway_password">Government Gateway password</label>
+            <input id="gov_gateway_password" name="gov_gateway_password" type="password" value="{{ client.gov_gateway_password or '' }}" autocomplete="new-password">
+          </div>
+          <div>
+            <label for="accounts_software_id">Accounts software ID</label>
+            <input id="accounts_software_id" name="accounts_software_id" value="{{ client.accounts_software_id or client.xero_username or '' }}" autocomplete="off">
+          </div>
+          <div>
+            <label for="accounts_software_password">Accounts software password</label>
+            <input id="accounts_software_password" name="accounts_software_password" type="password" value="{{ client.accounts_software_password or client.xero_password or '' }}" autocomplete="new-password">
+          </div>
+          <div>
+            <label for="ch_authentication_code">CH authentication code (company / LLP)</label>
+            <input id="ch_authentication_code" name="ch_authentication_code" value="{{ client.ch_authentication_code or '' }}" autocomplete="off">
+          </div>
+          <div>
+            <label for="ch_personal_code">CH personal code (individual)</label>
+            <input id="ch_personal_code" name="ch_personal_code" value="{{ client.ch_personal_code or '' }}" autocomplete="off">
+          </div>
+        </div>
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes">{{ client.notes or '' }}</textarea>
+        <p class="small muted">Source: {{ client.source or '—' }}</p>
+        <div class="form-actions">
+          <button class="btn" type="submit">Save details</button>
+        </div>
+      </form>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:1.5rem 0">
+
+      <h3>Add new contact</h3>
+      <p class="small muted">Creates a person on the People list and links them here.</p>
+      <form class="stack" method="post" action="/clients/{{ client.id }}/contacts/add">
+        <div class="form-grid">
+          <div>
+            <label for="full_name">Full name *</label>
+            <input id="full_name" name="full_name" required>
+          </div>
+          <div>
+            <label for="role">Role</label>
+            <input id="role" name="role" placeholder="Director, Contact…">
+          </div>
+          <div>
+            <label for="c_email">Email</label>
+            <input id="c_email" name="email" type="email">
+          </div>
+          <div>
+            <label for="c_phone">Phone</label>
+            <input id="c_phone" name="phone">
+          </div>
+        </div>
+        <label>
+          <input type="checkbox" name="set_primary" value="yes">
+          Set as primary contact
+        </label>
+        <div class="form-actions">
+          <button class="btn btn-sm" type="submit">Add contact</button>
+        </div>
+      </form>
+
+      {% if other_people %}
+      <h3>Link existing person</h3>
+      <form class="stack" method="post" action="/clients/{{ client.id }}/contacts/link">
+        <label for="person_id">Person</label>
+        <select id="person_id" name="person_id" required>
+          <option value="">Select…</option>
+          {% for p in other_people %}
+          <option value="{{ p.id }}">{{ p.full_name }}{% if p.email %} — {{ p.email }}{% endif %}</option>
+          {% endfor %}
+        </select>
+        <label>
+          <input type="checkbox" name="set_primary" value="yes">
+          Set as primary contact
+        </label>
+        <div class="form-actions">
+          <button class="btn btn-sm btn-secondary" type="submit">Link person</button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ========== PREVIOUS FEES + PREVIOUS JOBS ========== #}
+<div class="tab-panel" id="tab-fees" role="tabpanel" hidden>
+  <div class="card">
+    <h2>Previous fees &amp; jobs</h2>
+    <p class="small muted">Completed and historical work (including imported prior analysis).</p>
+
+    {% if fee_history and fee_history.year_totals %}
+    <h3>Fees by year</h3>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Year</th><th>Total fees</th></tr></thead>
+        <tbody>
+          {% for y, total in fee_history.year_totals %}
+          <tr>
+            <td>{{ y }}</td>
+            <td>£{{ '%.2f'|format(total) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <h3>Previous jobs</h3>
+    {% if previous_jobs or (fee_history and fee_history.rows) %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Year</th>
+            <th>Period end</th>
+            <th>Due</th>
+            <th>Status</th>
+            <th>Fee</th>
+            <th>Billing</th>
+            <th>Invoice</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if fee_history and fee_history.rows %}
+            {% for r in fee_history.rows %}
+            <tr>
+              <td><a href="/jobs/{{ r.id }}"><strong>{{ r.type or '—' }}</strong></a></td>
+              <td>{{ r.year or '—' }}</td>
+              <td>{{ r.period_end or '—' }}</td>
+              <td>{{ r.statutory_due_date or '—' }}</td>
+              <td><span class="badge">{{ r.status or '—' }}</span></td>
+              <td>£{{ '%.2f'|format(r.fee or 0) }}</td>
+              <td class="small">{{ r.billing_status or '—' }}</td>
+              <td class="small">{{ r.invoice_reference or '—' }}</td>
+              <td class="small">{{ r.source or '—' }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            {% for j in previous_jobs %}
+            <tr>
+              <td><a href="/jobs/{{ j.id }}"><strong>{{ j.type or j.title }}</strong></a></td>
+              <td>{{ j.period_end.year if j.period_end else '—' }}</td>
+              <td>{{ j.period_end or '—' }}</td>
+              <td>{{ j.statutory_due_date or '—' }}</td>
+              <td><span class="badge">{{ j.status }}</span></td>
+              <td>£{{ '%.2f'|format(j.fee or 0) }}</td>
+              <td class="small">{{ j.billing_status or '—' }}</td>
+              <td class="small">{{ j.invoice_reference or '—' }}</td>
+              <td class="small">{{ j.source or '—' }}</td>
+            </tr>
+            {% endfor %}
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No previous fees or completed jobs for this client.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if fee_history and fee_history.chart_years and chart_json %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+window.__feeChartData = {{ chart_json | safe }};
+</script>
+{% endif %}
+
+<script>
+(function () {
+  function showTab(id) {
+    document.querySelectorAll('.tab-btn').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-tab') === id);
+    });
+    document.querySelectorAll('.tab-panel').forEach(function (p) {
+      var on = p.id === 'tab-' + id;
+      p.hidden = !on;
+      p.classList.toggle('active', on);
+    });
+    if (id === 'overview' && window.__feeChart && window.__feeChart.resize) {
+      setTimeout(function () { window.__feeChart.resize(); }, 50);
+    }
+  }
+
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      showTab(btn.getAttribute('data-tab'));
+    });
+  });
+  document.querySelectorAll('[data-goto-tab]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      showTab(el.getAttribute('data-goto-tab'));
+    });
+  });
+
+  var viewEl = document.getElementById('details-view');
+  var editEl = document.getElementById('details-edit');
+  var btnEdit = document.getElementById('btn-edit-details');
+  var btnCancel = document.getElementById('btn-cancel-edit');
+  if (btnEdit && viewEl && editEl) {
+    btnEdit.addEventListener('click', function () {
+      viewEl.hidden = true;
+      editEl.hidden = false;
+      btnEdit.hidden = true;
+      if (btnCancel) btnCancel.hidden = false;
+    });
+  }
+  if (btnCancel && viewEl && editEl) {
+    btnCancel.addEventListener('click', function () {
+      editEl.hidden = true;
+      viewEl.hidden = false;
+      btnCancel.hidden = true;
+      if (btnEdit) btnEdit.hidden = false;
+    });
+  }
+
+  var q = window.location.search;
+  if (q.indexOf('saved=1') !== -1 || q.indexOf('contact_added=1') !== -1 || q.indexOf('contact_linked=1') !== -1) {
+    showTab('details');
+    if (q.indexOf('contact_') !== -1 && btnEdit) btnEdit.click();
+  }
+
+  var data = window.__feeChartData;
+  var canvas = document.getElementById('feeChart');
+  if (data && canvas && window.Chart) {
+    var avg = data.average || 0;
+    var avgLine = (data.years || []).map(function () { return avg; });
+    var datasets = (data.datasets || []).map(function (ds) {
+      return {
+        type: 'bar',
+        label: ds.label,
+        data: ds.data,
+        backgroundColor: ds.backgroundColor,
+        stack: 'fees',
+        order: 2
+      };
+    });
+    datasets.push({
+      type: 'line',
+      label: 'Average fee / year',
+      data: avgLine,
+      borderColor: '#0f172a',
+      borderWidth: 2,
+      borderDash: [6, 4],
+      pointRadius: 0,
+      fill: false,
+      order: 1
+    });
+    window.__feeChart = new Chart(canvas.getContext('2d'), {
+      data: { labels: data.years, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: { mode: 'index', intersect: false }
+        },
+        scales: {
+          x: { stacked: true, title: { display: true, text: 'Year (period end)' } },
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            title: { display: true, text: 'Fees (£)' },
+            ticks: { callback: function (v) { return '£' + v; } }
+          }
+        }
+      }
+    });
+  }
+})();
+</script>
+{% endblock %}

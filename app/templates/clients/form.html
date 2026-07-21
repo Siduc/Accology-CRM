@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{% if client %}Edit Client{% else %}New Client{% endif %} · CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}">← Back</a></p>
+    <h1>{% if client %}Edit Client{% else %}New Client{% endif %}</h1>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+  <form class="stack" method="post" action="{% if client %}/clients/{{ client.id }}/edit{% else %}/clients/new{% endif %}">
+    <div class="form-grid">
+      <div>
+        <label for="company_name">Company name</label>
+        <input id="company_name" name="company_name" value="{{ client.company_name if client else '' }}">
+      </div>
+      <div>
+        <label for="company_number">Company number *</label>
+        <input id="company_number" name="company_number" required value="{{ client.company_number if client else '' }}">
+      </div>
+      <div>
+        <label for="contact_name">Contact name</label>
+        <input id="contact_name" name="contact_name" value="{{ client.contact_name if client else '' }}">
+      </div>
+      <div>
+        <label for="email">Email</label>
+        <input id="email" type="email" name="email" value="{{ client.email if client else '' }}">
+      </div>
+      <div>
+        <label for="phone">Phone</label>
+        <input id="phone" name="phone" value="{{ client.phone if client else '' }}">
+      </div>
+      <div>
+        <label for="client_type">Client type</label>
+        <select id="client_type" name="client_type">
+          <option value="">—</option>
+          {% for t in client_types %}
+          <option value="{{ t }}" {% if client and client.client_type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="overall_status">Status</label>
+        <select id="overall_status" name="overall_status">
+          {% for s in statuses %}
+          <option value="{{ s }}" {% if (client and client.overall_status == s) or (not client and s == 'Active') %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="vat_number">VAT number</label>
+        <input id="vat_number" name="vat_number" value="{{ client.vat_number if client else '' }}">
+      </div>
+      <div>
+        <label for="utr">UTR</label>
+        <input id="utr" name="utr" value="{{ client.utr if client else '' }}">
+      </div>
+      <div>
+        <label for="address_line1">Address line 1</label>
+        <input id="address_line1" name="address_line1" value="{{ client.address_line1 if client else '' }}">
+      </div>
+      <div>
+        <label for="address_line2">Address line 2</label>
+        <input id="address_line2" name="address_line2" value="{{ client.address_line2 if client else '' }}">
+      </div>
+      <div>
+        <label for="town">Town</label>
+        <input id="town" name="town" value="{{ client.town if client else '' }}">
+      </div>
+      <div>
+        <label for="postcode">Postcode</label>
+        <input id="postcode" name="postcode" value="{{ client.postcode if client else '' }}">
+      </div>
+      {% if client %}
+      <div>
+        <label for="paye_reference">PAYE reference</label>
+        <input id="paye_reference" name="paye_reference" value="{{ client.paye_reference or '' }}">
+      </div>
+      <div>
+        <label for="accounts_office_reference">Accounts office ref</label>
+        <input id="accounts_office_reference" name="accounts_office_reference" value="{{ client.accounts_office_reference or '' }}">
+      </div>
+      {% endif %}
+    </div>
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes">{{ client.notes if client and client.notes else '' }}</textarea>
+    <div class="form-actions">
+      <button class="btn" type="submit">Save</button>
+      <a class="btn btn-outline" href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

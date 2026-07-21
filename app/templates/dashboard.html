@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Accountant CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="muted small">Overview as of {{ today }}</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm" href="/clients/new">Add Client</a>
+    <a class="btn btn-sm btn-secondary" href="/jobs/new">Add Job</a>
+    <a class="btn btn-sm btn-outline" href="/import">Import</a>
+  </div>
+</div>
+
+<div class="metrics">
+  <a class="metric-card success metric-link" href="/clients?status=Active">
+    <div class="label">Active Clients</div>
+    <div class="value">{{ active_clients }}</div>
+    <div class="small muted">{{ company_clients }} companies · {{ individual_clients }} individuals</div>
+  </a>
+
+  <a class="metric-card metric-link" href="/people?filter=individual">
+    <div class="label">Individual Clients</div>
+    <div class="value">{{ individual_clients }}</div>
+    <div class="small muted">Tax / SA — no company required</div>
+  </a>
+
+  <a class="metric-card metric-link" href="/clients?status=Prospect">
+    <div class="label">Prospects</div>
+    <div class="value">{{ prospects_count }}</div>
+    <div class="small muted">Client status = Prospect</div>
+  </a>
+
+  <a class="metric-card warning metric-link" href="/jobs?filter=due_soon">
+    <div class="label">Jobs Due (30d)</div>
+    <div class="value">{{ due_soon_count }}</div>
+  </a>
+
+  <a class="metric-card danger metric-link" href="/jobs?filter=overdue">
+    <div class="label">Jobs Overdue</div>
+    <div class="value">{{ overdue_count }}</div>
+  </a>
+
+  <a class="metric-card metric-link" href="/jobs?filter=open">
+    <div class="label">Open Job Fees</div>
+    <div class="value">£{{ '%.2f'|format(total_fees) }}</div>
+    <div class="small muted">{{ jobs_count }} jobs total in system</div>
+  </a>
+
+  <a class="metric-card metric-link" href="/jobs/accounts?filter=open">
+    <div class="label">Accounts (open)</div>
+    <div class="value">{{ accounts_open }}</div>
+  </a>
+
+  <a class="metric-card metric-link" href="/jobs/confirmation-statements?filter=open">
+    <div class="label">Confirmation Statements</div>
+    <div class="value">{{ cs_open }}</div>
+  </a>
+
+  <a class="metric-card metric-link" href="/people">
+    <div class="label">People</div>
+    <div class="value">{{ people_count }}</div>
+    <div class="small muted">Contacts &amp; individual clients</div>
+  </a>
+
+  <a class="metric-card metric-link" href="/services/fees">
+    <div class="label">Service Fees</div>
+    <div class="value">£</div>
+    <div class="small muted">Yearly fee schedule</div>
+  </a>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="page-header" style="margin-bottom:0.75rem">
+      <h2 style="margin:0">Upcoming / Overdue Jobs</h2>
+      <a class="btn btn-sm btn-outline" href="/jobs?filter=open">All open jobs</a>
+    </div>
+    {% if upcoming_jobs %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Client</th>
+            <th>Job</th>
+            <th>Due</th>
+            <th>Status</th>
+            <th>Fee</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for j in upcoming_jobs %}
+          <tr class="row-link" onclick="window.location='/jobs/{{ j.id }}'">
+            <td>
+              {% if j.client %}
+              <a href="/clients/{{ j.client_id }}" onclick="event.stopPropagation()">{{ j.client.company_name or j.client.company_number }}</a>
+              {% else %}—{% endif %}
+            </td>
+            <td><a href="/jobs/{{ j.id }}" onclick="event.stopPropagation()">{{ j.title or j.type }}</a></td>
+            <td>
+              {% if j.statutory_due_date %}
+                {% if j.statutory_due_date < today and j.status not in ['Completed','Cancelled'] %}
+                <span class="badge badge-overdue">{{ j.statutory_due_date }}</span>
+                {% else %}
+                {{ j.statutory_due_date }}
+                {% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td><span class="badge">{{ j.status }}</span></td>
+            <td>£{{ '%.2f'|format(j.fee or 0) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No jobs yet. <a href="/jobs/new">Create a job</a> or <a href="/companies-house/jobs">pull from Companies House</a>.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="page-header" style="margin-bottom:0.75rem">
+      <h2 style="margin:0">Recent Clients</h2>
+      <a class="btn btn-sm btn-outline" href="/clients">All clients</a>
+    </div>
+    {% if recent_clients %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Company</th>
+            <th>Number</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in recent_clients %}
+          <tr class="row-link" onclick="window.location='/clients/{{ c.id }}'">
+            <td><a href="/clients/{{ c.id }}" onclick="event.stopPropagation()">{{ c.company_name or '—' }}</a></td>
+            <td>{{ c.company_number or '—' }}</td>
+            <td><span class="badge badge-active">{{ c.overall_status or '—' }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No clients yet. <a href="/import-clients">Import clients</a>.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
