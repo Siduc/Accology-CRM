@@ -14,77 +14,80 @@
   </div>
 </div>
 
-{# Clear data-tools callout so Restore is hard to miss #}
-<div class="card" style="margin-bottom:1.25rem">
-  <div class="page-header" style="margin-bottom:0">
+{# Practice headcount — big numbers, little words #}
+<div class="headcount-panel card">
+  <div class="headcount-toolbar">
     <div>
-      <h2 style="margin:0">Data tools</h2>
-      <p class="muted small" style="margin:0.25rem 0 0">
-        Import spreadsheets, or restore a previous <code>backup.json</code> export.
+      <h2 class="headcount-heading">Practice</h2>
+      <p class="muted small headcount-hint">
+        <strong>Overall:</strong> Clients = New − Lost
+        ({{ total_new_clients|default(0)|int }} − {{ total_lost|default(0)|int }} = {{ total_clients|default(0)|int }}).
+        <strong>Year tabs ({{ earliest_year }}–now):</strong> New = first invoice; Lost = last invoice (Inactive).
+        <strong>Groups</strong> = companies that share people.
       </p>
     </div>
-    <div class="actions">
-      <a class="btn btn-sm btn-outline" href="/import">Import data</a>
-      <a class="btn btn-sm" href="/restore">Restore from Backup</a>
+    <div class="period-toggle period-toggle-years" role="group" aria-label="Time period">
+      {% for y in years %}
+      <a class="period-btn {% if period == (y|string) %}is-active{% endif %}"
+         href="/dashboard?period={{ y }}">{{ y }}</a>
+      {% endfor %}
+      <a class="period-btn {% if period == 'overall' %}is-active{% endif %}"
+         href="/dashboard?period=overall">Overall</a>
     </div>
   </div>
+
+  {# Order: Groups | Clients | New clients | Lost | Prospects #}
+  {# default(0) avoids 500 if a stale server process misses a context key #}
+  <div class="stat-row stat-row-5">
+    <a class="stat-tile" href="/groups" title="Clients linked by shared people — open list of groups">
+      <div class="stat-num" style="color:#0f172a;font-size:2.75rem;font-weight:800;line-height:1.1;">{{ total_groups|default(0)|int }}</div>
+      <div class="stat-name">Groups</div>
+    </a>
+    <a class="stat-tile stat-tile-success" href="/clients?status=Active" title="Current book (Active + Former). Overall: New − Lost">
+      <div class="stat-num" style="color:#15803d;font-size:2.75rem;font-weight:800;line-height:1.1;">{{ total_clients|default(0)|int }}</div>
+      <div class="stat-name">Clients</div>
+    </a>
+    <a class="stat-tile" href="/clients" title="{% if period == 'overall' %}All who became clients (Clients + Lost){% else %}First invoice in this year{% endif %}">
+      <div class="stat-num" style="color:#1d4ed8;font-size:2.75rem;font-weight:800;line-height:1.1;">{{ total_new_clients|default(0)|int }}</div>
+      <div class="stat-name">New clients</div>
+    </a>
+    <a class="stat-tile stat-tile-danger" href="/lost/clients" title="{% if period == 'overall' %}All Inactive{% else %}Inactive with last invoice in this year{% endif %}">
+      <div class="stat-num" style="color:#b91c1c;font-size:2.75rem;font-weight:800;line-height:1.1;">{{ total_lost|default(0)|int }}</div>
+      <div class="stat-name">Lost</div>
+    </a>
+    <a class="stat-tile" href="/clients?status=Prospect" title="Prospects">
+      <div class="stat-num" style="color:#0f172a;font-size:2.75rem;font-weight:800;line-height:1.1;">{{ total_prospects|default(0)|int }}</div>
+      <div class="stat-name">Prospects</div>
+    </a>
+  </div>
+  <p class="muted small" style="margin:0.75rem 0 0">Showing: <strong>{{ year_label }}</strong></p>
 </div>
 
+<div class="section-label">Workload</div>
 <div class="metrics">
-  <a class="metric-card success metric-link" href="/clients?status=Active">
-    <div class="label">Active Clients</div>
-    <div class="value">{{ active_clients }}</div>
-    <div class="small muted">{{ company_clients }} companies · {{ individual_clients }} individuals</div>
-  </a>
-
-  <a class="metric-card metric-link" href="/people?filter=individual">
-    <div class="label">Individual Clients</div>
-    <div class="value">{{ individual_clients }}</div>
-    <div class="small muted">Tax / SA — no company required</div>
-  </a>
-
-  <a class="metric-card metric-link" href="/clients?status=Prospect">
-    <div class="label">Prospects</div>
-    <div class="value">{{ prospects_count }}</div>
-    <div class="small muted">Client status = Prospect</div>
-  </a>
-
   <a class="metric-card warning metric-link" href="/jobs?filter=due_soon">
-    <div class="label">Jobs Due (30d)</div>
     <div class="value">{{ due_soon_count }}</div>
+    <div class="label">Due 30d</div>
   </a>
-
   <a class="metric-card danger metric-link" href="/jobs?filter=overdue">
-    <div class="label">Jobs Overdue</div>
     <div class="value">{{ overdue_count }}</div>
+    <div class="label">Overdue</div>
   </a>
-
   <a class="metric-card metric-link" href="/jobs?filter=open">
-    <div class="label">Open Job Fees</div>
-    <div class="value">£{{ '%.2f'|format(total_fees) }}</div>
-    <div class="small muted">{{ jobs_count }} jobs total in system</div>
+    <div class="value">£{{ '%.0f'|format(total_fees) }}</div>
+    <div class="label">Open fees</div>
   </a>
-
   <a class="metric-card metric-link" href="/jobs/accounts?filter=open">
-    <div class="label">Accounts (open)</div>
     <div class="value">{{ accounts_open }}</div>
+    <div class="label">Accounts</div>
   </a>
-
   <a class="metric-card metric-link" href="/jobs/confirmation-statements?filter=open">
-    <div class="label">Confirmation Statements</div>
     <div class="value">{{ cs_open }}</div>
+    <div class="label">CS open</div>
   </a>
-
-  <a class="metric-card metric-link" href="/people">
-    <div class="label">People</div>
-    <div class="value">{{ people_count }}</div>
-    <div class="small muted">Contacts &amp; individual clients</div>
-  </a>
-
-  <a class="metric-card metric-link" href="/services/fees">
-    <div class="label">Service Fees</div>
-    <div class="value">£</div>
-    <div class="small muted">Yearly fee schedule</div>
+  <a class="metric-card metric-link" href="/people?filter=individual">
+    <div class="value">{{ individual_clients }}</div>
+    <div class="label">Individuals</div>
   </a>
 </div>
 

@@ -37,6 +37,7 @@ from app.routers import (
     services,
     lost,
     restore,
+    groups,
 )
 
 app = FastAPI(
@@ -113,6 +114,7 @@ app.include_router(people.router)
 app.include_router(imports.router)
 app.include_router(services.router)
 app.include_router(restore.router)
+app.include_router(groups.router)
 
 
 @app.get("/health")

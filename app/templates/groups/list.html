@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Groups · Accountant CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard">← Dashboard</a></p>
+    <h1>Groups</h1>
+    <p class="muted small">
+      {{ count }} group{% if count != 1 %}s{% endif %}.
+      Each name is the client with the <strong>highest job fees</strong> in that group.
+      Open a row to see the companies and people inside.
+    </p>
+  </div>
+</div>
+
+<form class="filters" method="get" action="/groups">
+  <div>
+    <label class="small muted" for="q">Search</label><br>
+    <input id="q" type="search" name="q" value="{{ q }}" placeholder="Group name…">
+  </div>
+  <button class="btn btn-sm" type="submit">Filter</button>
+  {% if q %}<a class="btn btn-sm btn-outline" href="/groups">Clear</a>{% endif %}
+</form>
+
+<div class="card">
+  {% if groups %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Group</th>
+          <th>Companies</th>
+          <th>People</th>
+          <th>Fees</th>
+          <th>Status mix</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in groups %}
+        <tr class="row-link" onclick="window.location='/groups/{{ g.group_id }}'">
+          <td>
+            <a href="/groups/{{ g.group_id }}" onclick="event.stopPropagation()">
+              <strong>{{ g.name }}</strong>
+            </a>
+          </td>
+          <td>{{ g.client_count }}</td>
+          <td>{{ g.person_count }}</td>
+          <td>£{{ '%.2f'|format(g.total_fees or 0) }}</td>
+          <td class="small muted">{{ g.statuses|join(', ') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No groups found.</p>
+  {% endif %}
+</div>
+{% endblock %}

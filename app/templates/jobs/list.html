@@ -56,24 +56,28 @@
       <thead>
         <tr>
           <th>Client</th>
-          {% if view == 'all' %}<th>Type</th>{% endif %}
+          {% if view == 'all' or view == 'lost' %}<th>Type</th>{% endif %}
           <th>Period end</th>
           <th>Statutory due</th>
+          <th>Target start</th>
+          <th>Target complete</th>
+          <th>Actual start</th>
+          <th>Actual complete</th>
           <th>Status</th>
           <th>Fee</th>
         </tr>
       </thead>
       <tbody>
         {% for j in jobs %}
-        <tr>
+        <tr class="row-link" onclick="window.location='/jobs/{{ j.id }}'">
           <td>
             {% if j.client %}
-            <a href="/jobs/{{ j.id }}"><strong>{{ j.client.company_name or j.client.company_number }}</strong></a>
+            <a href="/jobs/{{ j.id }}" onclick="event.stopPropagation()"><strong>{{ j.client.company_name or j.client.company_number }}</strong></a>
             {% else %}
-            <a href="/jobs/{{ j.id }}"><strong>Job #{{ j.id }}</strong></a>
+            <a href="/jobs/{{ j.id }}" onclick="event.stopPropagation()"><strong>Job #{{ j.id }}</strong></a>
             {% endif %}
           </td>
-          {% if view == 'all' %}<td>{{ j.type or '—' }}</td>{% endif %}
+          {% if view == 'all' or view == 'lost' %}<td>{{ j.type or '—' }}</td>{% endif %}
           <td>{{ j.period_end or '—' }}</td>
           <td>
             {% if j.statutory_due_date %}
@@ -84,6 +88,10 @@
               {% endif %}
             {% else %}—{% endif %}
           </td>
+          <td>{{ j.target_start or '—' }}</td>
+          <td>{{ j.target_completion or '—' }}</td>
+          <td>{{ j.actual_start or '—' }}</td>
+          <td>{{ j.actual_completion or '—' }}</td>
           <td><span class="badge">{{ j.status }}</span></td>
           <td>£{{ '%.2f'|format(j.fee or 0) }}</td>
         </tr>

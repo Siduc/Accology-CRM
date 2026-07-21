@@ -71,7 +71,9 @@ def create_jobs_from_drafts(
                 continue
         fee = draft.fee or 0.0
         if not fee:
-            suggested = get_suggested_fee(db, draft.type, draft.period_end)
+            suggested = get_suggested_fee(
+                db, draft.type, draft.period_end, client_id=client.id
+            )
             if suggested is not None:
                 fee = suggested
         job = Job(

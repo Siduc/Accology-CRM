@@ -198,6 +198,10 @@ async def create_job(
     status: str = Form("Planned"),
     is_recurring: str = Form("Yes"),
     notes: str = Form(""),
+    target_start: str = Form(""),
+    target_completion: str = Form(""),
+    actual_start: str = Form(""),
+    actual_completion: str = Form(""),
     db: Session = Depends(get_db),
 ):
     clients = db.query(Client).order_by(Client.company_name).all()
@@ -218,15 +222,20 @@ async def create_job(
         )
 
     pe = _parse_date(period_end) if period_end else None
-    statutory, target_start, target_completion = calculate_dates(type, pe)
+    statutory, calc_ts, calc_tc = calculate_dates(type, pe)
     try:
         fee_val = float(fee.replace("£", "").replace(",", "") or 0)
     except ValueError:
         fee_val = 0.0
     if fee_val == 0:
-        suggested = get_suggested_fee(db, type, pe)
+        suggested = get_suggested_fee(db, type, pe, client_id=client_id)
         if suggested is not None:
             fee_val = suggested
+
+    ts = _parse_date(target_start) if target_start else calc_ts
+    tc = _parse_date(target_completion) if target_completion else calc_tc
+    act_s = _parse_date(actual_start) if actual_start else None
+    act_c = _parse_date(actual_completion) if actual_completion else None
 
     job_title = title or f"{type}" + (f" — {pe.isoformat()}" if pe else "")
     job = Job(
@@ -235,8 +244,10 @@ async def create_job(
         client_id=client_id,
         period_end=pe,
         statutory_due_date=statutory,
-        target_start=target_start,
-        target_completion=target_completion,
+        target_start=ts,
+        target_completion=tc,
+        actual_start=act_s,
+        actual_completion=act_c,
         fee=fee_val,
         status=status or "Planned",
         is_recurring=is_recurring or "Yes",
@@ -300,6 +311,10 @@ async def update_job(
     is_recurring: str = Form("Yes"),
     notes: str = Form(""),
     recalculate_dates: str = Form(""),
+    target_start: str = Form(""),
+    target_completion: str = Form(""),
+    actual_start: str = Form(""),
+    actual_completion: str = Form(""),
     db: Session = Depends(get_db),
 ):
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -323,10 +338,18 @@ async def update_job(
     job.updated_at = datetime.utcnow()
 
     if recalculate_dates == "yes" or not job.statutory_due_date:
-        statutory, target_start, target_completion = calculate_dates(type, pe)
+        statutory, calc_ts, calc_tc = calculate_dates(type, pe)
         job.statutory_due_date = statutory
-        job.target_start = target_start
-        job.target_completion = target_completion
+        job.target_start = calc_ts
+        job.target_completion = calc_tc
+    else:
+        if target_start:
+            job.target_start = _parse_date(target_start)
+        if target_completion:
+            job.target_completion = _parse_date(target_completion)
+
+    job.actual_start = _parse_date(actual_start) if actual_start else None
+    job.actual_completion = _parse_date(actual_completion) if actual_completion else None
 
     if status == "Completed" and (is_recurring or "").lower() in (
         "yes",
@@ -337,9 +360,12 @@ async def update_job(
         if pe:
             next_pe = date(pe.year + 1, pe.month, pe.day)
             statutory, ts, tc = calculate_dates(type, next_pe)
-            next_fee = get_suggested_fee(db, type, next_pe)
+            next_fee = get_suggested_fee(
+                db, type, next_pe, client_id=client_id
+            )
             if next_fee is None:
-                next_fee = fee_val
+                # Fall back: this job's fee + 5%
+                next_fee = round((fee_val or 0) * 1.05, 2) if fee_val else 0.0
             next_job = Job(
                 title=f"{type} — {next_pe.isoformat()}",
                 type=type,
@@ -351,7 +377,7 @@ async def update_job(
                 fee=next_fee,
                 status="Planned",
                 is_recurring=is_recurring,
-                notes=f"Auto-created from job #{job.id}",
+                notes=f"Auto-created from job #{job.id} (prior fee + 5%)",
             )
             db.add(next_job)
 

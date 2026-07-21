@@ -47,6 +47,7 @@
       <div>
         <label for="fee">Fee (£)</label>
         <input id="fee" name="fee" value="{{ job.fee if job else '0' }}">
+        <p class="small muted">Leave 0 for Accounts to use last year’s fee + 5% (or fee schedule).</p>
       </div>
       <div>
         <label for="status">Status</label>
@@ -63,19 +64,39 @@
           <option value="No" {% if job and job.is_recurring == 'No' %}selected{% endif %}>No</option>
         </select>
       </div>
+      <div>
+        <label for="target_start">Target start</label>
+        <input id="target_start" type="date" name="target_start"
+          value="{{ job.target_start.isoformat() if job and job.target_start else '' }}">
+      </div>
+      <div>
+        <label for="target_completion">Target completion</label>
+        <input id="target_completion" type="date" name="target_completion"
+          value="{{ job.target_completion.isoformat() if job and job.target_completion else '' }}">
+      </div>
+      <div>
+        <label for="actual_start">Actual start</label>
+        <input id="actual_start" type="date" name="actual_start"
+          value="{{ job.actual_start.isoformat() if job and job.actual_start else '' }}">
+      </div>
+      <div>
+        <label for="actual_completion">Actual completion</label>
+        <input id="actual_completion" type="date" name="actual_completion"
+          value="{{ job.actual_completion.isoformat() if job and job.actual_completion else '' }}">
+      </div>
       {% if job %}
       <div>
-        <label for="recalculate_dates">Recalculate dates from period end?</label>
+        <label for="recalculate_dates">Recalculate statutory/target from period end?</label>
         <select id="recalculate_dates" name="recalculate_dates">
-          <option value="">Keep existing</option>
-          <option value="yes">Yes, recalculate</option>
+          <option value="">Keep existing targets</option>
+          <option value="yes">Yes, recalculate targets</option>
         </select>
       </div>
       {% endif %}
     </div>
     <label for="notes">Notes</label>
     <textarea id="notes" name="notes">{{ job.notes if job and job.notes else '' }}</textarea>
-    <p class="small muted">Statutory and target dates are calculated automatically from job type and period end.</p>
+    <p class="small muted">Statutory and target dates can be calculated from job type and period end; actual dates are entered when work starts/finishes.</p>
     <div class="form-actions">
       <button class="btn" type="submit">Save</button>
       <a class="btn btn-outline" href="{% if job %}/jobs/{{ job.id }}{% else %}/jobs{% endif %}">Cancel</a>

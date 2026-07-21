@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}{{ group.name }} · Group · Accountant CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/groups">← All groups</a></p>
+    <h1>{{ group.name }}</h1>
+    <p class="muted small">
+      Relationship group ·
+      {{ group.clients|length }} compan{{ 'y' if group.clients|length == 1 else 'ies' }} ·
+      {{ group.people|length }} people ·
+      fees £{{ '%.2f'|format(group.total_fees or 0) }}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm btn-outline" href="/clients/{{ group.lead_client_id }}">Open lead client</a>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Companies</h2>
+    {% if group.clients %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Number</th>
+            <th>Status</th>
+            <th>Fees</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in group.clients %}
+          <tr class="row-link" onclick="window.location='/clients/{{ c.id }}'">
+            <td>
+              <a href="/clients/{{ c.id }}" onclick="event.stopPropagation()">
+                {{ c.display_name() }}
+                {% if c.id == group.lead_client_id %}
+                <span class="badge">Lead</span>
+                {% endif %}
+              </a>
+            </td>
+            <td>{{ c.company_number or '—' }}</td>
+            <td><span class="badge">{{ c.overall_status or '—' }}</span></td>
+            <td>£{{ '%.2f'|format(client_fees.get(c.id, 0) or 0) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No companies in this group.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>People</h2>
+    {% if group.people %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in group.people %}
+          <tr class="row-link" onclick="window.location='/people/{{ p.id }}/edit'">
+            <td>
+              <a href="/people/{{ p.id }}/edit" onclick="event.stopPropagation()">
+                {{ p.full_name or '—' }}
+              </a>
+            </td>
+            <td>{{ p.email or '—' }}</td>
+            <td>{{ p.role or '—' }}</td>
+            <td>{{ p.person_status or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No people linked to these companies yet.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

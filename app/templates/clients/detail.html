@@ -158,6 +158,10 @@
             <th>Type</th>
             <th>Period end</th>
             <th>Due</th>
+            <th>Target start</th>
+            <th>Target complete</th>
+            <th>Actual start</th>
+            <th>Actual complete</th>
             <th>Status</th>
             <th>Fee</th>
           </tr>
@@ -176,6 +180,10 @@
                 {% endif %}
               {% else %}—{% endif %}
             </td>
+            <td>{{ j.target_start or '—' }}</td>
+            <td>{{ j.target_completion or '—' }}</td>
+            <td>{{ j.actual_start or '—' }}</td>
+            <td>{{ j.actual_completion or '—' }}</td>
             <td><span class="badge">{{ j.status }}</span></td>
             <td>£{{ '%.2f'|format(j.fee or 0) }}</td>
           </tr>

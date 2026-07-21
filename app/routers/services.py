@@ -134,7 +134,12 @@ async def apply_fees_to_zero_jobs(db: Session = Depends(get_db)):
     )
     updated = 0
     for job in jobs:
-        suggested = get_suggested_fee(db, job.type or "", job.period_end)
+        suggested = get_suggested_fee(
+            db,
+            job.type or "",
+            job.period_end,
+            client_id=job.client_id,
+        )
         if suggested is not None and suggested > 0:
             job.fee = suggested
             updated += 1
