@@ -10,12 +10,14 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from app.config import CHASE_LIVE_MODE
 from app.database import get_db
 from app.models import Client, Job, Person
-from app.services.grouping import (
-    client_ids_for_period_and_statuses,
-    count_groups,
-)
+from app.services.grouping import count_groups
+from app.services.practice_groups import count_practice_groups
+from app.services.sales_ledger import chase_status_summary
+from app.services.scrap_notes import pinned_for_live_tiles
+from app.services.working_capital import compute_working_capital
 from app.templating import render
 
 router = APIRouter(tags=["dashboard"])
@@ -130,51 +132,174 @@ def _client_invoice_bounds(
     return bounds
 
 
-def _count_stock_clients(db: Session) -> int:
-    return int(
-        db.query(func.count(Client.id))
-        .filter(Client.overall_status.in_(list(CLIENT_STATUSES)))
-        .scalar()
-        or 0
-    )
+def _client_rows(db: Session) -> List[Tuple[int, str]]:
+    """(client_id, overall_status) for non-prospect clients."""
+    rows = db.query(Client.id, Client.overall_status).all()
+    out: List[Tuple[int, str]] = []
+    for cid, status in rows:
+        st = (status or "Active").strip()
+        if st == "Prospect":
+            continue
+        out.append((int(cid), st))
+    return out
 
 
-def _count_stock_lost(db: Session) -> int:
-    return int(
-        db.query(func.count(Client.id))
-        .filter(Client.overall_status.in_(list(LOST_STATUSES)))
-        .scalar()
-        or 0
-    )
+def _is_currently_lost(status: str) -> bool:
+    return (status or "") in LOST_STATUSES
 
 
-def _count_new_by_first_invoice_year(db: Session, year: int) -> int:
-    bounds = _client_invoice_bounds(db)
+def _as_date(value) -> Optional[date]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return None
+
+
+def _client_lifecycle_rows(
+    db: Session,
+) -> List[Tuple[int, str, Optional[date], Optional[date]]]:
+    """
+    (client_id, status, join_date, leave_date) for non-prospects.
+
+    Join  = engagement_date if set, else first billable invoice date.
+    Leave = disengagement_date if set, else last invoice when status is lost.
+    Explicit engagement / disengagement override invoice proxies as soon as filled.
+    """
+    inv_bounds = _client_invoice_bounds(db)
+    rows = db.query(
+        Client.id,
+        Client.overall_status,
+        Client.engagement_date,
+        Client.disengagement_date,
+    ).all()
+    out: List[Tuple[int, str, Optional[date], Optional[date]]] = []
+    for cid, status, eng, dis in rows:
+        st = (status or "Active").strip()
+        if st == "Prospect":
+            continue
+        inv_first, inv_last = inv_bounds.get(int(cid), (None, None))
+        join = _as_date(eng) or inv_first
+        if _as_date(dis) is not None:
+            leave = _as_date(dis)
+        elif _is_currently_lost(st):
+            leave = inv_last
+        else:
+            leave = None
+        out.append((int(cid), st, join, leave))
+    return out
+
+
+def _on_books_at_fixed(
+    client_id: int,
+    status: str,
+    first: Optional[date],
+    last: Optional[date],
+    as_of: date,
+) -> bool:
+    """
+    On the book at end of day `as_of`?
+
+    Join = engagement (or first invoice). Leave = disengagement (or last invoice
+    if lost). Off books from leave date inclusive.
+    """
+    if first is None or first > as_of:
+        return False
+    if last is not None and as_of >= last:
+        return False
+    return True
+
+
+def _count_on_books(db: Session, as_of: date) -> int:
+    n = 0
+    for cid, status, join, leave in _client_lifecycle_rows(db):
+        if _on_books_at_fixed(cid, status, join, leave, as_of):
+            n += 1
+    return n
+
+
+def _count_new_in_year(db: Session, year: int) -> int:
+    """New clients = join date (engagement or first invoice) in calendar year."""
     d0, d1 = _year_date_bounds(year)
     return sum(
         1
-        for first, _last in bounds.values()
-        if first is not None and d0 <= first <= d1
+        for _cid, _st, join, _leave in _client_lifecycle_rows(db)
+        if join is not None and d0 <= join <= d1
     )
 
 
-def _count_lost_by_last_invoice_year(db: Session, year: int) -> int:
-    inactive_ids = {
-        int(r[0])
-        for r in db.query(Client.id)
-        .filter(Client.overall_status.in_(list(LOST_STATUSES)))
-        .all()
-    }
-    if not inactive_ids:
-        return 0
-    bounds = _client_invoice_bounds(db)
+def _count_lost_in_year(db: Session, year: int) -> int:
+    """
+    Lost in year = leave date falls in that year
+    (disengagement_date when set, else last invoice for Inactive clients).
+    """
     d0, d1 = _year_date_bounds(year)
     return sum(
         1
-        for cid in inactive_ids
-        if (bounds.get(cid, (None, None))[1] is not None
-            and d0 <= bounds[cid][1] <= d1)
+        for _cid, _st, _join, leave in _client_lifecycle_rows(db)
+        if leave is not None and d0 <= leave <= d1
     )
+
+
+def _on_books_client_ids(db: Session, as_of: date) -> List[int]:
+    """Client ids on the book at as_of (for Groups point-in-time)."""
+    ids: List[int] = []
+    for cid, status, join, leave in _client_lifecycle_rows(db):
+        if _on_books_at_fixed(cid, status, join, leave, as_of):
+            ids.append(cid)
+    return ids
+
+
+def _practice_book_metrics(
+    db: Session,
+    mode: str,
+    year: Optional[int],
+    today: date,
+) -> Tuple[int, int, int, int, Optional[int], int]:
+    """
+    Returns:
+      total_groups, total_clients (closing), total_new, total_lost,
+      opening_clients, closing_clients
+    """
+    life = _client_lifecycle_rows(db)
+
+    if mode == "overall" or year is None:
+        # New = ever joined; Lost = ever left; Clients = New − Lost
+        new_all = 0
+        lost_all = 0
+        for _cid, status, join, leave in life:
+            if join is None:
+                continue
+            new_all += 1
+            if leave is not None or _is_currently_lost(status):
+                # Prefer leave date; still count currently lost without leave
+                lost_all += 1
+        closing = new_all - lost_all
+        on_books_ids = _on_books_client_ids(db, today)
+        prospect_ids = [
+            int(r[0])
+            for r in db.query(Client.id)
+            .filter(Client.overall_status == "Prospect")
+            .all()
+        ]
+        group_ids = list(set(on_books_ids) | set(prospect_ids))
+        groups = int(count_groups(db, client_ids=group_ids)) if group_ids else 0
+        return groups, closing, new_all, lost_all, None, closing
+
+    # Year view: stock roll-forward
+    y = year
+    d_close = date(y, 12, 31)
+    opening = _count_on_books(db, date(y - 1, 12, 31))
+    new_y = _count_new_in_year(db, y)
+    lost_y = _count_lost_in_year(db, y)
+    closing = opening + new_y - lost_y
+
+    on_books_eoy = _on_books_client_ids(db, d_close)
+    groups = int(count_groups(db, client_ids=on_books_eoy)) if on_books_eoy else 0
+
+    return groups, closing, new_y, lost_y, opening, closing
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -199,32 +324,33 @@ async def dashboard(
         year_label = "Overall"
         start, end = None, None
 
-    # —— Headcount tiles ——
-    # Order: Groups | Clients | New clients | Lost | Prospects
-    #
-    # Overall: Clients = New − Lost (New = stock clients + stock lost)
-    # Year:    New / Lost by first / last invoice; Clients = current book
-    group_client_ids = client_ids_for_period_and_statuses(
-        db, statuses=GROUP_STATUSES, start=start, end=end
-    )
-    total_groups = int(count_groups(db, client_ids=group_client_ids))
+    # —— Practice book (invoice stock roll-forward) ——
+    # Year Y: Opening(Y) = Closing(Y-1)
+    #         Closing(Y) = Opening(Y) + New(Y) − Lost(Y)
+    # Groups: point-in-time at year end (or today for Overall)
+    (
+        total_groups,
+        total_clients,
+        total_new_clients,
+        total_lost,
+        opening_clients,
+        closing_clients,
+    ) = _practice_book_metrics(db, mode, year, today)
 
-    stock_clients = _count_stock_clients(db)
-    stock_lost = _count_stock_lost(db)
-
-    if mode == "overall":
-        total_clients = stock_clients
-        total_lost = stock_lost
-        total_new_clients = total_clients + total_lost
-    else:
-        assert year is not None
-        total_clients = stock_clients
-        total_new_clients = int(_count_new_by_first_invoice_year(db, year))
-        total_lost = int(_count_lost_by_last_invoice_year(db, year))
+    # Prefer persisted practice groups (editable board) for the Groups tile
+    try:
+        total_groups = count_practice_groups(db)
+    except Exception:
+        pass
 
     total_prospects = int(
-        _count_clients_by_statuses(db, PROSPECT_STATUSES, start, end)
+        _count_clients_by_statuses(db, PROSPECT_STATUSES, None, None)
     )
+
+    try:
+        live_notes = pinned_for_live_tiles(db, limit=6)
+    except Exception:
+        live_notes = []
 
     # —— Workload (current live view) ——
     people_count = int(db.query(func.count(Person.id)).scalar() or 0)
@@ -293,10 +419,15 @@ async def dashboard(
         key=lambda j: j.statutory_due_date,
     )[:10]
 
+    # —— Working capital cycle (primary dashboard panel) ——
+    wc = compute_working_capital(db, today)
+    chase_sum = chase_status_summary(db, today)
+
     return render(
         request,
         "dashboard.html",
         {
+            "hide_nav": True,
             "period": period_key,
             "year_label": year_label,
             "years": years,
@@ -306,6 +437,8 @@ async def dashboard(
             "total_new_clients": total_new_clients,
             "total_prospects": total_prospects,
             "total_lost": total_lost,
+            "opening_clients": opening_clients,
+            "closing_clients": closing_clients,
             "active_clients": active_clients,
             "company_clients": company_clients,
             "individual_clients": individual_clients,
@@ -319,5 +452,29 @@ async def dashboard(
             "recent_clients": recent_clients,
             "upcoming_jobs": upcoming,
             "today": today,
+            # Working capital
+            "wc_net": wc.net,
+            "wc_wip_value": wc.wip.value,
+            "wc_wip_count": wc.wip.count,
+            "wc_wip_ageing": wc.wip.ageing,
+            "wc_debtors_total": wc.debtors.total,
+            "wc_debtors_count": wc.debtors.count,
+            "wc_debtors_ageing": wc.debtors.ageing,
+            "wc_cash_balance": wc.cash.balance,
+            "wc_cash_name": wc.cash.account_name,
+            "wc_cash_recent": wc.cash.recent,
+            "wc_cash_txn_count": wc.cash.txn_count,
+            "wc_creditors_total": wc.creditors.total,
+            "wc_creditors_supplier": wc.creditors.supplier_total,
+            "wc_creditors_vat": wc.creditors.vat_total,
+            "wc_creditors_count": wc.creditors.count,
+            "wc_creditors_ageing": wc.creditors.ageing,
+            # Debt chase (Working Capital · Debtors)
+            "chase_pipeline_count": chase_sum.get("pipeline_count", 0),
+            "chase_pipeline_amount": chase_sum.get("pipeline_amount", 0),
+            "chase_by_stage": chase_sum.get("by_stage", {}),
+            "chase_actions_week": chase_sum.get("actions_this_week", 0),
+            "chase_live": CHASE_LIVE_MODE,
+            "live_notes": live_notes,
         },
     )

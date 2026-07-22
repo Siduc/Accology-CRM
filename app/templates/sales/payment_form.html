@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Record payment · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/sales/payments">← Payments</a></p>
+    <h1>Record payment</h1>
+  </div>
+</div>
+<div class="card">
+  <form class="stack" method="post" action="/sales/payments/new">
+    <div class="form-grid">
+      <div>
+        <label>Client *</label>
+        <select name="client_id" required onchange="if(this.value) location='/sales/payments/new?client_id='+this.value">
+          <option value="">Select…</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}" {% if selected_client_id==c.id %}selected{% endif %}>{{ c.display_name() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Amount (£)</label>
+        <input name="amount" required inputmode="decimal">
+      </div>
+      <div>
+        <label>Date</label>
+        <input type="date" name="payment_date" value="{{ today.isoformat() }}">
+      </div>
+      <div>
+        <label>Method</label>
+        <select name="method">
+          <option value="bank">Bank</option>
+          <option value="cash">Cash</option>
+          <option value="card">Card</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div>
+        <label>Reference</label>
+        <input name="reference">
+      </div>
+    </div>
+    {% if open_invoices %}
+    <h3>Allocate to invoice</h3>
+    <div class="form-grid">
+      <div>
+        <label>Invoice</label>
+        <select name="alloc_invoice_id">
+          <option value="">— none —</option>
+          {% for i in open_invoices %}
+          <option value="{{ i.id }}" {% if preselect_invoice_id==i.id %}selected{% endif %}>
+            {{ i.number }} · bal £{{ '%.2f'|format(i.balance) }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Allocation amount (blank = full payment up to balance)</label>
+        <input name="alloc_amount" placeholder="optional">
+      </div>
+    </div>
+    {% endif %}
+    <label><input type="checkbox" name="post_to_bank" value="yes" checked> Also post to Bank Ledger (primary account)</label>
+    <label>Notes</label>
+    <textarea name="notes"></textarea>
+    <button class="btn wc-touch" type="submit">Save payment</button>
+  </form>
+</div>
+{% endblock %}

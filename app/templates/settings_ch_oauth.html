@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}CH OAuth · Settings · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/settings">← Settings</a></p>
+    <h1>Companies House OAuth</h1>
+    <p class="muted small">API Filing / Software Filing · diagnostics &amp; tokens</p>
+  </div>
+</div>
+
+{% if oauth_error %}
+<div class="alert alert-error">{{ oauth_error }}</div>
+{% endif %}
+{% if oauth_msg == 'connected' %}
+<div class="chase-banner chase-banner-info">Connected.</div>
+{% elif oauth_msg == 'disconnected' %}
+<div class="chase-banner chase-banner-info">Disconnected.</div>
+{% elif oauth_msg == 'probed' %}
+<div class="chase-banner chase-banner-info">Probe finished — see results below and terminal log <code>accountant_crm.ch_oauth</code>.</div>
+{% endif %}
+
+<div class="card" style="max-width:40rem;margin-bottom:1rem">
+  <h2>Application</h2>
+  {% if configured %}
+  <p><span class="badge badge-active">Configured</span>
+    · client <code>{{ client_id_mask }}</code>
+    · secret {% if secret_set %}set{% else %}missing{% endif %}
+  </p>
+  {% else %}
+  <p class="muted">Set <code>CH_OAUTH_CLIENT_ID</code> and <code>CH_OAUTH_CLIENT_SECRET</code> in <code>.env</code>.</p>
+  {% endif %}
+  <p class="small muted">Redirect URI (must match Developer Hub web client exactly):</p>
+  <p><code>{{ redirect_uri }}</code>
+    {% if loopback_redirect %}<span class="badge badge-overdue">loopback</span>{% endif %}
+  </p>
+  {% if loopback_redirect %}
+  <div class="alert alert-error">{{ redirect_warning }}</div>
+  {% endif %}
+  <div class="actions">
+    {% if configured %}
+    <a class="btn wc-touch" href="/oauth/companies-house/start?return_to=/settings/companies-house-oauth">
+      Connect practice account (profile)
+    </a>
+    {% else %}
+    <span class="btn disabled" title="Add credentials to .env and restart the server" aria-disabled="true">
+      Connect practice account (profile)
+    </span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="max-width:48rem;margin-bottom:1rem;border-left:4px solid var(--accent,#2563eb)">
+  <h2>Diagnostics</h2>
+  <p class="small muted">
+    Logs every Connect step with an attempt id. If you see
+    <strong>service temporarily unavailable</strong> on Companies House and no
+    <code>callback_*</code> event below, the failure is on CH / GOV.UK One Login or the tunnel — not Accologise token code.
+  </p>
+
+  {% if stu_diag and stu_diag.likely_ch_side_stu %}
+  <div class="alert alert-error" role="alert">
+    <strong>Likely CH-side / tunnel issue</strong><br>
+    {{ stu_diag.message }}
+  </div>
+  <ul class="muted small" style="padding-left:1.2rem">
+    <li>Retry later (CH / One Login intermittent).</li>
+    <li>Confirm <code>cloudflared</code> is still running and hostname matches redirect URI.</li>
+    <li>Confirm Hub web client has the exact same redirect URI.</li>
+    <li>Run <strong>Probe now</strong> — 5xx / STU body means CH is down.</li>
+  </ul>
+  {% elif stu_diag %}
+  <div class="chase-banner chase-banner-practice">{{ stu_diag.message }}</div>
+  {% endif %}
+
+  <form method="post" action="/settings/companies-house-oauth/probe" class="actions" style="margin:0.75rem 0">
+    <button class="btn wc-touch" type="submit" {% if not configured %}disabled{% endif %}>Probe now</button>
+  </form>
+
+  {% if last_probe and last_probe.attempt_id %}
+  <h3>Last probe</h3>
+  <dl class="dl-grid">
+    <dt>Attempt</dt><dd><code>{{ last_probe.attempt_id }}</code></dd>
+    <dt>Authorise HTTP</dt><dd>{% if last_probe.authorise_status is not none %}{{ last_probe.authorise_status }}{% else %}—{% endif %}</dd>
+    <dt>Redirect /health</dt><dd>{% if last_probe.health_status is not none %}{{ last_probe.health_status }}{% else %}—{% endif %}</dd>
+    <dt>Token HTTP</dt><dd>{% if last_probe.token_status is not none %}{{ last_probe.token_status }}{% else %}—{% endif %}</dd>
+  </dl>
+  {% if last_probe.interpretation %}
+  <ul class="chase-history">
+    {% for line in last_probe.interpretation %}
+    <li>{{ line }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if last_probe.authorise_body %}
+  <p class="small muted">Authorise body (capped):</p>
+  <pre class="small" style="white-space:pre-wrap;max-height:10rem;overflow:auto;background:#f8fafc;padding:0.5rem;border-radius:6px">{{ last_probe.authorise_body }}</pre>
+  {% endif %}
+  {% if last_probe.token_body %}
+  <p class="small muted">Token response (capped):</p>
+  <pre class="small" style="white-space:pre-wrap;max-height:10rem;overflow:auto;background:#f8fafc;padding:0.5rem;border-radius:6px">{{ last_probe.token_body }}</pre>
+  {% endif %}
+  {% endif %}
+
+  <h3>Recent OAuth events (this server process)</h3>
+  {% if oauth_events %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Time (UTC)</th>
+          <th>Step</th>
+          <th>Attempt</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in oauth_events %}
+        <tr>
+          <td class="small">{{ e.ts or '—' }}</td>
+          <td><code>{{ e.step }}</code></td>
+          <td class="small"><code>{{ e.attempt_id or '—' }}</code></td>
+          <td class="small">
+            {% for k, v in e.items() %}
+              {% if k not in ('ts','step','attempt_id') and v is not none and v != '' %}
+                <span class="muted">{{ k }}=</span>{{ v }}{% if not loop.last %} · {% endif %}
+              {% endif %}
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No events yet — click Connect or Probe.</p>
+  {% endif %}
+  <p class="small muted" style="margin-top:0.5rem">
+    Terminal: lines starting with <code>CH_OAUTH</code> (logger <code>accountant_crm.ch_oauth</code>).
+    Durable copy: project file <code>logs/ch_oauth.log</code>.
+    Connect logs the full authorise redirect URL with <code>state</code> redacted
+    (<code>authorise_url_debug</code>). Secrets and access tokens are never logged.
+  </p>
+</div>
+
+<div class="card" style="max-width:48rem">
+  <h2>Active tokens</h2>
+  {% if tokens %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Client / company</th>
+          <th>CH user</th>
+          <th>Expires</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tokens %}
+        <tr>
+          <td>{{ t.id }}</td>
+          <td>
+            {% if t.client_id and clients_by_id.get(t.client_id) %}
+            <a href="/clients/{{ t.client_id }}">{{ clients_by_id[t.client_id].display_name() }}</a>
+            {% elif t.client_id %}
+            Client #{{ t.client_id }}
+            {% else %}
+            Practice profile
+            {% endif %}
+            {% if t.company_number %}<div class="small muted">{{ t.company_number }}</div>{% endif %}
+          </td>
+          <td class="small">{{ t.ch_user_email or t.ch_user_id or '—' }}</td>
+          <td class="small">{{ t.expires_at or '—' }}</td>
+          <td>
+            <form method="post" action="/oauth/companies-house/disconnect">
+              <input type="hidden" name="token_id" value="{{ t.id }}">
+              <input type="hidden" name="return_to" value="/settings/companies-house-oauth">
+              <button class="btn btn-sm btn-outline" type="submit">Revoke local</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No active OAuth tokens yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

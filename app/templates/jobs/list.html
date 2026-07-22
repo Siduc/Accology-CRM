@@ -69,7 +69,7 @@
       </thead>
       <tbody>
         {% for j in jobs %}
-        <tr class="row-link" onclick="window.location='/jobs/{{ j.id }}'">
+        <tr class="row-link {% if j|job_overdue %}row-overdue{% endif %}" onclick="window.location='/jobs/{{ j.id }}'">
           <td>
             {% if j.client %}
             <a href="/jobs/{{ j.id }}" onclick="event.stopPropagation()"><strong>{{ j.client.company_name or j.client.company_number }}</strong></a>
@@ -78,21 +78,27 @@
             {% endif %}
           </td>
           {% if view == 'all' or view == 'lost' %}<td>{{ j.type or '—' }}</td>{% endif %}
-          <td>{{ j.period_end or '—' }}</td>
+          <td>{{ j.period_end|uk_date }}</td>
           <td>
             {% if j.statutory_due_date %}
-              {% if j.statutory_due_date < today and j.status not in ['Completed','Cancelled'] %}
-              <span class="badge badge-overdue">{{ j.statutory_due_date }}</span>
+              {% if j|job_overdue %}
+              <span class="badge badge-overdue">{{ j.statutory_due_date|uk_date }}</span>
               {% else %}
-              {{ j.statutory_due_date }}
+              {{ j.statutory_due_date|uk_date }}
               {% endif %}
             {% else %}—{% endif %}
           </td>
-          <td>{{ j.target_start or '—' }}</td>
-          <td>{{ j.target_completion or '—' }}</td>
-          <td>{{ j.actual_start or '—' }}</td>
-          <td>{{ j.actual_completion or '—' }}</td>
-          <td><span class="badge">{{ j.status }}</span></td>
+          <td>{{ j.target_start|uk_date }}</td>
+          <td>{{ j.target_completion|uk_date }}</td>
+          <td>{{ j.actual_start|uk_date }}</td>
+          <td>{{ j.actual_completion|uk_date }}</td>
+          <td>
+            {% if j|job_overdue %}
+            <span class="badge badge-overdue">{{ j|job_status }}</span>
+            {% else %}
+            <span class="badge">{{ j|job_status }}</span>
+            {% endif %}
+          </td>
           <td>£{{ '%.2f'|format(j.fee or 0) }}</td>
         </tr>
         {% endfor %}

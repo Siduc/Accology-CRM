@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}VAT return draft · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/vat?period={{ period }}">← VAT Ledger</a></p>
+    <h1>VAT return draft</h1>
+    <p class="muted small">{{ summary.period_label }} · {{ summary.d0 }} → {{ summary.d1 }} · invoice basis</p>
+  </div>
+</div>
+
+<div class="sales-kpi-row bank-kpi-row">
+  <div class="sales-kpi sales-kpi-warn">
+    <div class="sales-kpi-lab">Box 1 Output VAT</div>
+    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.box1_output_vat) }}</div>
+  </div>
+  <div class="sales-kpi sales-kpi-ok">
+    <div class="sales-kpi-lab">Box 4 Input VAT</div>
+    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.box4_input_vat) }}</div>
+  </div>
+  <div class="sales-kpi {% if summary.box5_net >= 0 %}sales-kpi-danger{% else %}sales-kpi-ok{% endif %}">
+    <div class="sales-kpi-lab">Box 5 Net</div>
+    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.box5_net) }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Output VAT — Sales invoices</h2>
+  {% if summary.output_lines %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Date</th><th>Invoice</th><th>Client</th><th>Net</th><th>VAT</th><th>Gross</th></tr></thead>
+      <tbody>
+        {% for ln in summary.output_lines %}
+        <tr>
+          <td>{{ ln.issue_date }}</td>
+          <td><a href="{{ ln.href }}">{{ ln.number }}</a></td>
+          <td>{{ ln.party }}</td>
+          <td>£{{ '%.2f'|format(ln.net) }}</td>
+          <td>£{{ '%.2f'|format(ln.vat) }}</td>
+          <td>£{{ '%.2f'|format(ln.gross) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No outputs.</p>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Input VAT — Purchase bills</h2>
+  {% if summary.input_lines %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Date</th><th>Bill</th><th>Supplier</th><th>Net</th><th>VAT</th><th>Gross</th></tr></thead>
+      <tbody>
+        {% for ln in summary.input_lines %}
+        <tr>
+          <td>{{ ln.issue_date }}</td>
+          <td><a href="{{ ln.href }}">{{ ln.number }}</a></td>
+          <td>{{ ln.party }}</td>
+          <td>£{{ '%.2f'|format(ln.net) }}</td>
+          <td>£{{ '%.2f'|format(ln.vat) }}</td>
+          <td>£{{ '%.2f'|format(ln.gross) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No inputs.</p>
+  {% endif %}
+</div>
+{% endblock %}

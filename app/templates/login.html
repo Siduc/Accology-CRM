@@ -2,15 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Login · Accountant CRM</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Accologise">
+  <meta name="application-name" content="Accologise CRM">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+  <title>Login · Accologise CRM</title>
+  <link rel="stylesheet" href="/static/style.css?v=pwa1">
+  <script src="/static/pwa.js?v=1" defer></script>
 </head>
-<body>
+<body class="body-login">
   <div class="login-wrap">
     <div class="login-card">
-      <h1>Accountant CRM</h1>
-      <p class="muted">Sign in to continue</p>
+      <div class="login-brand">
+        <span class="login-mark" aria-hidden="true">A</span>
+        <h1>Accologise</h1>
+      </div>
+      <p class="muted">Practice working capital · Sign in</p>
       {% if error %}
       <div class="alert alert-error">{{ error }}</div>
       {% endif %}
@@ -20,9 +33,12 @@
         <label for="password">Password</label>
         <input id="password" type="password" name="password" autocomplete="current-password" required>
         <div class="form-actions">
-          <button class="btn" type="submit">Login</button>
+          <button class="btn wc-touch" type="submit">Login</button>
         </div>
       </form>
+      <p class="small muted login-install-hint">
+        On your phone: browser menu → <strong>Add to Home Screen</strong> for an app-like experience.
+      </p>
     </div>
   </div>
 </body>

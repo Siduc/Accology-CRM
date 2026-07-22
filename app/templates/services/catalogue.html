@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Services Ledger · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard">← Accologise</a> · <a href="/sales">Sales</a></p>
+    <h1>Services Ledger</h1>
+    <p class="muted small">Catalogue of services we offer — pricing, descriptions, sellable packages</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-outline" href="/services/fees">Yearly fee schedule</a>
+  </div>
+</div>
+<div class="card">
+  <h2>Catalogue</h2>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Code</th><th>Name</th><th>Category</th><th>Default fee</th><th>VAT</th><th>Sellable</th></tr>
+      </thead>
+      <tbody>
+        {% for s in services %}
+        <tr>
+          <td><code>{{ s.code }}</code></td>
+          <td>
+            <strong>{{ s.name }}</strong>
+            {% if s.description %}<div class="small muted">{{ s.description[:120] }}{% if s.description|length > 120 %}…{% endif %}</div>{% endif %}
+          </td>
+          <td>{{ s.category }}</td>
+          <td>£{{ '%.2f'|format(s.default_fee or 0) }}</td>
+          <td>{{ '%.0f'|format((s.default_vat_rate or 0)*100) }}%</td>
+          <td>{% if s.is_sellable_to_clients %}Yes{% else %}No{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<div class="card" style="margin-top:1rem">
+  <h2>Add service</h2>
+  <form class="stack" method="post" action="/services/catalogue/add">
+    <div class="form-grid">
+      <div><label>Code *</label><input name="code" required placeholder="ACCOUNTS"></div>
+      <div><label>Name *</label><input name="name" required></div>
+      <div><label>Default fee</label><input name="default_fee" value="0"></div>
+      <div><label>VAT rate (0.2=20%)</label><input name="default_vat_rate" value="0"></div>
+      <div>
+        <label>Category</label>
+        <select name="category">
+          <option value="compliance">Compliance</option>
+          <option value="advisory">Advisory</option>
+          <option value="credit_control">Credit control</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div>
+        <label>Unit</label>
+        <select name="unit">
+          <option value="job">Job</option>
+          <option value="hour">Hour</option>
+          <option value="fixed">Fixed</option>
+        </select>
+      </div>
+    </div>
+    <label>Description</label>
+    <textarea name="description"></textarea>
+    <label><input type="checkbox" name="is_sellable" value="yes" checked> Sellable to clients</label>
+    <button class="btn" type="submit">Add service</button>
+  </form>
+</div>
+{% endblock %}

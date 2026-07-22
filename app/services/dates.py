@@ -49,6 +49,7 @@ JOB_STATUSES = [
     "Planned",
     "In Progress",
     "Review",
+    "Overdue",
     "Filed",
     "Completed",
     "Cancelled",

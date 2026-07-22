@@ -36,7 +36,8 @@ def _list_jobs_page(
 ):
     today = date.today()
     query = db.query(Job).options(joinedload(Job.client))
-    if status:
+    # "Overdue" is computed from due date — not a stored status for most jobs
+    if status and status != "Overdue":
         query = query.filter(Job.status == status)
     if job_type == "Accounts":
         query = query.filter(Job.type == "Accounts")
@@ -53,22 +54,19 @@ def _list_jobs_page(
     else:
         jobs = [j for j in jobs if not _client_is_lost(j.client)]
 
+    if status == "Overdue":
+        jobs = [j for j in jobs if j.is_overdue(today)]
+
     if filter == "overdue":
-        jobs = [
-            j
-            for j in jobs
-            if j.statutory_due_date
-            and j.statutory_due_date < today
-            and j.status not in ("Completed", "Cancelled")
-        ]
+        jobs = [j for j in jobs if j.is_overdue(today)]
     elif filter == "due_soon":
         soon = today + timedelta(days=30)
         jobs = [
             j
             for j in jobs
-            if j.statutory_due_date
-            and today <= j.statutory_due_date <= soon
-            and j.status not in ("Completed", "Cancelled")
+            if not j.is_closed()
+            and j.due_date()
+            and today <= j.due_date() <= soon
         ]
     elif filter == "open":
         jobs = [j for j in jobs if j.status not in ("Completed", "Cancelled")]
@@ -269,10 +267,19 @@ async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db
     )
     if not job:
         return RedirectResponse("/jobs", status_code=303)
+    from app.services.client_connections import is_connected
+
+    asana_enabled = is_connected(db, job.client_id, "asana") if job.client_id else False
     return render(
         request,
         "jobs/detail.html",
-        {"job": job, "today": date.today()},
+        {
+            "job": job,
+            "today": date.today(),
+            "asana_msg": request.query_params.get("asana_msg", ""),
+            "asana_error": request.query_params.get("asana_error", ""),
+            "asana_enabled": asana_enabled,
+        },
     )
 
 
@@ -382,4 +389,11 @@ async def update_job(
             db.add(next_job)
 
     db.commit()
+    # Push completion/due to Asana if linked
+    try:
+        from app.services.asana_jobs import sync_status_from_crm
+
+        sync_status_from_crm(db, job)
+    except Exception:
+        pass
     return RedirectResponse(f"/jobs/{job_id}", status_code=303)

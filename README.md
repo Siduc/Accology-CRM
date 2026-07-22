@@ -54,7 +54,10 @@ Add a **PostgreSQL** database and link `DATABASE_URL` to the web service.
 | `AUTH_USERNAME` | Yes | Login username |
 | `AUTH_PASSWORD` | Yes | Login password |
 | `SESSION_SECRET` | Yes | Long random string (session cookie signing) |
-| `COMPANIES_HOUSE_API_KEY` | No | REST API key for CH features |
+| `COMPANIES_HOUSE_API_KEY` | No | REST API key for CH public data |
+| `CH_OAUTH_CLIENT_ID` | No | Developer Hub **web** client id (API Filing OAuth; not API-key-only) |
+| `CH_OAUTH_CLIENT_SECRET` | No | Web client secret |
+| `CH_OAUTH_REDIRECT_URI` | No | **Public HTTPS** callback, e.g. `https://your-app/oauth/companies-house/callback`. `localhost` / `127.0.0.1` is blocked by CH (403). |
 | `PORT` | Auto | Set by Render |
 
 ---

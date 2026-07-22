@@ -9,34 +9,79 @@
       {% if job.client %}
       <a href="/clients/{{ job.client_id }}">{{ job.client.display_name() }}</a> ·
       {% endif %}
-      <span class="badge">{{ job.status }}</span>
+      {% if job|job_overdue %}
+      <span class="badge badge-overdue">{{ job|job_status }}</span>
+      {% else %}
+      <span class="badge">{{ job|job_status }}</span>
+      {% endif %}
     </p>
   </div>
   <div class="actions">
     <a class="btn btn-sm" href="/jobs/{{ job.id }}/edit">Edit</a>
+    {% if asana_enabled or job.asana_task_gid %}
+    <form method="post" action="/asana/jobs/{{ job.id }}/push" style="display:inline">
+      <button class="btn btn-sm btn-secondary wc-touch" type="submit" {% if not asana_enabled %}disabled title="Enable Asana on client Connections"{% endif %}>
+        {% if job.asana_task_gid %}Re-push Asana{% else %}Push to Asana{% endif %}
+      </button>
+    </form>
+    {% elif job.client_id %}
+    <a class="btn btn-sm btn-outline" href="/clients/{{ job.client_id }}?tab=connections">Enable Asana on client</a>
+    {% endif %}
+    {% if job.asana_task_gid %}
+    <form method="post" action="/asana/jobs/{{ job.id }}/pull-status" style="display:inline">
+      <button class="btn btn-sm btn-outline wc-touch" type="submit">Pull Asana status</button>
+    </form>
+    <a class="btn btn-sm btn-outline" href="https://app.asana.com/0/0/{{ job.asana_task_gid }}" target="_blank" rel="noopener">Open in Asana</a>
+    {% endif %}
   </div>
 </div>
+
+{% if asana_msg %}
+<div class="chase-banner chase-banner-info">{{ asana_msg }}</div>
+{% endif %}
+{% if asana_error %}
+<div class="alert alert-error">{{ asana_error }}</div>
+{% endif %}
 
 <div class="card">
   <dl class="dl-grid">
     <dt>Type</dt><dd>{{ job.type or '—' }}</dd>
-    <dt>Period end</dt><dd>{{ job.period_end or '—' }}</dd>
+    <dt>Period end</dt><dd>{{ job.period_end|uk_date }}</dd>
     <dt>Statutory due</dt>
     <dd>
       {% if job.statutory_due_date %}
-        {% if job.statutory_due_date < today and job.status not in ['Completed','Cancelled'] %}
-        <span class="badge badge-overdue">{{ job.statutory_due_date }} OVERDUE</span>
+        {% if job|job_overdue %}
+        <span class="badge badge-overdue">{{ job.statutory_due_date|uk_date }} · OVERDUE</span>
         {% else %}
-        {{ job.statutory_due_date }}
+        {{ job.statutory_due_date|uk_date }}
         {% endif %}
       {% else %}—{% endif %}
     </dd>
-    <dt>Target start</dt><dd>{{ job.target_start or '—' }}</dd>
-    <dt>Target completion</dt><dd>{{ job.target_completion or '—' }}</dd>
-    <dt>Actual start</dt><dd>{{ job.actual_start or '—' }}</dd>
-    <dt>Actual completion</dt><dd>{{ job.actual_completion or '—' }}</dd>
+    <dt>Target start</dt><dd>{{ job.target_start|uk_date }}</dd>
+    <dt>Target completion</dt><dd>{{ job.target_completion|uk_date }}</dd>
+    <dt>Actual start</dt><dd>{{ job.actual_start|uk_date }}</dd>
+    <dt>Actual completion</dt><dd>{{ job.actual_completion|uk_date }}</dd>
+    <dt>Status</dt>
+    <dd>
+      {% if job|job_overdue %}
+      <span class="badge badge-overdue">{{ job|job_status }}</span>
+      {% if job.status and job.status != 'Overdue' %}
+      <span class="muted small">(workflow: {{ job.status }})</span>
+      {% endif %}
+      {% else %}
+      <span class="badge">{{ job|job_status }}</span>
+      {% endif %}
+    </dd>
     <dt>Fee</dt><dd>£{{ '%.2f'|format(job.fee or 0) }}</dd>
     <dt>Recurring</dt><dd>{{ job.is_recurring or '—' }}</dd>
+    <dt>Asana</dt>
+    <dd>
+      {% if job.asana_task_gid %}
+      linked · {{ job.asana_synced_at or '—' }}
+      {% else %}
+      not linked
+      {% endif %}
+    </dd>
   </dl>
   {% if job.notes %}
   <h3>Notes</h3>

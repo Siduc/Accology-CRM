@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Cash · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard#working-capital">← Working capital</a></p>
+    <h1>Cash</h1>
+    <p class="muted small">{{ account.name }}</p>
+  </div>
+  <div class="wc-cash-balance-pill">
+    <div class="small muted">Balance</div>
+    <div class="wc-box-value" style="font-size:2rem">£{{ '{:,.2f}'.format(balance) }}</div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Opening balance</h2>
+    <p class="muted small">Starting bank figure before listed transactions.</p>
+    <form class="stack" method="post" action="/working-capital/cash/opening">
+      <label for="opening_balance">Opening balance (£)</label>
+      <input id="opening_balance" name="opening_balance" inputmode="decimal"
+             value="{{ '%.2f'|format(account.opening_balance or 0) }}">
+      <button class="btn wc-touch" type="submit">Save opening balance</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Add transaction</h2>
+    <form class="stack" method="post" action="/working-capital/cash/transaction">
+      <div class="form-grid">
+        <div>
+          <label for="txn_date">Date</label>
+          <input id="txn_date" type="date" name="txn_date" value="{{ today.isoformat() }}">
+        </div>
+        <div>
+          <label for="direction">Type</label>
+          <select id="direction" name="direction">
+            <option value="in">Money in</option>
+            <option value="out">Money out</option>
+          </select>
+        </div>
+        <div>
+          <label for="amount">Amount (£)</label>
+          <input id="amount" name="amount" inputmode="decimal" required placeholder="0.00">
+        </div>
+        <div>
+          <label for="description">Description</label>
+          <input id="description" name="description" placeholder="Client receipt, rent…">
+        </div>
+      </div>
+      <button class="btn wc-touch" type="submit">Add transaction</button>
+    </form>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Transactions</h2>
+  {% if transactions %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Description</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in transactions %}
+        <tr>
+          <td>{{ t.txn_date }}</td>
+          <td>{{ t.description or '—' }}</td>
+          <td class="{% if t.amount >= 0 %}text-success{% else %}text-danger{% endif %}">
+            {% if t.amount >= 0 %}+{% endif %}£{{ '%.2f'|format(t.amount) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No transactions yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

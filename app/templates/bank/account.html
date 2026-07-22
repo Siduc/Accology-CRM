@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }} · Bank · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/bank">← Bank Ledger</a> · Working capital · Cash</p>
+    <h1>{{ account.name }}</h1>
+    <p class="muted small">
+      {{ account.bank_name or '—' }}
+      {% if account.is_primary %} · <span class="badge badge-active">Primary</span>{% endif %}
+      · Opening £{{ '%.2f'|format(account.opening_balance or 0) }}
+    </p>
+  </div>
+  <div class="wc-cash-balance-pill">
+    <div class="small muted">Balance</div>
+    <div class="wc-box-value" style="font-size:2rem">£{{ '{:,.2f}'.format(balance) }}</div>
+  </div>
+</div>
+
+{% if msg %}
+<div class="chase-banner chase-banner-info" role="status">{{ msg }}</div>
+{% endif %}
+
+<div class="actions" style="margin-bottom:1rem;flex-wrap:wrap">
+  <a class="btn btn-secondary wc-touch" href="/bank/{{ account.id }}/import">CSV import</a>
+  <a class="btn btn-outline wc-touch" href="/bank/{{ account.id }}/reconcile">Reconcile</a>
+  <a class="btn btn-outline wc-touch" href="/bank/accounts/{{ account.id }}/edit">Edit account</a>
+  {% if not account.is_primary %}
+  <form method="post" action="/bank/accounts/{{ account.id }}/primary" style="display:inline">
+    <button class="btn btn-outline btn-sm wc-touch" type="submit">Set primary</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Opening balance</h2>
+    <p class="muted small">Starting figure before listed transactions.</p>
+    <form class="stack" method="post" action="/bank/{{ account.id }}/opening">
+      <label for="opening_balance">Opening balance (£)</label>
+      <input id="opening_balance" name="opening_balance" inputmode="decimal"
+             value="{{ '%.2f'|format(account.opening_balance or 0) }}">
+      <button class="btn wc-touch" type="submit">Save opening balance</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Manual transaction</h2>
+    <form class="stack" method="post" action="/bank/{{ account.id }}/transactions">
+      <div class="form-grid">
+        <div>
+          <label for="txn_date">Date</label>
+          <input id="txn_date" type="date" name="txn_date" value="{{ today.isoformat() }}">
+        </div>
+        <div>
+          <label for="direction">Type</label>
+          <select id="direction" name="direction">
+            <option value="in">Money in (receipt)</option>
+            <option value="out">Money out (payment)</option>
+          </select>
+        </div>
+        <div>
+          <label for="amount">Amount (£)</label>
+          <input id="amount" name="amount" inputmode="decimal" required placeholder="0.00">
+        </div>
+        <div>
+          <label for="category">Category / nominal</label>
+          <select id="category" name="category">
+            <option value="">— auto —</option>
+            {% for code, lab in categories %}
+            <option value="{{ code }}">{{ lab }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="description">Description</label>
+          <input id="description" name="description" placeholder="Client receipt, rent…">
+        </div>
+        <div>
+          <label for="reference">Reference</label>
+          <input id="reference" name="reference">
+        </div>
+      </div>
+      <button class="btn wc-touch" type="submit">Add transaction</button>
+    </form>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <div class="page-header" style="margin-bottom:0.5rem">
+    <h2 style="margin:0">Ledger</h2>
+    <div class="actions">
+      <a class="btn btn-sm btn-outline" href="/bank/{{ account.id }}">All</a>
+      <a class="btn btn-sm btn-outline" href="/bank/{{ account.id }}?reconciled=0">Unreconciled</a>
+      <a class="btn btn-sm btn-outline" href="/bank/{{ account.id }}?reconciled=1">Cleared</a>
+    </div>
+  </div>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Description</th>
+          <th>Category</th>
+          <th>Amount</th>
+          <th>Running</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set t = r.txn %}
+        <tr class="{% if t.reconciled %}row-muted{% endif %}">
+          <td>{{ t.txn_date }}</td>
+          <td>
+            {{ t.description or '—' }}
+            {% if t.counterparty %}<div class="small muted">{{ t.counterparty }}</div>{% endif %}
+            {% if t.reference %}<div class="small muted">Ref {{ t.reference }}</div>{% endif %}
+          </td>
+          <td class="small">{{ category_labels.get(t.category, t.category or '—') }}</td>
+          <td class="{% if t.amount >= 0 %}text-success{% else %}text-danger{% endif %}">
+            {% if t.amount >= 0 %}+{% endif %}£{{ '%.2f'|format(t.amount) }}
+          </td>
+          <td>£{{ '%.2f'|format(r.running_balance) }}</td>
+          <td>
+            {% if t.reconciled %}<span class="badge badge-active">Cleared</span>{% else %}<span class="badge">Open</span>{% endif %}
+            {% if t.matched_type %}<span class="badge">{{ t.matched_type }}</span>{% endif %}
+            {% if t.source %}<span class="small muted">{{ t.source }}</span>{% endif %}
+          </td>
+          <td class="actions-cell">
+            {% if not t.matched_type %}
+            <a class="btn btn-sm wc-touch" href="/bank/transactions/{{ t.id }}/match">Match</a>
+            {% endif %}
+            <form method="post" action="/bank/transactions/{{ t.id }}/reconcile" style="display:inline">
+              <input type="hidden" name="cleared" value="{% if t.reconciled %}0{% else %}1{% endif %}">
+              <input type="hidden" name="next" value="/bank/{{ account.id }}{% if reconciled_filter %}?reconciled={{ reconciled_filter }}{% endif %}">
+              <button class="btn btn-sm btn-outline" type="submit">{% if t.reconciled %}Unclear{% else %}Clear{% endif %}</button>
+            </form>
+            {% if not t.matched_type and not t.reconciled %}
+            <form method="post" action="/bank/transactions/{{ t.id }}/delete" style="display:inline" onsubmit="return confirm('Delete this line?')">
+              <button class="btn btn-sm btn-outline" type="submit">Del</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No transactions yet — add manually or import a bank CSV.</p>
+  {% endif %}
+</div>
+{% endblock %}

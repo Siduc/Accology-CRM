@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Creditors · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard#working-capital">← Working capital</a></p>
+    <h1>Creditors</h1>
+    <p class="muted small">
+      Outstanding £{{ '{:,.2f}'.format(total) }}
+      · Suppliers £{{ '{:,.2f}'.format(supplier_total) }}
+      · VAT £{{ '{:,.2f}'.format(vat_total) }}
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Add bill / VAT liability</h2>
+  <form class="stack" method="post" action="/working-capital/creditors/add">
+    <div class="form-grid">
+      <div>
+        <label for="supplier_name">Supplier / payee *</label>
+        <input id="supplier_name" name="supplier_name" required placeholder="HMRC, landlord…">
+      </div>
+      <div>
+        <label for="category">Category</label>
+        <select id="category" name="category">
+          <option value="supplier">Supplier</option>
+          <option value="vat">VAT due</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div>
+        <label for="amount">Amount (£)</label>
+        <input id="amount" name="amount" inputmode="decimal" required placeholder="0.00">
+      </div>
+      <div>
+        <label for="vat_amount">VAT portion (£)</label>
+        <input id="vat_amount" name="vat_amount" inputmode="decimal" value="0">
+      </div>
+      <div>
+        <label for="due_date">Due date</label>
+        <input id="due_date" type="date" name="due_date">
+      </div>
+      <div>
+        <label for="description">Description</label>
+        <input id="description" name="description" placeholder="Optional">
+      </div>
+    </div>
+    <button class="btn wc-touch" type="submit">Add creditor</button>
+  </form>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Bills</h2>
+  {% if bills %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Category</th>
+          <th>Due</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in bills %}
+        <tr>
+          <td>
+            <strong>{{ b.supplier_name }}</strong>
+            {% if b.description %}<div class="small muted">{{ b.description }}</div>{% endif %}
+          </td>
+          <td>{{ b.category or 'supplier' }}</td>
+          <td>
+            {% if b.due_date and b.status == 'outstanding' and b.due_date < today %}
+            <span class="badge badge-overdue">{{ b.due_date }}</span>
+            {% else %}
+            {{ b.due_date or '—' }}
+            {% endif %}
+          </td>
+          <td>£{{ '%.2f'|format(b.amount or 0) }}</td>
+          <td><span class="badge">{{ b.status }}</span></td>
+          <td>
+            {% if b.status == 'outstanding' %}
+            <form method="post" action="/working-capital/creditors/{{ b.id }}/paid" style="margin:0" class="stack">
+              <label class="small muted" style="display:flex;gap:0.35rem;align-items:center">
+                <input type="checkbox" name="post_to_bank" value="yes" checked>
+                Post to Bank Ledger
+              </label>
+              <button class="btn btn-sm btn-outline wc-touch" type="submit">Mark paid</button>
+            </form>
+            {% else %}
+            {% if b.bank_transaction_id %}<span class="small muted">Bank #{{ b.bank_transaction_id }}</span>{% else %}—{% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No creditor bills yet. Add supplier invoices or VAT due above.</p>
+  {% endif %}
+</div>
+{% endblock %}

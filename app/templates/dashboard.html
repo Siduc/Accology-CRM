@@ -1,173 +1,325 @@
 {% extends "base.html" %}
-{% block title %}Dashboard · Accountant CRM{% endblock %}
+{% block title %}Accologise{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div>
-    <h1>Dashboard</h1>
-    <p class="muted small">Overview as of {{ today }}</p>
-  </div>
-  <div class="actions">
-    <a class="btn btn-sm" href="/clients/new">Add Client</a>
-    <a class="btn btn-sm btn-secondary" href="/jobs/new">Add Job</a>
-    <a class="btn btn-sm btn-outline" href="/import">Import</a>
-    <a class="btn btn-sm btn-secondary" href="/restore" title="Upload backup.json to restore clients, people and jobs">Restore from Backup</a>
-  </div>
-</div>
 
-{# Practice headcount — big numbers, little words #}
-<div class="headcount-panel card">
-  <div class="headcount-toolbar">
+{# ========== DESKTOP PROFESSIONAL VIEW ========== #}
+<div class="dash-view dash-desktop">
+  <div class="desk-topbar">
     <div>
-      <h2 class="headcount-heading">Practice</h2>
-      <p class="muted small headcount-hint">
-        <strong>Overall:</strong> Clients = New − Lost
-        ({{ total_new_clients|default(0)|int }} − {{ total_lost|default(0)|int }} = {{ total_clients|default(0)|int }}).
-        <strong>Year tabs ({{ earliest_year }}–now):</strong> New = first invoice; Lost = last invoice (Inactive).
-        <strong>Groups</strong> = companies that share people.
-      </p>
+      <a class="desk-brand" href="/dashboard">
+        <span class="desk-brand-mark" aria-hidden="true">A</span>
+        <span>
+          Accologise
+          <span class="desk-brand-tag">Practice CRM · Working capital</span>
+        </span>
+      </a>
+      <p class="muted small" style="margin:0.35rem 0 0">Practice cycle · {{ today }}</p>
     </div>
-    <div class="period-toggle period-toggle-years" role="group" aria-label="Time period">
-      {% for y in years %}
-      <a class="period-btn {% if period == (y|string) %}is-active{% endif %}"
-         href="/dashboard?period={{ y }}">{{ y }}</a>
+    <div class="actions">
+      <a class="btn btn-sm" href="/jobs/new">New Job</a>
+      <a class="btn btn-sm btn-secondary" href="/clients/new">New Client</a>
+      <a class="btn btn-sm btn-outline" href="/clients/new?status=Prospect">New Prospect</a>
+      <a class="btn btn-sm btn-outline" href="/settings">Settings</a>
+      <a class="btn btn-sm btn-outline" href="/logout">Logout</a>
+    </div>
+  </div>
+
+  <div class="wc-grid" id="working-capital-desktop">
+    <a class="wc-box wc-box-wip wc-touch" href="/working-capital/wip">
+      <div class="wc-box-head">
+        <span class="wc-box-title">1 · Work in progress</span>
+        <span class="wc-box-link">Open →</span>
+      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}</div>
+      <div class="wc-box-meta">{{ wc_wip_count|default(0) }} open jobs</div>
+      <div class="wc-ageing">
+        {% for b in wc_wip_ageing|default([]) %}
+        <div class="wc-age-row">
+          <span class="wc-age-lab">{{ b.label }}</span>
+          <span class="wc-age-bar-wrap"><span class="wc-age-bar" style="width:{{ ((b.amount / ((wc_wip_value if wc_wip_value else 1))) * 100)|int }}%"></span></span>
+          <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </a>
+
+    <a class="wc-box wc-box-debtors wc-touch" href="/sales/chase">
+      <div class="wc-box-head">
+        <span class="wc-box-title">2 · Debtors</span>
+        <span class="wc-box-link">Chase desk →</span>
+      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}</div>
+      <div class="wc-box-meta">
+        {{ wc_debtors_count|default(0) }} outstanding
+        · chase {{ chase_pipeline_count|default(0) }}
+        (£{{ '{:,.0f}'.format(chase_pipeline_amount|default(0)) }})
+      </div>
+      <div class="wc-ageing">
+        {% for b in wc_debtors_ageing|default([]) %}
+        <div class="wc-age-row">
+          <span class="wc-age-lab">{{ b.label }}</span>
+          <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-amber" style="width:{{ ((b.amount / ((wc_debtors_total if wc_debtors_total else 1))) * 100)|int }}%"></span></span>
+          <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="wc-box-meta small" style="margin-top:0.35rem">
+        Credit control:
+        P {{ chase_by_stage.polite|default(0) }}
+        · F {{ chase_by_stage.firm|default(0) }}
+        · Fin {{ chase_by_stage.final|default(0) }}
+        · L {{ chase_by_stage.legal|default(0) }}
+        {% if not chase_live %}<span class="badge">practice</span>{% endif %}
+      </div>
+    </a>
+
+    <a class="wc-box wc-box-cash wc-touch" href="/bank">
+      <div class="wc-box-head">
+        <span class="wc-box-title">3 · Cash</span>
+        <span class="wc-box-link">Bank Ledger →</span>
+      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}</div>
+      <div class="wc-box-meta">{{ wc_cash_name|default('Practice account') }} · {{ wc_cash_txn_count|default(0) }} transactions</div>
+      <ul class="wc-recent">
+        {% if wc_cash_recent %}
+          {% for t in wc_cash_recent[:4] %}
+          <li>
+            <span class="wc-recent-date">{{ t.txn_date }}</span>
+            <span class="wc-recent-desc">{{ t.description or '—' }}</span>
+            <span class="wc-recent-amt {% if t.amount >= 0 %}pos{% else %}neg{% endif %}">
+              {% if t.amount >= 0 %}+{% endif %}£{{ '%.0f'|format(t.amount) }}
+            </span>
+          </li>
+          {% endfor %}
+        {% else %}
+          <li class="muted small">No transactions yet — open Cash to set balance</li>
+        {% endif %}
+      </ul>
+    </a>
+
+    <a class="wc-box wc-box-creditors wc-touch" href="/purchase">
+      <div class="wc-box-head">
+        <span class="wc-box-title">4 · Creditors</span>
+        <span class="wc-box-link">Purchase Ledger →</span>
+      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}</div>
+      <div class="wc-box-meta">
+        Suppliers £{{ '{:,.0f}'.format(wc_creditors_supplier|default(0)) }}
+        · VAT £{{ '{:,.0f}'.format(wc_creditors_vat|default(0)) }}
+        · {{ wc_creditors_count|default(0) }} open
+      </div>
+      <div class="wc-ageing">
+        {% for b in wc_creditors_ageing|default([]) %}
+        <div class="wc-age-row">
+          <span class="wc-age-lab">{{ b.label }}</span>
+          <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-red" style="width:{{ ((b.amount / ((wc_creditors_total if wc_creditors_total else 1))) * 100)|int }}%"></span></span>
+          <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </a>
+  </div>
+
+  <section class="wc-net-banner wc-net-result {% if (wc_net|default(0)) < 0 %}wc-net-neg{% else %}wc-net-pos{% endif %}">
+    <div class="wc-net-main">
+      <div class="wc-net-label">Net assets</div>
+      <div class="wc-net-value">£{{ '{:,.0f}'.format(wc_net|default(0)) }}</div>
+      <div class="wc-net-formula muted small">
+        WIP £{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}
+        + Debtors £{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}
+        + Cash £{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}
+        − Creditors £{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}
+      </div>
+    </div>
+    <p class="wc-net-hint muted small">Outcome of the cycle: assets in work, invoices, and bank, less what you owe.</p>
+  </section>
+
+  {% if live_notes %}
+  <div class="desk-notes-strip" aria-label="Pinned notes">
+    {% for n in live_notes %}
+    <a class="desk-postit postit-{{ n.color or 'yellow' }}" href="/notes">
+      <strong>{{ n.title or 'Note' }}</strong>
+      <span>{{ (n.body or '')[:80] }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="headcount-panel card" style="margin-top:1.25rem">
+    <div class="headcount-toolbar">
+      <div>
+        <h2 class="headcount-heading">Practice book</h2>
+        <p class="muted small headcount-hint">
+          {% if period != 'overall' and opening_clients is defined and opening_clients is not none %}
+          {{ period }}: Opening {{ opening_clients|int }} + New {{ total_new_clients|default(0)|int }} − Lost {{ total_lost|default(0)|int }}
+          = Closing <strong>{{ total_clients|default(0)|int }}</strong>
+          (opening for next year). Groups at 31 Dec {{ period }}.
+          Join/leave: engagement &amp; disengagement dates when set, else first/last invoice.
+          {% else %}
+          Overall: Clients (closing) = New − Lost.
+          Groups as at today. Year tabs: Opening + New − Lost = Closing.
+          Engagement / disengagement on the client record override invoice proxies.
+          {% endif %}
+        </p>
+      </div>
+      <div class="period-toggle period-toggle-years" role="group" aria-label="Year">
+        {% for y in years|default([]) %}
+        <a class="period-btn {% if period == (y|string) %}is-active{% endif %}" href="/dashboard?period={{ y }}">{{ y }}</a>
+        {% endfor %}
+        <a class="period-btn {% if period == 'overall' %}is-active{% endif %}" href="/dashboard?period=overall">Overall</a>
+      </div>
+    </div>
+    <div class="stat-row stat-row-5">
+      <a class="stat-tile" href="/groups">
+        <div class="stat-num" style="color:#0f172a;font-size:2.25rem;font-weight:800;line-height:1.1;">{{ total_groups|default(0)|int }}</div>
+        <div class="stat-name">Groups</div>
+      </a>
+      <a class="stat-tile stat-tile-success" href="/clients?status=Active">
+        <div class="stat-num" style="color:#15803d;font-size:2.25rem;font-weight:800;line-height:1.1;">{{ total_clients|default(0)|int }}</div>
+        <div class="stat-name">{% if period == 'overall' %}Clients{% else %}Closing{% endif %}</div>
+      </a>
+      <a class="stat-tile" href="/clients">
+        <div class="stat-num" style="color:#1d4ed8;font-size:2.25rem;font-weight:800;line-height:1.1;">{{ total_new_clients|default(0)|int }}</div>
+        <div class="stat-name">New</div>
+      </a>
+      <a class="stat-tile stat-tile-danger" href="/lost/clients">
+        <div class="stat-num" style="color:#b91c1c;font-size:2.25rem;font-weight:800;line-height:1.1;">{{ total_lost|default(0)|int }}</div>
+        <div class="stat-name">Lost</div>
+      </a>
+      <a class="stat-tile" href="/clients?status=Prospect">
+        <div class="stat-num" style="color:#0f172a;font-size:2.25rem;font-weight:800;line-height:1.1;">{{ total_prospects|default(0)|int }}</div>
+        <div class="stat-name">Prospects</div>
+      </a>
+    </div>
+    <p class="muted small" style="margin:0.75rem 0 0">Showing: <strong>{{ year_label|default('Overall') }}</strong></p>
+  </div>
+</div>
+
+{# ========== MOBILE LIVE TILES VIEW ========== #}
+<div class="dash-view dash-mobile">
+  <div class="hub">
+    <header class="hub-header">
+      <div>
+        <p class="hub-brand"><span class="hub-brand-mark" aria-hidden="true">A</span>Accologise</p>
+        <p class="hub-date muted small">Practice CRM · {{ today }}</p>
+      </div>
+      <div class="hub-header-actions">
+        <a class="hub-logout" href="/settings">Settings</a>
+        <a class="hub-logout" href="/logout">Logout</a>
+      </div>
+    </header>
+
+    <div class="action-tiles" role="navigation" aria-label="Quick actions">
+      <a class="action-tile action-job" href="/jobs/new">
+        <span class="action-plus">+</span>
+        <span class="action-label">New Job</span>
+      </a>
+      <a class="action-tile action-client" href="/clients/new">
+        <span class="action-plus">+</span>
+        <span class="action-label">New Client</span>
+      </a>
+      <a class="action-tile action-prospect" href="/clients/new?status=Prospect">
+        <span class="action-plus">+</span>
+        <span class="action-label">New Prospect</span>
+      </a>
+    </div>
+
+    <div class="live-grid" id="working-capital-mobile" aria-label="Working capital cycle">
+      <a class="live-tile tile-wip" href="/working-capital/wip">
+        <span class="live-kicker">1 · WIP</span>
+        <span class="live-value">£{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}</span>
+        <span class="live-sub">{{ wc_wip_count|default(0) }} jobs</span>
+        <span class="live-age">
+          {% for b in wc_wip_ageing|default([]) if b.count %}
+          <span>{{ b.label }} {{ b.count }}</span>
+          {% endfor %}
+        </span>
+      </a>
+      <a class="live-tile tile-debtors" href="/sales/chase">
+        <span class="live-kicker">2 · Debtors</span>
+        <span class="live-value">£{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}</span>
+        <span class="live-sub">{{ chase_pipeline_count|default(0) }} in chase · {{ wc_debtors_count|default(0) }} inv</span>
+        <span class="live-age">
+          {% for b in wc_debtors_ageing|default([]) if b.count %}
+          <span>{{ b.label }} {{ b.count }}</span>
+          {% endfor %}
+        </span>
+      </a>
+      <a class="live-tile tile-cash" href="/bank">
+        <span class="live-kicker">3 · Cash</span>
+        <span class="live-value">£{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}</span>
+        <span class="live-sub">{{ wc_cash_name|default('Bank') }}</span>
+        <span class="live-age">
+          {% if wc_cash_recent and wc_cash_recent[0] %}
+          <span>{{ wc_cash_recent[0].description or 'Latest' }}
+            {% if wc_cash_recent[0].amount >= 0 %}+{% endif %}£{{ '%.0f'|format(wc_cash_recent[0].amount) }}
+          </span>
+          {% else %}
+          <span>Tap to update</span>
+          {% endif %}
+        </span>
+      </a>
+      <a class="live-tile tile-creditors" href="/purchase">
+        <span class="live-kicker">4 · Creditors</span>
+        <span class="live-value">£{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}</span>
+        <span class="live-sub">VAT £{{ '{:,.0f}'.format(wc_creditors_vat|default(0)) }}</span>
+        <span class="live-age"><span>{{ wc_creditors_count|default(0) }} open bills</span></span>
+      </a>
+      {% for n in live_notes|default([]) %}
+      <a class="live-tile live-postit postit-{{ n.color or 'yellow' }}" href="/notes">
+        <span class="live-kicker">Note</span>
+        <span class="live-postit-title">{{ n.title or 'Note' }}</span>
+        <span class="live-postit-body">{{ (n.body or '')[:120] }}</span>
+      </a>
       {% endfor %}
-      <a class="period-btn {% if period == 'overall' %}is-active{% endif %}"
-         href="/dashboard?period=overall">Overall</a>
     </div>
-  </div>
 
-  {# Order: Groups | Clients | New clients | Lost | Prospects #}
-  {# default(0) avoids 500 if a stale server process misses a context key #}
-  <div class="stat-row stat-row-5">
-    <a class="stat-tile" href="/groups" title="Clients linked by shared people — open list of groups">
-      <div class="stat-num" style="color:#0f172a;font-size:2.75rem;font-weight:800;line-height:1.1;">{{ total_groups|default(0)|int }}</div>
-      <div class="stat-name">Groups</div>
-    </a>
-    <a class="stat-tile stat-tile-success" href="/clients?status=Active" title="Current book (Active + Former). Overall: New − Lost">
-      <div class="stat-num" style="color:#15803d;font-size:2.75rem;font-weight:800;line-height:1.1;">{{ total_clients|default(0)|int }}</div>
-      <div class="stat-name">Clients</div>
-    </a>
-    <a class="stat-tile" href="/clients" title="{% if period == 'overall' %}All who became clients (Clients + Lost){% else %}First invoice in this year{% endif %}">
-      <div class="stat-num" style="color:#1d4ed8;font-size:2.75rem;font-weight:800;line-height:1.1;">{{ total_new_clients|default(0)|int }}</div>
-      <div class="stat-name">New clients</div>
-    </a>
-    <a class="stat-tile stat-tile-danger" href="/lost/clients" title="{% if period == 'overall' %}All Inactive{% else %}Inactive with last invoice in this year{% endif %}">
-      <div class="stat-num" style="color:#b91c1c;font-size:2.75rem;font-weight:800;line-height:1.1;">{{ total_lost|default(0)|int }}</div>
-      <div class="stat-name">Lost</div>
-    </a>
-    <a class="stat-tile" href="/clients?status=Prospect" title="Prospects">
-      <div class="stat-num" style="color:#0f172a;font-size:2.75rem;font-weight:800;line-height:1.1;">{{ total_prospects|default(0)|int }}</div>
-      <div class="stat-name">Prospects</div>
-    </a>
-  </div>
-  <p class="muted small" style="margin:0.75rem 0 0">Showing: <strong>{{ year_label }}</strong></p>
-</div>
+    <section class="live-net {% if (wc_net|default(0)) < 0 %}live-net-neg{% endif %}" aria-label="Net assets">
+      <div class="live-net-label">Net assets</div>
+      <div class="live-net-value">£{{ '{:,.0f}'.format(wc_net|default(0)) }}</div>
+      <div class="live-net-formula">WIP + Debtors + Cash − Creditors</div>
+    </section>
 
-<div class="section-label">Workload</div>
-<div class="metrics">
-  <a class="metric-card warning metric-link" href="/jobs?filter=due_soon">
-    <div class="value">{{ due_soon_count }}</div>
-    <div class="label">Due 30d</div>
-  </a>
-  <a class="metric-card danger metric-link" href="/jobs?filter=overdue">
-    <div class="value">{{ overdue_count }}</div>
-    <div class="label">Overdue</div>
-  </a>
-  <a class="metric-card metric-link" href="/jobs?filter=open">
-    <div class="value">£{{ '%.0f'|format(total_fees) }}</div>
-    <div class="label">Open fees</div>
-  </a>
-  <a class="metric-card metric-link" href="/jobs/accounts?filter=open">
-    <div class="value">{{ accounts_open }}</div>
-    <div class="label">Accounts</div>
-  </a>
-  <a class="metric-card metric-link" href="/jobs/confirmation-statements?filter=open">
-    <div class="value">{{ cs_open }}</div>
-    <div class="label">CS open</div>
-  </a>
-  <a class="metric-card metric-link" href="/people?filter=individual">
-    <div class="value">{{ individual_clients }}</div>
-    <div class="label">Individuals</div>
-  </a>
-</div>
-
-<div class="grid-2">
-  <div class="card">
-    <div class="page-header" style="margin-bottom:0.75rem">
-      <h2 style="margin:0">Upcoming / Overdue Jobs</h2>
-      <a class="btn btn-sm btn-outline" href="/jobs?filter=open">All open jobs</a>
-    </div>
-    {% if upcoming_jobs %}
-    <div class="table-wrap">
-      <table class="data">
-        <thead>
-          <tr>
-            <th>Client</th>
-            <th>Job</th>
-            <th>Due</th>
-            <th>Status</th>
-            <th>Fee</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for j in upcoming_jobs %}
-          <tr class="row-link" onclick="window.location='/jobs/{{ j.id }}'">
-            <td>
-              {% if j.client %}
-              <a href="/clients/{{ j.client_id }}" onclick="event.stopPropagation()">{{ j.client.company_name or j.client.company_number }}</a>
-              {% else %}—{% endif %}
-            </td>
-            <td><a href="/jobs/{{ j.id }}" onclick="event.stopPropagation()">{{ j.title or j.type }}</a></td>
-            <td>
-              {% if j.statutory_due_date %}
-                {% if j.statutory_due_date < today and j.status not in ['Completed','Cancelled'] %}
-                <span class="badge badge-overdue">{{ j.statutory_due_date }}</span>
-                {% else %}
-                {{ j.statutory_due_date }}
-                {% endif %}
-              {% else %}—{% endif %}
-            </td>
-            <td><span class="badge">{{ j.status }}</span></td>
-            <td>£{{ '%.2f'|format(j.fee or 0) }}</td>
-          </tr>
+    <section class="hub-practice">
+      <div class="hub-practice-head">
+        <h2>Practice book</h2>
+        <div class="period-toggle period-toggle-years" role="group" aria-label="Year">
+          {% for y in years|default([]) %}
+          <a class="period-btn {% if period == (y|string) %}is-active{% endif %}" href="/dashboard?period={{ y }}">{{ y }}</a>
           {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="empty">No jobs yet. <a href="/jobs/new">Create a job</a> or <a href="/companies-house/jobs">pull from Companies House</a>.</p>
-    {% endif %}
-  </div>
-
-  <div class="card">
-    <div class="page-header" style="margin-bottom:0.75rem">
-      <h2 style="margin:0">Recent Clients</h2>
-      <a class="btn btn-sm btn-outline" href="/clients">All clients</a>
-    </div>
-    {% if recent_clients %}
-    <div class="table-wrap">
-      <table class="data">
-        <thead>
-          <tr>
-            <th>Company</th>
-            <th>Number</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for c in recent_clients %}
-          <tr class="row-link" onclick="window.location='/clients/{{ c.id }}'">
-            <td><a href="/clients/{{ c.id }}" onclick="event.stopPropagation()">{{ c.company_name or '—' }}</a></td>
-            <td>{{ c.company_number or '—' }}</td>
-            <td><span class="badge badge-active">{{ c.overall_status or '—' }}</span></td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="empty">No clients yet. <a href="/import-clients">Import clients</a>.</p>
-    {% endif %}
+          <a class="period-btn {% if period == 'overall' %}is-active{% endif %}" href="/dashboard?period=overall">All</a>
+        </div>
+      </div>
+      {% if period != 'overall' and opening_clients is defined and opening_clients is not none %}
+      <p class="muted small hub-practice-note" style="margin-bottom:0.5rem">
+        Open {{ opening_clients|int }} + New {{ total_new_clients|default(0)|int }} − Lost {{ total_lost|default(0)|int }}
+        = Close {{ total_clients|default(0)|int }}
+      </p>
+      {% endif %}
+      <div class="practice-tiles">
+        <a class="practice-tile" href="/groups">
+          <span class="practice-num">{{ total_groups|default(0)|int }}</span>
+          <span class="practice-lab">Groups</span>
+        </a>
+        <a class="practice-tile practice-ok" href="/clients?status=Active">
+          <span class="practice-num">{{ total_clients|default(0)|int }}</span>
+          <span class="practice-lab">{% if period == 'overall' %}Clients{% else %}Close{% endif %}</span>
+        </a>
+        <a class="practice-tile practice-new" href="/clients">
+          <span class="practice-num">{{ total_new_clients|default(0)|int }}</span>
+          <span class="practice-lab">New</span>
+        </a>
+        <a class="practice-tile practice-lost" href="/lost/clients">
+          <span class="practice-num">{{ total_lost|default(0)|int }}</span>
+          <span class="practice-lab">Lost</span>
+        </a>
+        <a class="practice-tile" href="/clients?status=Prospect">
+          <span class="practice-num">{{ total_prospects|default(0)|int }}</span>
+          <span class="practice-lab">Prospects</span>
+        </a>
+      </div>
+      <p class="muted small hub-practice-note">{{ year_label|default('Overall') }}{% if period == 'overall' %} · Clients = New − Lost{% else %} · Groups at 31 Dec{% endif %}</p>
+    </section>
   </div>
 </div>
 {% endblock %}

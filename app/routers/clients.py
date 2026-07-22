@@ -43,6 +43,17 @@ def _client_search(query, q: str):
     )
 
 
+def _parse_date(value: str):
+    """Parse YYYY-MM-DD form date; empty → None."""
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 @router.get("", response_class=HTMLResponse)
 async def list_clients(
     request: Request,
@@ -96,7 +107,12 @@ async def list_lost_clients_legacy(
 
 
 @router.get("/new", response_class=HTMLResponse)
-async def new_client_form(request: Request):
+async def new_client_form(
+    request: Request,
+    status: str = Query(""),
+):
+    # Allow /clients/new?status=Prospect for hub “New Prospect” action
+    default_status = status if status in STATUSES else "Active"
     return render(
         request,
         "clients/form.html",
@@ -104,6 +120,7 @@ async def new_client_form(request: Request):
             "client": None,
             "statuses": STATUSES,
             "client_types": CLIENT_TYPES,
+            "default_status": default_status,
             "error": None,
         },
     )
@@ -123,6 +140,8 @@ async def create_client(
     postcode: str = Form(""),
     client_type: str = Form(""),
     overall_status: str = Form("Active"),
+    engagement_date: str = Form(""),
+    disengagement_date: str = Form(""),
     vat_number: str = Form(""),
     utr: str = Form(""),
     notes: str = Form(""),
@@ -137,6 +156,7 @@ async def create_client(
                 "client": None,
                 "statuses": STATUSES,
                 "client_types": CLIENT_TYPES,
+                "default_status": overall_status or "Active",
                 "error": "Company number is required.",
             },
             status_code=400,
@@ -150,10 +170,18 @@ async def create_client(
                 "client": None,
                 "statuses": STATUSES,
                 "client_types": CLIENT_TYPES,
+                "default_status": overall_status or "Active",
                 "error": f"Company number {cn} already exists (client #{existing.id}).",
             },
             status_code=400,
         )
+
+    eng = _parse_date(engagement_date)
+    dis = _parse_date(disengagement_date)
+    status = overall_status or "Active"
+    # Completing disengagement marks the client lost unless already a prospect
+    if dis and status not in ("Prospect", "Inactive"):
+        status = "Inactive"
 
     client = Client(
         company_name=company_name or None,
@@ -166,7 +194,9 @@ async def create_client(
         town=town or None,
         postcode=postcode or None,
         client_type=client_type or None,
-        overall_status=overall_status or "Active",
+        overall_status=status,
+        engagement_date=eng,
+        disengagement_date=dis,
         vat_number=vat_number or None,
         utr=utr or None,
         notes=notes or None,
@@ -186,6 +216,7 @@ async def client_detail(
     saved: str = Query(""),
     contact_added: str = Query(""),
     contact_linked: str = Query(""),
+    tab: str = Query(""),
     db: Session = Depends(get_db),
 ):
     client = db.query(Client).filter(Client.id == client_id).first()
@@ -232,12 +263,32 @@ async def client_detail(
     except Exception:
         other_people = []
     message = None
-    if saved:
+    if saved == "connections":
+        message = "Connections saved."
+    elif saved:
         message = "Details saved."
     elif contact_added:
         message = "Contact added to people list and linked to this client."
     elif contact_linked:
         message = "Existing person linked to this client."
+
+    from app.services.client_connections import list_connections_for_client
+    from app.services.cs_automation import latest_pack_for_client
+    from app.services.ch_oauth import latest_token_for_client, token_is_fresh
+
+    connections = list_connections_for_client(db, client_id)
+    asana_on = any(c["provider"] == "asana" and c["enabled"] for c in connections)
+    try:
+        latest_cs_pack = latest_pack_for_client(db, client_id)
+    except Exception:
+        latest_cs_pack = None
+    ch_oauth_connected = False
+    try:
+        tok = latest_token_for_client(db, client_id)
+        ch_oauth_connected = bool(tok and token_is_fresh(tok))
+    except Exception:
+        ch_oauth_connected = False
+
     # Pre-serialize chart JSON so template never fails on tojson edge cases
     import json
 
@@ -262,7 +313,37 @@ async def client_detail(
             "chart_json": chart_json,
             "message": message,
             "today": date.today(),
+            "connections": connections,
+            "asana_on": asana_on,
+            "active_tab": tab or "overview",
+            "latest_cs_pack": latest_cs_pack,
+            "ch_oauth_connected": ch_oauth_connected,
         },
+    )
+
+
+@router.post("/{client_id:int}/connections")
+async def update_client_connections(
+    client_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Save per-client integration toggles (opt-in)."""
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+
+    form = await request.form()
+    from app.services.client_connections import CONNECTION_PROVIDERS, save_connection_toggles
+
+    enabled_map = {}
+    for code, _label, _desc in CONNECTION_PROVIDERS:
+        # checkbox present when on
+        enabled_map[code] = form.get(f"conn_{code}") == "yes"
+    save_connection_toggles(db, client_id, enabled_map)
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=connections&saved=connections",
+        status_code=303,
     )
 
 
@@ -290,6 +371,8 @@ async def update_client_details(
     accounts_software_password: str = Form(""),
     ch_authentication_code: str = Form(""),
     ch_personal_code: str = Form(""),
+    engagement_date: str = Form(""),
+    disengagement_date: str = Form(""),
     notes: str = Form(""),
     primary_person_id: str = Form(""),
     db: Session = Depends(get_db),
@@ -310,6 +393,9 @@ async def update_client_details(
         if not dup:
             client.company_number = cn
 
+    eng = _parse_date(engagement_date)
+    dis = _parse_date(disengagement_date)
+
     client.company_name = company_name or client.company_name
     client.contact_name = contact_name or None
     client.email = email or None
@@ -319,6 +405,8 @@ async def update_client_details(
     client.town = town or None
     client.postcode = postcode or None
     client.client_type = client_type or None
+    client.engagement_date = eng
+    client.disengagement_date = dis
     client.vat_number = vat_number or None
     client.utr = utr or None
     client.paye_reference = paye_reference or None
@@ -330,7 +418,19 @@ async def update_client_details(
     client.ch_authentication_code = ch_authentication_code or None
     client.ch_personal_code = ch_personal_code or None
     client.notes = notes or None
+    # Completing disengagement → lost (practice book leave date)
+    if dis and (client.overall_status or "") not in ("Prospect", "Inactive"):
+        client.overall_status = "Inactive"
     client.updated_at = datetime.utcnow()
+
+    # Lost / disengaged clients leave practice groups
+    if (client.overall_status or "") == "Inactive" or client.disengagement_date:
+        try:
+            from app.services.practice_groups import remove_client_from_groups
+
+            remove_client_from_groups(db, client_id)
+        except Exception:
+            pass
 
     # Set primary contact from people list
     if primary_person_id:
@@ -452,6 +552,16 @@ async def update_client_status(
     client.updated_at = datetime.utcnow()
     db.commit()
 
+    # Inactive = Lost → remove from groups board
+    # Former stays live (not lost) and can remain in groups
+    if status == "Inactive":
+        try:
+            from app.services.practice_groups import remove_client_from_groups
+
+            remove_client_from_groups(db, client_id)
+        except Exception:
+            pass
+
     # Where to return after change
     if next == "lost":
         return RedirectResponse("/lost/clients", status_code=303)
@@ -497,6 +607,8 @@ async def update_client(
     postcode: str = Form(""),
     client_type: str = Form(""),
     overall_status: str = Form("Active"),
+    engagement_date: str = Form(""),
+    disengagement_date: str = Form(""),
     vat_number: str = Form(""),
     utr: str = Form(""),
     paye_reference: str = Form(""),
@@ -527,6 +639,12 @@ async def update_client(
             status_code=400,
         )
 
+    eng = _parse_date(engagement_date)
+    dis = _parse_date(disengagement_date)
+    status = overall_status or "Active"
+    if dis and status not in ("Prospect", "Inactive"):
+        status = "Inactive"
+
     client.company_name = company_name or None
     client.company_number = cn
     client.contact_name = contact_name or None
@@ -537,7 +655,9 @@ async def update_client(
     client.town = town or None
     client.postcode = postcode or None
     client.client_type = client_type or None
-    client.overall_status = overall_status or "Active"
+    client.overall_status = status
+    client.engagement_date = eng
+    client.disengagement_date = dis
     client.vat_number = vat_number or None
     client.utr = utr or None
     client.paye_reference = paye_reference or None
@@ -554,4 +674,11 @@ async def update_client(
         client.ch_personal_code = form.get("ch_personal_code") or None
     client.updated_at = datetime.utcnow()
     db.commit()
+    if status == "Inactive" or dis:
+        try:
+            from app.services.practice_groups import remove_client_from_groups
+
+            remove_client_from_groups(db, client_id)
+        except Exception:
+            pass
     return RedirectResponse(f"/clients/{client_id}", status_code=303)

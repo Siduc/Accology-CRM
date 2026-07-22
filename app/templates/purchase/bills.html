@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Bills · Purchase · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/purchase">← Purchase Ledger</a></p>
+    <h1>Purchase bills</h1>
+  </div>
+  <div class="actions">
+    <a class="btn wc-touch" href="/purchase/bills/new">New bill</a>
+  </div>
+</div>
+<div class="actions" style="margin-bottom:1rem">
+  <a class="btn btn-sm {% if status=='outstanding' %}btn-secondary{% else %}btn-outline{% endif %}" href="/purchase/bills?status=outstanding">Outstanding</a>
+  <a class="btn btn-sm {% if status=='' %}btn-secondary{% else %}btn-outline{% endif %}" href="/purchase/bills?status=">All</a>
+  <a class="btn btn-sm {% if status=='paid' %}btn-secondary{% else %}btn-outline{% endif %}" href="/purchase/bills?status=paid">Paid</a>
+</div>
+<div class="card">
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Bill</th><th>Supplier</th><th>Issue</th><th>Due</th><th>Age</th><th>Balance</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><a href="/purchase/bills/{{ r.bill.id }}">{{ r.bill.number or ('#' ~ r.bill.id) }}</a></td>
+          <td>{{ r.bill.supplier_name or '—' }}</td>
+          <td>{{ r.bill.issue_date or '—' }}</td>
+          <td>{% if r.bill.due_date and r.bill.due_date < today and r.balance > 0 %}<span class="badge badge-overdue">{{ r.bill.due_date }}</span>{% else %}{{ r.bill.due_date or '—' }}{% endif %}</td>
+          <td>{{ r.age }}d</td>
+          <td>£{{ '%.2f'|format(r.balance) }}</td>
+          <td><span class="badge">{{ r.bill.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No bills in this filter.</p>
+  {% endif %}
+</div>
+{% endblock %}

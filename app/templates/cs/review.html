@@ -1,0 +1,422 @@
+{% extends "base.html" %}
+{% block title %}CS pack · {{ client.display_name() if client else pack.id }} · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted">
+      {% if client %}<a href="/clients/{{ client.id }}">← {{ client.display_name() }}</a>{% else %}<a href="/clients">← Clients</a>{% endif %}
+      · Confirmation Statement
+    </p>
+    <h1>CS review · CH vs practice</h1>
+    <p class="muted small">
+      {{ form.company_name or '—' }} · {{ pack.company_number or form.company_number or '—' }}
+      · <span class="badge">{{ pack.status }}</span>
+      {% if pack.due_on %} · due {{ pack.due_on|uk_date }}{% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    {% if job %}<a class="btn btn-outline wc-touch" href="/jobs/{{ job.id }}">CS job</a>{% endif %}
+    {% if client %}<a class="btn btn-outline wc-touch" href="/clients/{{ client.id }}?tab=details">Edit client</a>{% endif %}
+    <a class="btn btn-outline wc-touch" href="{{ company_public_url }}" target="_blank" rel="noopener">CH public record</a>
+  </div>
+</div>
+
+{% if msg == 'saved' %}
+<div class="chase-banner chase-banner-info">Review saved.</div>
+{% elif msg == 'ready' %}
+<div class="chase-banner chase-banner-info">Marked <strong>ready to file</strong>. Complete filing on Companies House WebFiling, then mark filed here.</div>
+{% elif msg == 'filed' %}
+<div class="chase-banner chase-banner-info">Marked filed in Accologise (practice record). Linked CS job completed if open.</div>
+{% elif msg == 'refreshed' %}
+<div class="chase-banner chase-banner-info">Refreshed from Companies House public data.</div>
+{% elif msg == 'address_fixed' %}
+<div class="chase-banner chase-banner-info">Registered office copied from CH into the client record.</div>
+{% elif msg == 'unlinked' %}
+<div class="chase-banner chase-banner-info">Contact unlinked from this client.</div>
+{% elif msg == 'contact_created' %}
+<div class="chase-banner chase-banner-info">Contact created from CH officer and linked to this client.</div>
+{% elif msg == 'accounts_synced' %}
+<div class="chase-banner chase-banner-info">Accounts job period / due dates updated from Companies House.</div>
+{% elif msg == 'job_title_fixed' %}
+<div class="chase-banner chase-banner-info">CS job title and period aligned with CH company name.</div>
+{% elif msg == 'prepared' or msg == 'prepared_tx' %}
+<div class="chase-banner chase-banner-info">Filing preparation saved — this does <strong>not</strong> file the CS.</div>
+{% elif msg == 'prepared_tx_fail' %}
+<div class="chase-banner chase-banner-practice">Preparation saved; API transaction create failed.</div>
+{% endif %}
+{% if oauth_msg == 'connected' %}
+<div class="chase-banner chase-banner-info">Companies House OAuth connected for this company.</div>
+{% endif %}
+{% if oauth_error %}
+<div class="alert alert-error">OAuth: {{ oauth_error }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="chase-banner chase-banner-practice" role="status">
+  <strong>Compare view</strong> — left column is <em>Companies House public data</em> (downloaded into this pack).
+  Right column is <em>Accologise client / contacts / job</em>.
+  Red / amber rows need attention before you file.
+  Auth codes and software logins are <strong>practice-only</strong> (CH public API never returns them).
+</div>
+
+{% if compare and compare.summary %}
+<div class="metrics" style="margin-bottom:1rem">
+  <div class="metric-card {% if compare.summary.mismatch_count %}danger{% else %}success{% endif %}">
+    <div class="label">Field mismatches</div>
+    <div class="value">{{ compare.summary.mismatch_count }}</div>
+  </div>
+  <div class="metric-card {% if compare.summary.officer_unmatched %}warning{% else %}success{% endif %}">
+    <div class="label">CH officers not in CRM</div>
+    <div class="value">{{ compare.summary.officer_unmatched }}</div>
+  </div>
+  <div class="metric-card {% if compare.summary.crm_only_contacts %}warning{% else %}success{% endif %}">
+    <div class="label">CRM contacts not officers</div>
+    <div class="value">{{ compare.summary.crm_only_contacts }}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Practice codes on file</div>
+    <div class="value">{{ compare.summary.practice_secrets_on_file }}</div>
+    <div class="small muted">not from CH public API</div>
+  </div>
+</div>
+{% if compare.summary.accounts_mismatch %}
+<div class="alert alert-error">
+  <strong>Accounts date anomaly:</strong> open Accounts job does not match CH next accounts.
+  Drill into the job or use <em>Apply CH dates</em> on the Accounts rows below.
+</div>
+{% endif %}
+{% endif %}
+
+{# ========== DATES DRILL-DOWN ========== #}
+{% if client and compare %}
+<div class="card" style="margin-bottom:1rem;border-left:4px solid #dc2626" id="cs-dates">
+  <h2 style="margin-top:0">Dates · drill-down &amp; fix</h2>
+  <p class="small muted">
+    Mismatched job dates are listed here with a link to the job and a one-click fix from CH.
+  </p>
+  <div class="table-wrap">
+    <table class="data cs-compare-table">
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Companies House</th>
+          <th>Accologise job</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in compare.company_rows|default([]) %}
+        {% if 'Accounts' in r.field or r.field.startswith('CS ') or r.field == 'Linked CS job title' %}
+        <tr class="{% if r.severity == 'error' or (not r.match and r.severity != 'ok') %}row-overdue{% endif %}">
+          <td>
+            <strong>{{ r.field }}</strong>
+            {% if r.note %}<div class="small muted">{{ r.note }}</div>{% endif %}
+          </td>
+          <td><strong>{{ r.ch }}</strong></td>
+          <td>
+            {{ r.practice }}
+            {% if r.job_id %}
+            <div class="small" style="margin-top:0.35rem">
+              <a class="btn btn-sm btn-outline" href="/jobs/{{ r.job_id }}/edit">{{ r.job_label or 'Edit job' }}</a>
+              <a class="btn btn-sm btn-outline" href="/jobs/{{ r.job_id }}">View job</a>
+            </div>
+            {% elif r.fix_action == 'accounts-dates' %}
+            <div class="small muted" style="margin-top:0.35rem">No open Accounts job — sync will create one.</div>
+            {% endif %}
+          </td>
+          <td class="actions-cell">
+            {% if r.match %}
+            <span class="badge badge-active">Match</span>
+            {% elif r.fix_action %}
+            <span class="badge badge-overdue">Mismatch</span>
+            <form method="post" action="/cs/{{ pack.id }}/fix/{{ r.fix_action }}" style="margin-top:0.4rem"
+                  onsubmit="return confirm('Apply Companies House value to Accologise for: {{ r.field }}?');">
+              <button class="btn btn-sm wc-touch" type="submit">
+                {% if r.fix_action == 'accounts-dates' %}Apply CH Accounts dates{% elif r.fix_action == 'cs-job-title' %}Fix CS job from CH{% else %}Fix{% endif %}
+              </button>
+            </form>
+            {% else %}
+            <span class="badge badge-progress">Check</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="actions" style="margin-top:0.75rem;flex-wrap:wrap;gap:0.5rem">
+    <form method="post" action="/cs/{{ pack.id }}/fix/accounts-dates"
+          onsubmit="return confirm('Set open Accounts job period end + due from Companies House next accounts?');">
+      <button class="btn btn-sm wc-touch" type="submit">Sync all Accounts dates from CH</button>
+    </form>
+    {% if job %}
+    <form method="post" action="/cs/{{ pack.id }}/fix/cs-job-title">
+      <button class="btn btn-sm btn-outline wc-touch" type="submit">Fix CS job title / period</button>
+    </form>
+    <a class="btn btn-sm btn-outline" href="/jobs/{{ job.id }}/edit">Edit CS job #{{ job.id }}</a>
+    {% endif %}
+    {% if accounts_job %}
+    <a class="btn btn-sm btn-outline" href="/jobs/{{ accounts_job.id }}/edit">Edit Accounts job #{{ accounts_job.id }}</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ========== QUICK FIXES ========== #}
+{% if client and compare %}
+<div class="card" style="margin-bottom:1rem;border-left:4px solid #2563eb">
+  <h2 style="margin-top:0">Other fixes</h2>
+  <div class="actions" style="flex-wrap:wrap;gap:0.5rem">
+    <form method="post" action="/cs/{{ pack.id }}/fix/address">
+      <button class="btn btn-sm wc-touch" type="submit">Populate address from CH</button>
+    </form>
+    <form method="post" action="/cs/{{ pack.id }}/refresh"
+          onsubmit="return confirm('Refresh CH public data into this pack?');">
+      <button class="btn btn-sm btn-outline" type="submit">Refresh CH data</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# ========== COMPANY COMPARE ========== #}
+<div class="card" style="margin-bottom:1rem">
+  <div class="page-header" style="margin-bottom:0.75rem">
+    <h2 style="margin:0">Company · CH vs Accologise</h2>
+    {% if compare and compare.ch_fetched_at %}
+    <span class="small muted">CH snapshot {{ compare.ch_fetched_at }}</span>
+    {% endif %}
+  </div>
+  <div class="table-wrap">
+    <table class="data cs-compare-table">
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Companies House</th>
+          <th>Accologise / practice</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in compare.company_rows|default([]) %}
+        {% if 'Accounts' not in r.field and not r.field.startswith('CS ') and r.field != 'Linked CS job title' %}
+        <tr class="{% if r.severity == 'error' %}row-overdue{% elif r.severity == 'warn' and not r.match %}cs-row-warn{% endif %}">
+          <td><strong>{{ r.field }}</strong>
+            {% if r.note %}<div class="small muted">{{ r.note }}</div>{% endif %}
+          </td>
+          <td>{{ r.ch }}</td>
+          <td>{{ r.practice }}</td>
+          <td>
+            {% if r.match %}
+            <span class="badge badge-active">Match</span>
+            {% elif r.severity == 'error' %}
+            <span class="badge badge-overdue">Mismatch</span>
+            {% if r.fix_action == 'address' or r.field == 'Registered office' %}
+            <form method="post" action="/cs/{{ pack.id }}/fix/address" style="margin-top:0.35rem">
+              <button class="btn btn-sm" type="submit">Copy CH address</button>
+            </form>
+            {% endif %}
+            {% else %}
+            <span class="badge badge-progress">Check</span>
+            {% if r.field == 'Registered office' and not r.match %}
+            <form method="post" action="/cs/{{ pack.id }}/fix/address" style="margin-top:0.35rem">
+              <button class="btn btn-sm" type="submit">Copy CH address</button>
+            </form>
+            {% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ========== OFFICERS ========== #}
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">Officers (CH) vs contacts (CRM)</h2>
+  <p class="small muted">Active officers from CH download matched by name to people linked on this client.</p>
+  <div class="table-wrap">
+    <table class="data cs-compare-table">
+      <thead>
+        <tr>
+          <th>CH officer</th>
+          <th>Role / appointed</th>
+          <th>Accologise contact</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in compare.officers|default([]) %}
+        <tr class="{% if not o.match %}cs-row-warn{% endif %}">
+          <td><strong>{{ o.ch_name }}</strong></td>
+          <td class="small">{{ o.ch_role or '—' }}{% if o.ch_appointed %} · from {{ o.ch_appointed|uk_date }}{% endif %}</td>
+          <td>
+            {% if o.practice_id %}
+            <a href="/people/{{ o.practice_id }}/edit">{{ o.practice_name }}</a>
+            {% if o.practice_role %}<span class="muted small"> · {{ o.practice_role }}</span>{% endif %}
+            {% else %}
+            <span class="muted">{{ o.practice_name }}</span>
+            {% endif %}
+          </td>
+          <td class="actions-cell">
+            {% if o.match %}
+            <span class="badge badge-active">Linked</span>
+            {% else %}
+            <span class="badge badge-progress">CH only</span>
+            <form method="post" action="/cs/{{ pack.id }}/fix/create-contact" style="display:inline;margin-left:0.35rem">
+              <input type="hidden" name="officer_name" value="{{ o.ch_name }}">
+              <input type="hidden" name="officer_role" value="{{ o.ch_role }}">
+              <button class="btn btn-sm" type="submit">Create contact</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">No officers in pack — refresh from CH.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if compare.crm_only_people %}
+  <h3 style="margin-top:1.25rem">CRM contacts not matching a CH officer</h3>
+  <p class="small muted">
+    These are on the client record but are <strong>not</strong> active officers in the CH download.
+    Unlink if erroneous (e.g. wrong import).
+  </p>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Name</th><th>Role</th><th>Email</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for p in compare.crm_only_people %}
+        <tr class="cs-row-warn">
+          <td>
+            <a href="/people/{{ p.id }}/edit"><strong>{{ p.name }}</strong></a>
+            {% if p.is_primary %}<span class="badge badge-active">Primary</span>{% endif %}
+          </td>
+          <td>{{ p.role or '—' }}</td>
+          <td class="small">{{ p.email or '—' }}</td>
+          <td class="actions-cell">
+            <span class="badge badge-progress">CRM only</span>
+            <form method="post" action="/cs/{{ pack.id }}/fix/unlink" style="display:inline;margin-left:0.35rem"
+                  onsubmit="return confirm('Unlink {{ p.name }} from this client?');">
+              <input type="hidden" name="person_id" value="{{ p.id }}">
+              <button class="btn btn-sm btn-outline" type="submit">Unlink</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+{# ========== PSCs (CH only reference) ========== #}
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">PSCs (Companies House)</h2>
+  <p class="small muted">Public register — Accologise does not store PSC records separately.</p>
+  {% if form.pscs %}
+  <ul class="chase-history">
+    {% for p in form.pscs %}
+    <li>
+      <strong>{{ p.name }}</strong>
+      {% if p.natures_of_control %}<div class="small muted">{{ p.natures_of_control|join(', ') }}</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No PSC data in pack.</p>
+  {% endif %}
+</div>
+
+{# ========== PRACTICE-ONLY CODES ========== #}
+<div class="card" style="margin-bottom:1rem;border-left:4px solid #64748b">
+  <h2 style="margin-top:0">Practice access &amp; codes (not from CH public API)</h2>
+  <p class="small muted">
+    These live only on the Accologise client record. Companies House public data
+    <strong>never</strong> includes authentication codes, personal codes, Gateway, or software passwords.
+    Review for spurious or outdated entries before relying on them to file.
+  </p>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Item</th><th>On file?</th><th>Note</th></tr>
+      </thead>
+      <tbody>
+        {% for s in compare.practice_only|default([]) %}
+        <tr>
+          <td><strong>{{ s.field }}</strong></td>
+          <td>
+            {% if s.present %}
+            <span class="badge badge-active">Yes</span>
+            {% else %}
+            <span class="badge">No</span>
+            {% endif %}
+          </td>
+          <td class="small muted">{{ s.detail }} · {{ s.note }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if client %}
+  <p class="small" style="margin-top:0.75rem">
+    <a href="/clients/{{ client.id }}?tab=details">Edit client Details</a> to correct codes and contacts.
+  </p>
+  {% endif %}
+</div>
+
+{# ========== CHECKLIST ========== #}
+<div class="card" style="margin-top:1rem;max-width:40rem">
+  <h2>Review checklist</h2>
+  <form class="stack" method="post" action="/cs/{{ pack.id }}/save">
+    <label class="settings-radio">
+      <input type="checkbox" name="confirmed_accurate" value="yes" {% if form.confirmed_accurate %}checked{% endif %}>
+      <span>I have compared CH data with Accologise for this confirmation statement period</span>
+    </label>
+    <label class="settings-radio">
+      <input type="checkbox" name="changes_needed" value="yes" {% if form.changes_needed %}checked{% endif %}>
+      <span>Changes needed on CRM and/or CH (fix change forms before / with CS as required)</span>
+    </label>
+    <label>Confirm no changes?</label>
+    <select name="confirmed_no_changes">
+      <option value="">—</option>
+      <option value="yes" {% if pack.confirmed_no_changes == 'yes' %}selected{% endif %}>Yes — no changes to report on CH</option>
+      <option value="no" {% if pack.confirmed_no_changes == 'no' %}selected{% endif %}>No — changes required</option>
+      <option value="partial" {% if pack.confirmed_no_changes == 'partial' %}selected{% endif %}>Partial / see notes</option>
+    </select>
+    <label>Checklist notes</label>
+    <textarea name="checklist_notes" rows="2">{{ form.checklist_notes or '' }}</textarea>
+    <label>Review notes (file)</label>
+    <textarea name="review_notes" rows="3">{{ pack.review_notes or '' }}</textarea>
+    <button class="btn wc-touch" type="submit">Save review</button>
+  </form>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>File / handoff</h2>
+  <div class="actions" style="flex-wrap:wrap">
+    <form method="post" action="/cs/{{ pack.id }}/ready">
+      <button class="btn btn-secondary wc-touch" type="submit">Mark ready to file</button>
+    </form>
+    <a class="btn wc-touch" href="{{ webfiling_url }}" target="_blank" rel="noopener">Open Companies House to file</a>
+    <form method="post" action="/cs/{{ pack.id }}/filed" onsubmit="return confirm('Confirm CS has been filed on Companies House?')">
+      <button class="btn btn-outline wc-touch" type="submit">Mark filed in Accologise</button>
+    </form>
+    <a class="btn btn-outline wc-touch" href="/cs/{{ pack.id }}/export">Export file note (.txt)</a>
+    <form method="post" action="/cs/{{ pack.id }}/refresh" onsubmit="return confirm('Refresh from Companies House? This reloads public data into the pack.')">
+      <button class="btn btn-outline btn-sm" type="submit">Refresh from CH</button>
+    </form>
+  </div>
+  <p class="small muted" style="margin-top:0.75rem">
+    Full electronic CS filing via OAuth is paused for now — use WebFiling with the company authentication code.
+  </p>
+</div>
+{% endblock %}

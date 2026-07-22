@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}VAT Ledger · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard">← Accologise</a> · Linked to Sales &amp; Purchase</p>
+    <h1>VAT Ledger</h1>
+    <p class="muted small">
+      Invoice-basis draft (issue dates). Not Making Tax Digital submit —
+      prepare figures for your return.
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-secondary wc-touch" href="/vat/return?period={{ period }}{% if from_date %}&from_date={{ from_date }}&to_date={{ to_date }}{% endif %}">Full return draft</a>
+  </div>
+</div>
+
+<div class="chase-banner chase-banner-practice" role="status">
+  <strong>Practice draft</strong> — Output VAT from Sales invoices; Input VAT from Purchase bills.
+  Period: <strong>{{ summary.period_label }}</strong>
+  ({{ summary.d0 }} → {{ summary.d1 }}).
+</div>
+
+<div class="period-toggle" style="margin-bottom:1rem;flex-wrap:wrap;gap:0.35rem">
+  <a class="period-btn {% if period=='this_quarter' %}is-active{% endif %}" href="/vat?period=this_quarter">This quarter</a>
+  <a class="period-btn {% if period=='last_quarter' %}is-active{% endif %}" href="/vat?period=last_quarter">Last quarter</a>
+</div>
+
+<form class="card stack" method="get" action="/vat" style="margin-bottom:1rem;max-width:36rem">
+  <h2 style="margin:0">Custom period</h2>
+  <div class="form-grid">
+    <div>
+      <label>From</label>
+      <input type="date" name="from_date" value="{{ from_date or summary.d0.isoformat() }}">
+    </div>
+    <div>
+      <label>To</label>
+      <input type="date" name="to_date" value="{{ to_date or summary.d1.isoformat() }}">
+    </div>
+  </div>
+  <input type="hidden" name="period" value="custom">
+  <button class="btn btn-outline wc-touch" type="submit">Apply</button>
+</form>
+
+<div class="sales-kpi-row">
+  <div class="sales-kpi sales-kpi-warn">
+    <div class="sales-kpi-lab">Output VAT (Box 1)</div>
+    <div class="sales-kpi-val">£{{ '{:,.0f}'.format(summary.box1_output_vat) }}</div>
+    <div class="sales-kpi-sub">Sales net £{{ '{:,.0f}'.format(summary.output_net) }}</div>
+  </div>
+  <div class="sales-kpi sales-kpi-ok">
+    <div class="sales-kpi-lab">Input VAT (Box 4)</div>
+    <div class="sales-kpi-val">£{{ '{:,.0f}'.format(summary.box4_input_vat) }}</div>
+    <div class="sales-kpi-sub">Purchases net £{{ '{:,.0f}'.format(summary.input_net) }}</div>
+  </div>
+  <div class="sales-kpi {% if summary.box5_net >= 0 %}sales-kpi-danger{% else %}sales-kpi-ok{% endif %}">
+    <div class="sales-kpi-lab">Net VAT (Box 5)</div>
+    <div class="sales-kpi-val">£{{ '{:,.0f}'.format(summary.box5_net) }}</div>
+    <div class="sales-kpi-sub">{% if summary.box5_net >= 0 %}Due to HMRC{% else %}Reclaim{% endif %}</div>
+  </div>
+  <a class="sales-kpi" href="/purchase">
+    <div class="sales-kpi-lab">Purchase Ledger</div>
+    <div class="sales-kpi-val">→</div>
+    <div class="sales-kpi-sub">Creditors · bills</div>
+  </a>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Outputs (Sales) · {{ summary.output_lines|length }}</h2>
+    {% if summary.output_lines %}
+    <ul class="chase-history">
+      {% for ln in summary.output_lines[:8] %}
+      <li><a href="{{ ln.href }}">{{ ln.number }}</a> · {{ ln.party }} · VAT £{{ '%.2f'|format(ln.vat) }}</li>
+      {% endfor %}
+    </ul>
+    {% if summary.output_lines|length > 8 %}<p class="small muted">…and more on full return</p>{% endif %}
+    {% else %}
+    <p class="empty">No sales invoices in period.</p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2>Inputs (Purchases) · {{ summary.input_lines|length }}</h2>
+    {% if summary.input_lines %}
+    <ul class="chase-history">
+      {% for ln in summary.input_lines[:8] %}
+      <li><a href="{{ ln.href }}">{{ ln.number }}</a> · {{ ln.party }} · VAT £{{ '%.2f'|format(ln.vat) }}</li>
+      {% endfor %}
+    </ul>
+    {% if summary.input_lines|length > 8 %}<p class="small muted">…and more on full return</p>{% endif %}
+    {% else %}
+    <p class="empty">No purchase bills in period. <a href="/purchase/bills/new">Enter a bill</a>.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

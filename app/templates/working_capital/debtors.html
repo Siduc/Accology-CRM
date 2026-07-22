@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Debtors · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard">← Accologise</a> · <a href="/sales">Sales Ledger</a></p>
+    <h1>Debtors</h1>
+    <p class="muted small">{{ count }} outstanding · £{{ '{:,.2f}'.format(total) }} — full tools on <a href="/sales">Sales Ledger</a></p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/sales/invoices/new">Raise invoice</a>
+    <a class="btn btn-outline" href="/sales/ageing">Ageing</a>
+  </div>
+</div>
+
+<div class="card">
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Invoice / job</th>
+          <th>Invoice date</th>
+          <th>Age</th>
+          <th>Billing</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set j = r.job %}
+        <tr class="row-link" onclick="window.location='/jobs/{{ j.id }}'">
+          <td>{% if j.client %}{{ j.client.display_name() }}{% else %}—{% endif %}</td>
+          <td>
+            <a href="/jobs/{{ j.id }}" onclick="event.stopPropagation()">
+              {{ j.invoice_reference or j.title or j.type }}
+            </a>
+          </td>
+          <td>{{ r.inv_date or '—' }}</td>
+          <td>{% if r.age_days > 30 %}<span class="badge badge-overdue">{{ r.age_days }}d</span>{% else %}{{ r.age_days }}d{% endif %}</td>
+          <td class="small">{{ j.billing_status or '—' }}</td>
+          <td>£{{ '%.2f'|format(r.amount) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No outstanding debtors. Invoices marked Paid are excluded.</p>
+  {% endif %}
+</div>
+{% endblock %}

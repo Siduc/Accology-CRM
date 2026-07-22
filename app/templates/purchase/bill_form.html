@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}New bill · Purchase · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/purchase/bills">← Bills</a></p>
+    <h1>Enter purchase bill</h1>
+    <p class="muted small">Net + VAT rate per line (same as Sales). Input VAT flows to the VAT Ledger.</p>
+  </div>
+</div>
+<div class="card">
+  <form class="stack" method="post" action="/purchase/bills/new">
+    <div class="form-grid">
+      <div>
+        <label>Supplier</label>
+        <select name="supplier_id">
+          <option value="">— or type name below —</option>
+          {% for s in suppliers %}
+          <option value="{{ s.id }}" {% if selected_supplier_id==s.id %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Or new supplier name</label>
+        <input name="supplier_name" placeholder="Creates supplier if needed">
+      </div>
+      <div>
+        <label>Bill / invoice number</label>
+        <input name="number">
+      </div>
+      <div>
+        <label>Category</label>
+        <select name="category">
+          <option value="supplier">Supplier</option>
+          <option value="vat">HMRC / VAT liability</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div>
+        <label>Issue date</label>
+        <input type="date" name="issue_date" value="{{ today.isoformat() }}">
+      </div>
+      <div>
+        <label>Due date</label>
+        <input type="date" name="due_date">
+      </div>
+    </div>
+    <h3>Lines (net prices · VAT rate e.g. 0.2 = 20%)</h3>
+    {% for n in [1,2,3] %}
+    <div class="form-grid">
+      <div>
+        <label>Description {{ n }}</label>
+        <input name="line_desc_{{ n }}" {% if n==1 %}placeholder="Goods / services"{% endif %}>
+      </div>
+      <div>
+        <label>Qty</label>
+        <input name="line_qty_{{ n }}" value="1" inputmode="decimal">
+      </div>
+      <div>
+        <label>Unit net £</label>
+        <input name="line_price_{{ n }}" value="0" inputmode="decimal">
+      </div>
+      <div>
+        <label>VAT rate</label>
+        <input name="line_vat_{{ n }}" value="0.2" inputmode="decimal">
+      </div>
+    </div>
+    {% endfor %}
+    <label>Notes</label>
+    <textarea name="notes"></textarea>
+    <div class="form-actions">
+      <button class="btn wc-touch" type="submit">Save bill</button>
+      <a class="btn btn-outline" href="/purchase/bills">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

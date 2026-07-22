@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Bank Ledger · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard#working-capital">← Working capital</a> · Cash</p>
+    <h1>Bank Ledger</h1>
+    <p class="muted small">Accounts, running balances, import &amp; reconciliation — drives the Cash box.</p>
+  </div>
+  <div class="actions">
+    <a class="btn wc-touch" href="/bank/accounts/new">Add account</a>
+  </div>
+</div>
+
+{% if msg %}
+<div class="chase-banner chase-banner-info" role="status">{{ msg }}</div>
+{% endif %}
+
+<div class="sales-kpi-row bank-kpi-row">
+  <div class="sales-kpi sales-kpi-ok">
+    <div class="sales-kpi-lab">Total cash</div>
+    <div class="sales-kpi-val">£{{ '{:,.0f}'.format(total_cash) }}</div>
+    <div class="sales-kpi-sub">All active accounts</div>
+  </div>
+  <div class="sales-kpi">
+    <div class="sales-kpi-lab">Accounts</div>
+    <div class="sales-kpi-val">{{ active_rows|length }}</div>
+    <div class="sales-kpi-sub">Working capital · Cash</div>
+  </div>
+</div>
+
+<div class="bank-account-grid">
+  {% for r in rows %}
+  <a class="bank-account-card wc-touch {% if not r.account.is_active %}bank-account-inactive{% endif %}" href="/bank/{{ r.account.id }}">
+    <div class="bank-account-head">
+      <strong>{{ r.account.name }}</strong>
+      {% if r.account.is_primary %}<span class="badge badge-active">Primary</span>{% endif %}
+      {% if not r.account.is_active %}<span class="badge">Inactive</span>{% endif %}
+    </div>
+    <div class="bank-account-bal">£{{ '{:,.2f}'.format(r.balance) }}</div>
+    <div class="small muted">
+      {{ r.account.bank_name or 'Bank' }}
+      {% if r.account.sort_code %} · {{ r.account.sort_code }}{% endif %}
+      {% if r.account.account_number %} · ****{{ r.account.account_number[-4:] if r.account.account_number|length > 4 else r.account.account_number }}{% endif %}
+      · {{ r.txn_count }} txns
+    </div>
+  </a>
+  {% else %}
+  <p class="empty">No bank accounts yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

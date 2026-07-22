@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Invoices · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/sales">← Sales Ledger</a></p>
+    <h1>Invoices</h1>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/sales/invoices/new">Raise invoice</a>
+  </div>
+</div>
+<form class="filters" method="get" action="/sales/invoices">
+  <div>
+    <label class="small muted">Status</label><br>
+    <select name="status">
+      <option value="">All</option>
+      <option value="outstanding" {% if status=='outstanding' %}selected{% endif %}>Outstanding</option>
+      <option value="sent" {% if status=='sent' %}selected{% endif %}>Sent</option>
+      <option value="part_paid" {% if status=='part_paid' %}selected{% endif %}>Part paid</option>
+      <option value="paid" {% if status=='paid' %}selected{% endif %}>Paid</option>
+    </select>
+  </div>
+  <div>
+    <label class="small muted">Search</label><br>
+    <input name="q" value="{{ q }}" placeholder="Number or client">
+  </div>
+  <button class="btn btn-sm" type="submit">Filter</button>
+</form>
+<div class="card">
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Number</th><th>Client</th><th>Issued</th><th>Age</th><th>Total</th><th>Balance</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="row-link" onclick="window.location='/sales/invoices/{{ r.inv.id }}'">
+          <td><a href="/sales/invoices/{{ r.inv.id }}" onclick="event.stopPropagation()">{{ r.inv.number }}</a></td>
+          <td>{% if r.client %}{{ r.client.display_name() }}{% else %}#{{ r.inv.client_id }}{% endif %}</td>
+          <td>{{ r.inv.issue_date }}</td>
+          <td>{% if r.age > 30 and r.inv.balance > 0 %}<span class="badge badge-overdue">{{ r.age }}d</span>{% else %}{{ r.age }}d{% endif %}</td>
+          <td>£{{ '%.2f'|format(r.inv.total or 0) }}</td>
+          <td>£{{ '%.2f'|format(r.inv.balance or 0) }}</td>
+          <td><span class="badge">{{ r.inv.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No invoices. <a href="/sales/invoices/new">Raise one</a> or <a href="/sales">backfill from jobs</a>.</p>
+  {% endif %}
+</div>
+{% endblock %}

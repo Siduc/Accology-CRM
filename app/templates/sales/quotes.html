@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Quotes · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/sales">← Sales Ledger</a></p>
+    <h1>Quotes</h1>
+    <p class="muted small">Prospects &amp; clients — accept to raise an invoice</p>
+  </div>
+  <div class="actions"><a class="btn" href="/sales/quotes/new">New quote</a></div>
+</div>
+<div class="card">
+  {% if quotes %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Number</th><th>Client</th><th>Date</th><th>Total</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for q in quotes %}
+        <tr>
+          <td>{{ q.number }}</td>
+          <td>{% if clients.get(q.client_id) %}{{ clients[q.client_id].display_name() }}{% else %}#{{ q.client_id }}{% endif %}</td>
+          <td>{{ q.issue_date }}</td>
+          <td>£{{ '%.2f'|format(q.total or 0) }}</td>
+          <td><span class="badge">{{ q.status }}</span></td>
+          <td>
+            {% if q.status != 'accepted' %}
+            <form method="post" action="/sales/quotes/{{ q.id }}/invoice" style="margin:0">
+              <button class="btn btn-sm" type="submit">Invoice</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No quotes yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

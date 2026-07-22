@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}New quote · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/sales/quotes">← Quotes</a></p>
+    <h1>New quote</h1>
+  </div>
+</div>
+<div class="card">
+  <form class="stack" method="post" action="/sales/quotes/new">
+    <label>Client / prospect *</label>
+    <select name="client_id" required>
+      <option value="">Select…</option>
+      {% for c in clients %}
+      <option value="{{ c.id }}" {% if selected_client_id==c.id %}selected{% endif %}>
+        {{ c.display_name() }} ({{ c.overall_status or '—' }})
+      </option>
+      {% endfor %}
+    </select>
+    {% for n in [1,2] %}
+    <div class="form-grid" style="border-top:1px solid var(--border);padding-top:0.75rem">
+      <div>
+        <label>Service</label>
+        <select name="line_service_{{ n }}">
+          <option value="">—</option>
+          {% for s in services %}
+          <option value="{{ s.id }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div><label>Description</label><input name="line_desc_{{ n }}"></div>
+      <div><label>Qty</label><input name="line_qty_{{ n }}" value="1"></div>
+      <div><label>Price</label><input name="line_price_{{ n }}" value="0"></div>
+      <div><label>VAT rate</label><input name="line_vat_{{ n }}" value="0"></div>
+    </div>
+    {% endfor %}
+    <label>Notes</label>
+    <textarea name="notes"></textarea>
+    <button class="btn" type="submit">Save quote</button>
+  </form>
+</div>
+{% endblock %}

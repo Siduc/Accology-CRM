@@ -117,18 +117,11 @@ def test_api_key(api_key: Optional[str] = None) -> CHFetchResult:
     return fetch_company_profile("00000006", api_key=api_key)
 
 
-def fetch_company_profile(
-    company_number: str, api_key: Optional[str] = None
+def _ch_get_json(
+    path: str, *, api_key: Optional[str] = None, company_number: str = ""
 ) -> CHFetchResult:
-    """
-    GET /company/{company_number}
-
-    Auth: HTTP Basic, API key as username, empty password.
-    """
-    cn = normalize_company_number(company_number)
-    if not cn:
-        return CHFetchResult(ok=False, company_number=cn, error="Missing company number")
-
+    """Low-level GET against the public Companies House Data API."""
+    cn = company_number or ""
     key = clean_api_key(api_key or get_api_key() or "")
     if not key:
         return CHFetchResult(
@@ -143,7 +136,7 @@ def fetch_company_profile(
     if key_err:
         return CHFetchResult(ok=False, company_number=cn, error=key_err)
 
-    url = f"{CH_API_BASE}/company/{cn}"
+    url = f"{CH_API_BASE}{path}"
     req = Request(
         url,
         headers={
@@ -162,7 +155,7 @@ def fetch_company_profile(
         detail = exc.read().decode("utf-8", errors="replace")[:400]
         if exc.code == 404:
             return CHFetchResult(
-                ok=False, company_number=cn, error=f"Company {cn} not found at CH"
+                ok=False, company_number=cn, error=f"Not found at CH: {path}"
             )
         if exc.code == 401:
             return CHFetchResult(
@@ -180,7 +173,6 @@ def fetch_company_profile(
                 company_number=cn,
                 error="Companies House rate limit hit — try again shortly",
             )
-        # CH often returns: {"error":"Invalid Authorization","type":"ch:service"}
         if "Invalid Authorization" in detail or "ch:service" in detail:
             return CHFetchResult(
                 ok=False,
@@ -203,6 +195,70 @@ def fetch_company_profile(
         )
     except Exception as exc:  # noqa: BLE001
         return CHFetchResult(ok=False, company_number=cn, error=str(exc))
+
+
+def fetch_company_profile(
+    company_number: str, api_key: Optional[str] = None
+) -> CHFetchResult:
+    """
+    GET /company/{company_number}
+
+    Auth: HTTP Basic, API key as username, empty password.
+    """
+    cn = normalize_company_number(company_number)
+    if not cn:
+        return CHFetchResult(ok=False, company_number=cn, error="Missing company number")
+    return _ch_get_json(f"/company/{cn}", api_key=api_key, company_number=cn)
+
+
+def fetch_company_officers(
+    company_number: str, api_key: Optional[str] = None, *, items_per_page: int = 100
+) -> CHFetchResult:
+    """GET /company/{cn}/officers — active officers list (paginated first page)."""
+    cn = normalize_company_number(company_number)
+    if not cn:
+        return CHFetchResult(ok=False, company_number=cn, error="Missing company number")
+    path = f"/company/{cn}/officers?items_per_page={int(items_per_page)}"
+    return _ch_get_json(path, api_key=api_key, company_number=cn)
+
+
+def fetch_company_pscs(
+    company_number: str, api_key: Optional[str] = None, *, items_per_page: int = 100
+) -> CHFetchResult:
+    """GET /company/{cn}/persons-with-significant-control"""
+    cn = normalize_company_number(company_number)
+    if not cn:
+        return CHFetchResult(ok=False, company_number=cn, error="Missing company number")
+    path = (
+        f"/company/{cn}/persons-with-significant-control"
+        f"?items_per_page={int(items_per_page)}"
+    )
+    return _ch_get_json(path, api_key=api_key, company_number=cn)
+
+
+def download_cs_bundle(company_number: str, api_key: Optional[str] = None) -> CHFetchResult:
+    """
+    Download CS-relevant public data: profile + officers + PSCs.
+    result.profile is a dict with keys profile, officers, pscs.
+    """
+    cn = normalize_company_number(company_number)
+    if not cn:
+        return CHFetchResult(ok=False, company_number=cn, error="Missing company number")
+
+    prof = fetch_company_profile(cn, api_key=api_key)
+    if not prof.ok:
+        return prof
+
+    officers = fetch_company_officers(cn, api_key=api_key)
+    pscs = fetch_company_pscs(cn, api_key=api_key)
+
+    bundle = {
+        "profile": prof.profile,
+        "officers": officers.profile if officers.ok else {"items": [], "error": officers.error},
+        "pscs": pscs.profile if pscs.ok else {"items": [], "error": pscs.error},
+        "fetched_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+    }
+    return CHFetchResult(ok=True, company_number=cn, profile=bundle)
 
 
 def summarize_profile_dates(profile: Dict[str, Any]) -> Dict[str, Any]:

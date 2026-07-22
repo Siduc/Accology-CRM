@@ -1,92 +1,87 @@
 {% extends "base.html" %}
-{% block title %}{{ group.name }} · Group · Accountant CRM{% endblock %}
+{% block title %}{{ group.name }} · Groups · Accologise{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="small muted"><a href="/groups">← All groups</a></p>
+    <p class="small muted"><a href="/groups">← Groups board</a></p>
     <h1>{{ group.name }}</h1>
     <p class="muted small">
-      Relationship group ·
-      {{ group.clients|length }} compan{{ 'y' if group.clients|length == 1 else 'ies' }} ·
-      {{ group.people|length }} people ·
-      fees £{{ '%.2f'|format(group.total_fees or 0) }}
+      {{ members|length }} compan{{ 'y' if members|length == 1 else 'ies' }} ·
+      Working capital · relationship group
     </p>
-  </div>
-  <div class="actions">
-    <a class="btn btn-sm btn-outline" href="/clients/{{ group.lead_client_id }}">Open lead client</a>
   </div>
 </div>
 
+{% if msg == 'connections' %}
+<div class="chase-banner chase-banner-info">Group connections applied to all member clients.</div>
+{% endif %}
+
 <div class="grid-2">
   <div class="card">
-    <h2>Companies</h2>
-    {% if group.clients %}
-    <div class="table-wrap">
-      <table class="data">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Number</th>
-            <th>Status</th>
-            <th>Fees</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for c in group.clients %}
-          <tr class="row-link" onclick="window.location='/clients/{{ c.id }}'">
-            <td>
-              <a href="/clients/{{ c.id }}" onclick="event.stopPropagation()">
-                {{ c.display_name() }}
-                {% if c.id == group.lead_client_id %}
-                <span class="badge">Lead</span>
-                {% endif %}
-              </a>
-            </td>
-            <td>{{ c.company_number or '—' }}</td>
-            <td><span class="badge">{{ c.overall_status or '—' }}</span></td>
-            <td>£{{ '%.2f'|format(client_fees.get(c.id, 0) or 0) }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="empty">No companies in this group.</p>
-    {% endif %}
+    <h2>Rename</h2>
+    <form class="stack" method="post" action="/groups/{{ group.id }}/rename">
+      <input name="name" value="{{ group.name }}" required>
+      <button class="btn wc-touch" type="submit">Save name</button>
+    </form>
+    <form method="post" action="/groups/{{ group.id }}/delete" style="margin-top:1rem" onsubmit="return confirm('Delete this group? Companies become ungrouped.')">
+      <button class="btn btn-outline btn-sm" type="submit">Delete group</button>
+    </form>
   </div>
 
   <div class="card">
-    <h2>People</h2>
-    {% if group.people %}
-    <div class="table-wrap">
-      <table class="data">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Role</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in group.people %}
-          <tr class="row-link" onclick="window.location='/people/{{ p.id }}/edit'">
-            <td>
-              <a href="/people/{{ p.id }}/edit" onclick="event.stopPropagation()">
-                {{ p.full_name or '—' }}
-              </a>
-            </td>
-            <td>{{ p.email or '—' }}</td>
-            <td>{{ p.role or '—' }}</td>
-            <td>{{ p.person_status or '—' }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="empty">No people linked to these companies yet.</p>
-    {% endif %}
+    <h2>Connections (whole group)</h2>
+    <p class="muted small">Applies opt-in flags to every company in this group (same as Client → Connections).</p>
+    <form class="stack" method="post" action="/groups/{{ group.id }}/connections">
+      {% for code, label, desc in providers %}
+      {% set st = conn_summary.get(code, 'off') %}
+      <label class="conn-card {% if st == 'on' %}conn-card-on{% endif %}">
+        <div class="conn-card-head">
+          <span class="conn-card-title">{{ label }}</span>
+          <span class="badge {% if st=='on' %}badge-active{% elif st=='mixed' %}badge-overdue{% endif %}">{{ st }}</span>
+        </div>
+        <p class="small muted">{{ desc }}</p>
+        <span class="settings-radio" style="margin:0">
+          <input type="checkbox" name="conn_{{ code }}" value="yes" {% if st == 'on' %}checked{% endif %}>
+          <span>Enable {{ label }} for all members</span>
+        </span>
+      </label>
+      {% endfor %}
+      <button class="btn wc-touch" type="submit">Apply to group</button>
+    </form>
   </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Companies</h2>
+  {% if members %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Name</th><th>Number</th><th>Status</th><th>Fees</th><th>Move</th></tr></thead>
+      <tbody>
+        {% for m in members %}
+        <tr>
+          <td><a href="/clients/{{ m.client.id }}">{{ m.client.display_name() }}</a></td>
+          <td>{{ m.client.company_number or '—' }}</td>
+          <td><span class="badge">{{ m.client.overall_status or '—' }}</span></td>
+          <td>£{{ '%.2f'|format(m.fees) }}</td>
+          <td>
+            <form method="post" action="/groups/move" class="actions">
+              <input type="hidden" name="client_id" value="{{ m.client.id }}">
+              <select name="group_id" onchange="this.form.submit()">
+                <option value="">Ungrouped</option>
+                {% for og in all_groups %}
+                <option value="{{ og.group.id }}" {% if og.group.id == group.id %}selected{% endif %}>{{ og.group.name }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No companies — drag from the board or move from Ungrouped.</p>
+  {% endif %}
 </div>
 {% endblock %}

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Match · Bank · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/bank/{{ account.id if account else '' }}">← Ledger</a></p>
+    <h1>Match transaction</h1>
+    <p class="muted small">
+      {{ txn.txn_date }} · {{ txn.description }} ·
+      <strong class="{% if txn.amount >= 0 %}text-success{% else %}text-danger{% endif %}">
+        {% if txn.amount >= 0 %}+{% endif %}£{{ '%.2f'|format(txn.amount) }}
+      </strong>
+    </p>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if txn.matched_type %}
+<div class="chase-banner chase-banner-info">Already matched: {{ txn.matched_type }} #{{ txn.matched_id }}</div>
+{% else %}
+
+{% if txn.amount > 0 %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Receipt → Sales Ledger (Debtors)</h2>
+  <p class="muted small">Creates a client payment and optionally allocates to an open invoice.</p>
+  <form class="stack" method="post" action="/bank/transactions/{{ txn.id }}/match">
+    <input type="hidden" name="match_kind" value="sales">
+    <label>Client *</label>
+    <select name="client_id" required>
+      <option value="">Select…</option>
+      {% for c in clients %}
+      <option value="{{ c.id }}">{{ c.display_name() }}</option>
+      {% endfor %}
+    </select>
+    <label>Allocate to invoice (optional)</label>
+    <select name="invoice_id">
+      <option value="">— none / unallocated —</option>
+      {% for i in open_invoices %}
+      <option value="{{ i.id }}">{{ i.number }} · client #{{ i.client_id }} · bal £{{ '%.2f'|format(i.balance) }}</option>
+      {% endfor %}
+    </select>
+    <label>Allocation amount (blank = up to payment / balance)</label>
+    <input name="alloc_amount" inputmode="decimal" placeholder="{{ '%.2f'|format(txn.amount) }}">
+    <label>Notes</label>
+    <textarea name="notes"></textarea>
+    <button class="btn wc-touch" type="submit">Post receipt to Sales</button>
+  </form>
+</div>
+{% else %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Payment → Purchase (Creditors)</h2>
+  <p class="muted small">Marks an outstanding bill paid and links this bank line.</p>
+  <form class="stack" method="post" action="/bank/transactions/{{ txn.id }}/match">
+    <input type="hidden" name="match_kind" value="creditor">
+    <label>Outstanding bill *</label>
+    <select name="bill_id" required>
+      <option value="">Select…</option>
+      {% for b in open_bills %}
+      <option value="{{ b.id }}">{{ b.supplier_name }} · {{ b.number or b.id }} · bal £{{ '%.2f'|format(b.balance or b.amount or 0) }} · due {{ b.due_date or '—' }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn wc-touch" type="submit">Match to creditor</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Nominal / category only</h2>
+  <p class="muted small">No Sales or Creditor impact — classifies the bank line for reporting.</p>
+  <form class="stack" method="post" action="/bank/transactions/{{ txn.id }}/match">
+    <input type="hidden" name="match_kind" value="nominal">
+    <label>Category</label>
+    <select name="category">
+      {% for code, lab in categories %}
+      {% if (txn.amount > 0 and code in ['client_receipt','other_income','transfer']) or (txn.amount < 0 and code not in ['client_receipt','other_income']) or code == 'transfer' %}
+      <option value="{{ code }}">{{ lab }}</option>
+      {% endif %}
+      {% endfor %}
+    </select>
+    <label>Notes</label>
+    <textarea name="notes"></textarea>
+    <button class="btn btn-outline wc-touch" type="submit">Save nominal match</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

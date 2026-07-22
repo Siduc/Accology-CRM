@@ -2,34 +2,52 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Accountant CRM{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=dash5">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Accologise">
+  <meta name="application-name" content="Accologise CRM">
+  <meta name="description" content="Practice working capital CRM">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
+  <title>{% block title %}Accologise{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css?v=cs-compare1">
+  <script src="/static/dashboard_view.js?v=dual1" defer></script>
+  <script src="/static/pwa.js?v=1" defer></script>
 </head>
-<body>
+<body class="dash-auto {% if hide_nav %}body-hub{% else %}body-page{% endif %}">
   {% if not hide_nav %}
-  <nav class="topnav">
-    <a class="brand" href="/dashboard">Accountant CRM</a>
-    <a href="/dashboard">Dashboard</a>
-    <a href="/clients">Clients</a>
-    <a href="/groups">Groups</a>
-    <a href="/lost/clients">Lost Clients</a>
-    <a href="/jobs">Jobs</a>
-    <a href="/jobs/accounts">Accounts</a>
-    <a href="/jobs/confirmation-statements">CS</a>
-    <a href="/lost/jobs">Lost Jobs</a>
-
-    <a href="/services/fees">Fees</a>
-    <a href="/companies-house/jobs">CH Jobs</a>
-    <a href="/people">People</a>
-    <a href="/import">Import</a>
-    <a href="/restore">Restore</a>
-    <a href="/logout" style="margin-left:auto">Logout</a>
-  </nav>
+  <header class="minibar">
+    <a class="minibar-brand" href="/dashboard" title="Accologise home">
+      <span class="minibar-brand-mark" aria-hidden="true">A</span>
+      <span class="minibar-brand-text">
+        <span class="minibar-brand-name">Accologise</span>
+        <span class="minibar-brand-tag">Practice CRM</span>
+      </span>
+    </a>
+    <div class="minibar-right">
+      <a class="minibar-logout" href="/sales">Sales</a>
+      <a class="minibar-logout" href="/purchase">Purchase</a>
+      <a class="minibar-logout" href="/bank">Bank</a>
+      <a class="minibar-logout" href="/vat">VAT</a>
+      <a class="minibar-logout" href="/services">Services</a>
+      <a class="minibar-logout" href="/groups">Groups</a>
+      <a class="minibar-logout" href="/notes">Notes</a>
+      <a class="minibar-logout" href="/asana">Asana</a>
+      <a class="minibar-logout" href="/settings">Settings</a>
+      <a class="minibar-logout" href="/logout">Logout</a>
+    </div>
+  </header>
   {% endif %}
-  <main class="container">
+  <main class="container {% if hide_nav %}container-hub{% endif %}">
     {% block content %}{% endblock %}
   </main>
-  <footer class="site-footer">Accountant CRM · Phase 1</footer>
+  {% if not hide_nav %}
+  <footer class="site-footer"><strong>Accologise</strong> · Practice CRM</footer>
+  {% endif %}
 </body>
 </html>

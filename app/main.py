@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -38,6 +38,16 @@ from app.routers import (
     lost,
     restore,
     groups,
+    working_capital,
+    settings,
+    sales,
+    bank,
+    purchase,
+    vat,
+    asana_integration,
+    notes,
+    cs,
+    ch_oauth,
 )
 
 app = FastAPI(
@@ -51,7 +61,19 @@ static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Paths that do not require a logged-in session
-_PUBLIC_EXACT = frozenset({"/", "/login", "/logout", "/health", "/favicon.ico"})
+_PUBLIC_EXACT = frozenset(
+    {
+        "/",
+        "/login",
+        "/logout",
+        "/health",
+        "/favicon.ico",
+        "/manifest.webmanifest",
+        "/sw.js",
+        # CH OAuth redirect (signed state; no CRM session required)
+        "/oauth/companies-house/callback",
+    }
+)
 _PUBLIC_PREFIXES = ("/static/",)
 
 
@@ -83,6 +105,8 @@ async def security_and_auth(request: Request, call_next):
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
         "connect-src 'self' https://cdn.jsdelivr.net; "
+        "manifest-src 'self'; "
+        "worker-src 'self'; "
         "frame-ancestors 'none';"
     )
     if IS_PRODUCTION:
@@ -115,6 +139,48 @@ app.include_router(imports.router)
 app.include_router(services.router)
 app.include_router(restore.router)
 app.include_router(groups.router)
+app.include_router(working_capital.router)
+app.include_router(bank.router)
+app.include_router(purchase.router)
+app.include_router(vat.router)
+app.include_router(asana_integration.router)
+app.include_router(notes.router)
+app.include_router(cs.router)
+app.include_router(ch_oauth.router)
+app.include_router(settings.router)
+app.include_router(sales.router)
+
+
+@app.get("/manifest.webmanifest")
+def web_manifest():
+    """PWA manifest (public)."""
+    path = static_dir / "manifest.webmanifest"
+    return FileResponse(
+        path,
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/sw.js")
+def service_worker():
+    """Service worker at root scope (public)."""
+    path = static_dir / "sw.js"
+    return FileResponse(
+        path,
+        media_type="application/javascript; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache",
+            "Service-Worker-Allowed": "/",
+        },
+    )
+
+
+@app.get("/favicon.ico")
+def favicon():
+    """Browser tab icon (public)."""
+    path = static_dir / "icons" / "favicon-32.png"
+    return FileResponse(path, media_type="image/png")
 
 
 @app.get("/health")

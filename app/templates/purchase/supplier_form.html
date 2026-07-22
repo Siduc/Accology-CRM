@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{% if supplier %}Edit{% else %}New{% endif %} supplier · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/purchase/suppliers">← Suppliers</a></p>
+    <h1>{% if supplier %}Edit supplier{% else %}New supplier{% endif %}</h1>
+  </div>
+</div>
+<div class="card" style="max-width:36rem">
+  <form class="stack" method="post" action="{% if supplier %}/purchase/suppliers/{{ supplier.id }}/edit{% else %}/purchase/suppliers/new{% endif %}">
+    <div class="form-grid">
+      <div>
+        <label>Name *</label>
+        <input name="name" required value="{{ supplier.name if supplier else '' }}">
+      </div>
+      <div>
+        <label>Contact</label>
+        <input name="contact_name" value="{{ supplier.contact_name if supplier and supplier.contact_name else '' }}">
+      </div>
+      <div>
+        <label>Email</label>
+        <input type="email" name="email" value="{{ supplier.email if supplier and supplier.email else '' }}">
+      </div>
+      <div>
+        <label>Phone</label>
+        <input name="phone" value="{{ supplier.phone if supplier and supplier.phone else '' }}">
+      </div>
+      <div>
+        <label>VAT number</label>
+        <input name="vat_number" value="{{ supplier.vat_number if supplier and supplier.vat_number else '' }}">
+      </div>
+      <div>
+        <label>Payment terms (days)</label>
+        <input name="payment_terms_days" value="{{ supplier.payment_terms_days if supplier else 30 }}">
+      </div>
+      <div>
+        <label>Default category</label>
+        <select name="default_category">
+          <option value="supplier" {% if not supplier or supplier.default_category == 'supplier' %}selected{% endif %}>Supplier</option>
+          <option value="vat" {% if supplier and supplier.default_category == 'vat' %}selected{% endif %}>HMRC / VAT liability</option>
+          <option value="other" {% if supplier and supplier.default_category == 'other' %}selected{% endif %}>Other</option>
+        </select>
+      </div>
+    </div>
+    {% if supplier %}
+    <label class="settings-radio">
+      <input type="checkbox" name="is_active" value="yes" {% if supplier.is_active is not false %}checked{% endif %}>
+      <span>Active</span>
+    </label>
+    {% endif %}
+    <label>Notes</label>
+    <textarea name="notes">{{ supplier.notes if supplier and supplier.notes else '' }}</textarea>
+    <div class="form-actions">
+      <button class="btn wc-touch" type="submit">Save</button>
+      <a class="btn btn-outline" href="/purchase/suppliers">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

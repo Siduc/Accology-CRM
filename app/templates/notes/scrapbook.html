@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Notes · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard">← Accologise</a> · Scrapbook</p>
+    <h1>Notes</h1>
+    <p class="muted small">
+      Post-it style scrapbook. Pin notes to show as dynamic tiles on the Live Tiles dashboard (max 6).
+    </p>
+  </div>
+</div>
+
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem;max-width:40rem">
+  <h2>New note</h2>
+  <form class="stack" method="post" action="/notes/new">
+    <div class="form-grid">
+      <div>
+        <label>Title</label>
+        <input name="title" placeholder="Quick reminder…">
+      </div>
+      <div>
+        <label>Colour</label>
+        <select name="color">
+          {% for c in colors %}
+          <option value="{{ c }}">{{ c|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <label>Note</label>
+    <textarea name="body" rows="3" placeholder="Write a Post-it…"></textarea>
+    <label class="settings-radio">
+      <input type="checkbox" name="pin_live" value="yes">
+      <span>Pin to Live Tiles dashboard</span>
+    </label>
+    <button class="btn wc-touch" type="submit">Add note</button>
+  </form>
+</div>
+
+<div class="postit-board">
+  {% for n in notes %}
+  <article class="postit postit-{{ n.color or 'yellow' }}">
+    {% if n.pin_live %}<span class="postit-pin">📌 Live</span>{% endif %}
+    <form class="stack" method="post" action="/notes/{{ n.id }}/edit">
+      <input class="postit-title-input" name="title" value="{{ n.title or '' }}" placeholder="Title">
+      <textarea class="postit-body-input" name="body" rows="4">{{ n.body or '' }}</textarea>
+      <div class="postit-actions">
+        <select name="color" class="postit-color">
+          {% for c in colors %}
+          <option value="{{ c }}" {% if (n.color or 'yellow') == c %}selected{% endif %}>{{ c|capitalize }}</option>
+          {% endfor %}
+        </select>
+        <label class="small">
+          <input type="checkbox" name="pin_live" value="yes" {% if n.pin_live %}checked{% endif %}>
+          Pin
+        </label>
+        <button class="btn btn-sm" type="submit">Save</button>
+      </div>
+    </form>
+    <form method="post" action="/notes/{{ n.id }}/delete" onsubmit="return confirm('Delete this note?')">
+      <button class="btn btn-sm btn-outline postit-delete" type="submit">Delete</button>
+    </form>
+  </article>
+  {% else %}
+  <p class="empty">No notes yet — add a Post-it above.</p>
+  {% endfor %}
+</div>
+{% endblock %}

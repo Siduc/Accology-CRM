@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Preview chase · {{ inv.number }} · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/sales/chase">← Debt chasing</a></p>
+    <h1>Email preview — {{ inv.number }}</h1>
+    <p class="muted small">
+      Stage: <strong>{{ stage_label }}</strong>
+      · {{ overdue }} days overdue
+      · balance £{{ '%.2f'|format(inv.balance or 0) }}
+    </p>
+  </div>
+</div>
+
+{% if not chase_live %}
+<div class="chase-banner chase-banner-practice" role="status">
+  <strong>Practice mode</strong> — submitting will <em>log</em> this email as a dry-run.
+  No message is sent to the client until <code>CHASE_LIVE_MODE=true</code> and SMTP is set.
+</div>
+{% endif %}
+
+<div class="card" style="max-width:40rem">
+  <form class="stack" method="post" action="/sales/chase/send/{{ inv.id }}">
+    <label>Stage / tone</label>
+    <select name="stage" id="chase-stage">
+      {% for st in stage_order %}
+      <option value="{{ st }}" {% if st == stage %}selected{% endif %}>{{ stage_labels[st] }}</option>
+      {% endfor %}
+    </select>
+    <p class="small muted">
+      Change stage and reload preview:
+      {% for st in stage_order %}
+      <a href="/sales/chase/preview/{{ inv.id }}?stage={{ st }}">{{ st }}</a>{% if not loop.last %} · {% endif %}
+      {% endfor %}
+    </p>
+    <label>To</label>
+    <input type="email" name="email_to" value="{{ email_to }}" placeholder="client@example.com" required>
+    <label>Subject</label>
+    <input type="text" name="email_subject" value="{{ email_subject }}" required>
+    <label>Body</label>
+    <textarea name="email_body" rows="16" required>{{ email_body }}</textarea>
+    {% if chase_live %}
+    <label class="settings-radio">
+      <input type="checkbox" name="force_dry_run" value="1">
+      <span>Force dry-run (do not send via SMTP)</span>
+    </label>
+    {% else %}
+    <input type="hidden" name="force_dry_run" value="1">
+    {% endif %}
+    <div class="form-actions">
+      <button class="btn wc-touch" type="submit">
+        {% if chase_live %}Send chase email{% else %}Log dry-run (no send){% endif %}
+      </button>
+      <a class="btn btn-outline" href="/sales/chase">Cancel</a>
+      <a class="btn btn-outline" href="/sales/invoices/{{ inv.id }}">Invoice</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

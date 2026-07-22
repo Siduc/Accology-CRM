@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}CH OAuth · Redirect URI · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="{{ return_to or '/settings' }}">← Back</a></p>
+    <h1>Companies House will return 403</h1>
+  </div>
+</div>
+
+<div class="card" style="max-width:40rem">
+  <div class="alert alert-error" role="alert">
+    {{ warning }}
+  </div>
+  <p>Your current redirect URI is:</p>
+  <p><code>{{ redirect_uri }}</code></p>
+  <h2>How to fix (local development)</h2>
+  <ol class="muted" style="padding-left:1.2rem">
+    <li>
+      Start a public tunnel to this app, e.g. with
+      <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/" target="_blank" rel="noopener">cloudflared</a>:
+      <br><code>cloudflared tunnel --url http://127.0.0.1:8000</code>
+    </li>
+    <li>
+      Put the HTTPS URL into <code>.env</code>:
+      <br><code>CH_OAUTH_REDIRECT_URI=https://YOUR-TUNNEL.trycloudflare.com/oauth/companies-house/callback</code>
+    </li>
+    <li>
+      On the Companies House Developer Hub, open your application →
+      <strong>Add a web client</strong> (not only an API key) and register
+      <strong>exactly</strong> the same redirect URI.
+    </li>
+    <li>Restart Accologise, then Connect again.</li>
+  </ol>
+  <p class="small muted">
+    Production: use your live host, e.g.
+    <code>https://your-app.onrender.com/oauth/companies-house/callback</code>.
+  </p>
+  <p class="small muted">
+    If you already use a public redirect and still fail, the Hub client id/secret must be from a
+    <strong>web client</strong>. An API-key-only app returns <code>invalid_client</code> on authorise.
+  </p>
+  <div class="actions" style="margin-top:1rem;flex-wrap:wrap">
+    <a class="btn" href="{{ return_to or '/settings' }}">Change redirect first</a>
+    <a class="btn btn-outline" href="{{ continue_url }}">Try anyway (will 403)</a>
+  </div>
+</div>
+{% endblock %}

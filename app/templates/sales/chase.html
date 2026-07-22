@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Debt chase · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/sales">← Sales Ledger</a> · Working capital · Debtors</p>
+    <h1>Debt chasing</h1>
+    <p class="muted small">
+      Escalating credit control at 7 / 14 / 30 / 60 days. Part of the Working Capital cycle
+      (WIP → Debtors → Cash).
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-outline wc-touch" href="/sales/ageing">Ageing</a>
+    <a class="btn btn-secondary wc-touch" href="/sales/chase/export?min_days=60&solicitor=Thomas%20Higgins">Legal export</a>
+  </div>
+</div>
+
+{% if not chase_live %}
+<div class="chase-banner chase-banner-practice" role="status">
+  <strong>Practice mode</strong> — automated emails are <em>not</em> sent to clients
+  (<code>CHASE_LIVE_MODE=false</code>). Preview and dry-run logging still work. Enable live mode
+  in <code>.env</code> only after the ledger is cleaned and SMTP is configured.
+  {% if not smtp_ok %}<br><span class="small">SMTP is not configured yet.</span>{% endif %}
+</div>
+{% else %}
+<div class="chase-banner chase-banner-live" role="status">
+  <strong>Live mode on</strong> — emails can be sent via SMTP. Confirm recipients before sending.
+  {% if not smtp_ok %}<br><span class="small">Warning: SMTP not configured — sends will fail.</span>{% endif %}
+</div>
+{% endif %}
+
+{% if msg %}
+<div class="chase-banner chase-banner-info" role="status">{{ msg }}</div>
+{% endif %}
+
+{# —— Dashboard summary —— #}
+<div class="sales-kpi-row chase-summary-row">
+  <a class="sales-kpi sales-kpi-warn" href="#chase-pipeline">
+    <div class="sales-kpi-lab">In chase pipeline</div>
+    <div class="sales-kpi-val">{{ summary.pipeline_count }}</div>
+    <div class="sales-kpi-sub">£{{ '{:,.0f}'.format(summary.pipeline_amount) }}</div>
+  </a>
+  <div class="sales-kpi">
+    <div class="sales-kpi-lab">Polite (7d+)</div>
+    <div class="sales-kpi-val">{{ summary.by_stage.polite }}</div>
+    <div class="sales-kpi-sub">£{{ '{:,.0f}'.format(summary.by_stage_amount.polite) }}</div>
+  </div>
+  <div class="sales-kpi sales-kpi-warn">
+    <div class="sales-kpi-lab">Firm (14d+)</div>
+    <div class="sales-kpi-val">{{ summary.by_stage.firm }}</div>
+    <div class="sales-kpi-sub">£{{ '{:,.0f}'.format(summary.by_stage_amount.firm) }}</div>
+  </div>
+  <div class="sales-kpi sales-kpi-danger">
+    <div class="sales-kpi-lab">Final (30d+)</div>
+    <div class="sales-kpi-val">{{ summary.by_stage.final }}</div>
+    <div class="sales-kpi-sub">£{{ '{:,.0f}'.format(summary.by_stage_amount.final) }}</div>
+  </div>
+  <div class="sales-kpi sales-kpi-danger">
+    <div class="sales-kpi-lab">Legal (60d+)</div>
+    <div class="sales-kpi-val">{{ summary.by_stage.legal }}</div>
+    <div class="sales-kpi-sub">£{{ '{:,.0f}'.format(summary.by_stage_amount.legal) }}</div>
+  </div>
+  <div class="sales-kpi sales-kpi-ok">
+    <div class="sales-kpi-lab">Actions (7 days)</div>
+    <div class="sales-kpi-val">{{ summary.actions_this_week }}</div>
+    <div class="sales-kpi-sub">Logged this week</div>
+  </div>
+</div>
+
+<div class="grid-2" style="margin-bottom:1rem">
+  <div class="card">
+    <h2>Batch dry-run</h2>
+    <p class="muted small">
+      Log draft emails for a stage band without sending
+      {% if not chase_live %}(practice mode always blocks SMTP){% else %}(default dry-run){% endif %}.
+    </p>
+    <form method="post" action="/sales/chase/batch" class="stack">
+      <label>Stage band</label>
+      <select name="stage_filter">
+        <option value="">All stages due</option>
+        {% for st in stage_order %}
+        <option value="{{ st }}">{{ stage_labels[st] }}</option>
+        {% endfor %}
+      </select>
+      <input type="hidden" name="dry_run" value="1">
+      <button class="btn wc-touch" type="submit">Run dry-run batch</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Legal handover export</h2>
+    <p class="muted small">
+      ZIP pack (summary, lines, chase log, cover letter) for solicitor recovery.
+      Default recipient: Thomas Higgins.
+    </p>
+    <form class="stack" method="get" action="/sales/chase/export">
+      <label>Minimum overdue days</label>
+      <input type="number" name="min_days" value="60" min="1" max="3650">
+      <label>Solicitor / firm</label>
+      <input type="text" name="solicitor" value="Thomas Higgins" list="solicitor-list">
+      <datalist id="solicitor-list">
+        <option value="Thomas Higgins">
+        <option value="In-house counsel">
+        <option value="External recovery agent">
+      </datalist>
+      <button class="btn btn-secondary wc-touch" type="submit">Download ZIP</button>
+    </form>
+  </div>
+</div>
+
+<div class="card" id="chase-pipeline">
+  <h2>Chase pipeline</h2>
+  <p class="muted small">Invoices overdue 7+ days. Suggested tone escalates: polite → firm → final → legal.</p>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Invoice</th>
+          <th>Client</th>
+          <th>Overdue</th>
+          <th>Balance</th>
+          <th>Stage</th>
+          <th>Email</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{% if r.on_hold %}row-muted{% endif %}">
+          <td><a href="/sales/invoices/{{ r.inv.id }}">{{ r.inv.number }}</a></td>
+          <td>{% if r.client %}{{ r.client.display_name() }}{% else %}—{% endif %}</td>
+          <td><span class="badge badge-overdue">{{ r.overdue }}d</span></td>
+          <td>£{{ '%.2f'|format(r.inv.balance or 0) }}</td>
+          <td>
+            {% if r.on_hold %}
+            <span class="badge">On hold</span>
+            {% else %}
+            <span class="badge badge-stage-{{ r.suggest }}">{{ r.stage_label }}</span>
+            {% endif %}
+            {% if r.highest_logged %}
+            <div class="small muted">Logged: {{ r.highest_logged }}</div>
+            {% endif %}
+          </td>
+          <td class="small">{% if r.client_email %}{{ r.client_email }}{% else %}<span class="muted">No email</span>{% endif %}</td>
+          <td class="actions-cell">
+            {% if not r.on_hold and r.suggest in stage_order %}
+            <a class="btn btn-sm wc-touch" href="/sales/chase/preview/{{ r.inv.id }}?stage={{ r.suggest }}">Preview email</a>
+            {% endif %}
+            <a class="btn btn-sm btn-outline wc-touch" href="/sales/invoices/{{ r.inv.id }}#debt-chase">Note / voice</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No invoices need chasing right now (all under 7 days overdue or clear).</p>
+  {% endif %}
+</div>
+{% endblock %}

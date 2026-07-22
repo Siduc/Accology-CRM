@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}WIP · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard#working-capital">← Working capital</a></p>
+    <h1>Work in progress</h1>
+    <p class="muted small">{{ count }} open jobs · £{{ '{:,.2f}'.format(total) }} · as at {{ today.strftime('%d-%m-%Y') }}</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm" href="/jobs/new">Add job</a>
+    <a class="btn btn-sm btn-outline" href="/jobs?filter=open">All open jobs</a>
+  </div>
+</div>
+
+{% if horizons %}
+{% for row in horizons %}
+{% set type_q = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation+Statement' %}
+{% set type_match = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation Statement' %}
+<div class="headcount-panel card wip-horizon-panel" style="margin-bottom:1.25rem">
+  <div class="headcount-toolbar" style="margin-bottom:0.85rem">
+    <div>
+      <h2 class="headcount-heading">{{ row.label }}</h2>
+      <p class="muted small headcount-hint">
+        {{ row.total_count }} open · £{{ '{:,.2f}'.format(row.total_amount) }}
+        · tiles sum to full WIP for this service · click to drill down
+      </p>
+    </div>
+  </div>
+  <div class="wip-stat-grid wip-stat-grid-6" role="list">
+    {% for b in row.buckets %}
+    <a class="stat-tile wip-stat-tile {% if b.key == 'overdue' %}stat-tile-danger{% elif b.key == 'later' %}stat-tile-later{% else %}stat-tile-wip{% endif %} {% if filter_type == type_match and filter_horizon == b.key %}is-selected{% endif %}"
+       href="/working-capital/wip?type={{ type_q }}&amp;horizon={{ b.key }}#wip-list"
+       role="listitem"
+       title="Show {{ row.label }} · {{ b.label }}">
+      <span class="stat-num" style="{% if b.key == 'overdue' %}color:#b91c1c;{% else %}color:#0f172a;{% endif %}font-size:2.1rem;font-weight:800;line-height:1.1;">
+        {{ b.count }}
+      </span>
+      <span class="stat-fee">£{{ '{:,.0f}'.format(b.amount) }}</span>
+      <span class="stat-name">{{ b.label }}</span>
+      <span class="stat-range">
+        {% if b.key == 'overdue' %}
+        Before {{ today.strftime('%d-%m-%Y') }}
+        {% elif b.key == 'later' %}
+        After {{ (b.from_date.strftime('%d-%m-%Y') if b.from_date else '—') }} · or no due date
+        {% elif b.to_date %}
+        {% if b.from_date %}{{ b.from_date.strftime('%d-%m-%Y') }} – {% endif %}{{ b.to_date.strftime('%d-%m-%Y') }}
+        {% endif %}
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<div class="card" id="wip-list">
+  <div class="page-header" style="margin-bottom:0.75rem">
+    <div>
+      <h2 style="margin:0">
+        {% if filter_label %}
+        {{ filter_label }}
+        {% else %}
+        All open WIP
+        {% endif %}
+      </h2>
+      {% if filter_label %}
+      <p class="muted small" style="margin:0.35rem 0 0">
+        {{ filter_count }} jobs · £{{ '{:,.2f}'.format(filter_fee) }}
+        · <a href="/working-capital/wip">Clear filter</a>
+      </p>
+      {% endif %}
+    </div>
+  </div>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Type</th>
+          <th>Period end</th>
+          <th>Due</th>
+          <th>Age (days)</th>
+          <th>Status</th>
+          <th>Fee</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set j = r.job %}
+        <tr class="row-link {% if j|job_overdue %}row-overdue{% endif %}" onclick="window.location='/jobs/{{ j.id }}'">
+          <td>
+            <a href="/jobs/{{ j.id }}" onclick="event.stopPropagation()">
+              {% if j.client %}{{ j.client.display_name() }}{% else %}—{% endif %}
+            </a>
+          </td>
+          <td class="small">{{ j.type or '—' }}</td>
+          <td>{{ r.period_end_fmt }}</td>
+          <td>{% if j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
+          <td>{% if r.age_days > 0 %}<span class="badge badge-overdue">{{ r.age_days }}</span>{% else %}0{% endif %}</td>
+          <td>
+            {% if j|job_overdue %}
+            <span class="badge badge-overdue">{{ j|job_status }}</span>
+            {% else %}
+            <span class="badge">{{ j|job_status }}</span>
+            {% endif %}
+          </td>
+          <td>£{{ '%.2f'|format(r.amount) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">{% if filter_label %}No jobs in this time frame.{% else %}No open WIP jobs.{% endif %}</p>
+  {% endif %}
+</div>
+{% endblock %}

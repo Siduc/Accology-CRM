@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="small muted"><a href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}">← Back</a></p>
+    <p class="small muted"><a href="{% if client %}/clients/{{ client.id }}{% else %}/dashboard{% endif %}">← Accologise</a></p>
     <h1>{% if client %}Edit Client{% else %}New Client{% endif %}</h1>
   </div>
 </div>
@@ -48,9 +48,21 @@
         <label for="overall_status">Status</label>
         <select id="overall_status" name="overall_status">
           {% for s in statuses %}
-          <option value="{{ s }}" {% if (client and client.overall_status == s) or (not client and s == 'Active') %}selected{% endif %}>{{ s }}</option>
+          <option value="{{ s }}" {% if (client and client.overall_status == s) or (not client and s == (default_status or 'Active')) %}selected{% endif %}>{{ s }}</option>
           {% endfor %}
         </select>
+      </div>
+      <div>
+        <label for="engagement_date">Date of engagement</label>
+        <input id="engagement_date" type="date" name="engagement_date"
+          value="{{ client.engagement_date.isoformat() if client and client.engagement_date else '' }}">
+        <p class="small muted" style="margin:0.25rem 0 0">Overrides first invoice for practice book “New”.</p>
+      </div>
+      <div>
+        <label for="disengagement_date">Date of disengagement</label>
+        <input id="disengagement_date" type="date" name="disengagement_date"
+          value="{{ client.disengagement_date.isoformat() if client and client.disengagement_date else '' }}">
+        <p class="small muted" style="margin:0.25rem 0 0">Overrides leave date for practice book “Lost”; sets status Inactive.</p>
       </div>
       <div>
         <label for="vat_number">VAT number</label>

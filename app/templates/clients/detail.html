@@ -32,9 +32,31 @@
       {% else %}
       <span class="badge badge-active">{{ cur }}</span>
       {% endif %}
+      {% if asana_on %}<span class="badge badge-active">Asana</span>{% endif %}
+      {% if latest_cs_pack %}
+      <a href="/cs/{{ latest_cs_pack.id }}" class="badge badge-progress" title="Open CS review pack">CS pack · {{ latest_cs_pack.status }}</a>
+      {% endif %}
+      {% if ch_oauth_connected %}
+      <span class="badge badge-active" title="Companies House OAuth token active">CH OAuth</span>
+      {% endif %}
+      {% if client.engagement_date %}
+      · engaged {{ client.engagement_date }}
+      {% endif %}
+      {% if client.disengagement_date %}
+      · left {{ client.disengagement_date }}
+      {% endif %}
     </p>
   </div>
   <div class="actions">
+    {% if cn and cn[:4] != 'IND-' and cn[:7] != 'PENDING' %}
+    {% if latest_cs_pack %}
+    <a class="btn btn-sm btn-outline wc-touch" href="/cs/{{ latest_cs_pack.id }}">Open CS pack</a>
+    {% else %}
+    <form method="post" action="/clients/{{ client.id }}/cs/download" style="display:inline">
+      <button class="btn btn-sm btn-outline wc-touch" type="submit">CS pack from CH</button>
+    </form>
+    {% endif %}
+    {% endif %}
     <a class="btn btn-sm btn-secondary" href="/jobs/new?client_id={{ client.id }}">Add Job</a>
   </div>
 </div>
@@ -47,13 +69,58 @@
 {% endif %}
 
 <nav class="tabs" role="tablist" aria-label="Client sections">
-  <button type="button" class="tab-btn active" data-tab="overview" role="tab">Overview</button>
-  <button type="button" class="tab-btn" data-tab="details" role="tab">Details</button>
-  <button type="button" class="tab-btn" data-tab="fees" role="tab">Previous fees</button>
+  <button type="button" class="tab-btn {% if active_tab == 'overview' or not active_tab %}active{% endif %}" data-tab="overview" role="tab">Overview</button>
+  <button type="button" class="tab-btn {% if active_tab == 'details' %}active{% endif %}" data-tab="details" role="tab">Details</button>
+  <button type="button" class="tab-btn {% if active_tab == 'connections' %}active{% endif %}" data-tab="connections" role="tab">Connections</button>
+  <button type="button" class="tab-btn {% if active_tab == 'fees' %}active{% endif %}" data-tab="fees" role="tab">Previous fees</button>
 </nav>
 
 {# ========== OVERVIEW (stacked) ========== #}
-<div class="tab-panel active" id="tab-overview" role="tabpanel">
+<div class="tab-panel {% if active_tab == 'overview' or not active_tab %}active{% endif %}" id="tab-overview" role="tabpanel" {% if active_tab and active_tab != 'overview' %}hidden{% endif %}>
+
+  {# 0. Confirmation Statement pack (CH download + review) #}
+  <div class="card" id="cs-pack" style="border-left:4px solid var(--accent, #2563eb);">
+    <div class="page-header" style="margin-bottom:0.5rem">
+      <h2 style="margin:0">Confirmation Statement pack</h2>
+      {% if latest_cs_pack %}
+      <span class="badge badge-progress">{{ latest_cs_pack.status }}</span>
+      {% endif %}
+    </div>
+    <p class="small muted" style="margin-top:0">
+      Download current Companies House data, pre-fill a review pack, then complete filing on WebFiling.
+      Export is a practice file note — not electronic filing and not a re-type sheet.
+    </p>
+    {% if request.query_params.get('cs_error') %}
+    <div class="alert alert-error">{{ request.query_params.get('cs_error') }}</div>
+    {% endif %}
+    {% if cn and cn[:4] != 'IND-' and cn[:7] != 'PENDING' %}
+    <div class="actions" style="flex-wrap:wrap">
+      <form method="post" action="/clients/{{ client.id }}/cs/download">
+        <button class="btn btn-sm wc-touch" type="submit">
+          {% if latest_cs_pack %}Refresh from CH{% else %}Download &amp; pre-fill CS{% endif %}
+        </button>
+      </form>
+      {% if latest_cs_pack %}
+      <a class="btn btn-sm btn-outline wc-touch" href="/cs/{{ latest_cs_pack.id }}">
+        Open review pack
+      </a>
+      <a class="btn btn-sm btn-outline wc-touch" href="/cs/{{ latest_cs_pack.id }}/export">Export file note</a>
+      {% if latest_cs_pack.made_up_to or latest_cs_pack.due_on %}
+      <span class="small muted">
+        {% if latest_cs_pack.made_up_to %}Made up to {{ latest_cs_pack.made_up_to }}{% endif %}
+        {% if latest_cs_pack.due_on %} · due {{ latest_cs_pack.due_on }}{% endif %}
+      </span>
+      {% endif %}
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="alert alert-info" style="margin:0">
+      CS pack needs a real Companies House number.
+      This client is set to <code>{{ client.company_number or '—' }}</code>
+      — open the live company record (e.g. company number on the public register) and set it under Details, or use the matching client that already has the 8-digit number.
+    </div>
+    {% endif %}
+  </div>
 
   {# 1. Fees summary (moved from Previous fees) #}
   <div class="card">
@@ -168,23 +235,29 @@
         </thead>
         <tbody>
           {% for j in current_jobs %}
-          <tr>
+          <tr class="{% if j|job_overdue %}row-overdue{% endif %}">
             <td><a href="/jobs/{{ j.id }}"><strong>{{ j.type or j.title }}</strong></a></td>
-            <td>{{ j.period_end or '—' }}</td>
+            <td>{{ j.period_end|uk_date }}</td>
             <td>
               {% if j.statutory_due_date %}
-                {% if j.statutory_due_date < today %}
-                <span class="badge badge-overdue">{{ j.statutory_due_date }}</span>
+                {% if j|job_overdue %}
+                <span class="badge badge-overdue">{{ j.statutory_due_date|uk_date }}</span>
                 {% else %}
-                {{ j.statutory_due_date }}
+                {{ j.statutory_due_date|uk_date }}
                 {% endif %}
               {% else %}—{% endif %}
             </td>
-            <td>{{ j.target_start or '—' }}</td>
-            <td>{{ j.target_completion or '—' }}</td>
-            <td>{{ j.actual_start or '—' }}</td>
-            <td>{{ j.actual_completion or '—' }}</td>
-            <td><span class="badge">{{ j.status }}</span></td>
+            <td>{{ j.target_start|uk_date }}</td>
+            <td>{{ j.target_completion|uk_date }}</td>
+            <td>{{ j.actual_start|uk_date }}</td>
+            <td>{{ j.actual_completion|uk_date }}</td>
+            <td>
+              {% if j|job_overdue %}
+              <span class="badge badge-overdue">{{ j|job_status }}</span>
+              {% else %}
+              <span class="badge">{{ j|job_status }}</span>
+              {% endif %}
+            </td>
             <td>£{{ '%.2f'|format(j.fee or 0) }}</td>
           </tr>
           {% endfor %}
@@ -198,7 +271,47 @@
 </div>
 
 {# ========== DETAILS ========== #}
-<div class="tab-panel" id="tab-details" role="tabpanel" hidden>
+{# ========== CONNECTIONS ========== #}
+<div class="tab-panel {% if active_tab == 'connections' %}active{% endif %}" id="tab-connections" role="tabpanel" {% if active_tab != 'connections' %}hidden{% endif %}>
+  <div class="card">
+    <h2>Connections</h2>
+    <p class="muted small">
+      External systems for this practice client. <strong>Opt-in only</strong> —
+      nothing is shared until you enable a connection. Working capital data stays private by default.
+    </p>
+    <form class="stack" method="post" action="/clients/{{ client.id }}/connections">
+      <div class="conn-grid">
+        {% for c in connections %}
+        <label class="conn-card {% if c.enabled %}conn-card-on{% endif %}">
+          <div class="conn-card-head">
+            <span class="conn-card-title">{{ c.label }}</span>
+            {% if c.enabled %}
+            <span class="badge badge-active">On</span>
+            {% else %}
+            <span class="badge">Off</span>
+            {% endif %}
+          </div>
+          <p class="small muted" style="margin:0.35rem 0 0.75rem">{{ c.description }}</p>
+          <span class="settings-radio" style="margin:0">
+            <input type="checkbox" name="conn_{{ c.provider }}" value="yes" {% if c.enabled %}checked{% endif %}>
+            <span>Enable {{ c.label }} for this client</span>
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="form-actions" style="margin-top:1rem">
+        <button class="btn wc-touch" type="submit">Save connections</button>
+      </div>
+    </form>
+    <p class="small muted" style="margin-top:1rem">
+      <strong>Asana:</strong> when on, overdue Accounts / Confirmation Statement jobs for this client
+      can be pushed from the <a href="/asana">Asana hub</a> or job detail. When off, push is blocked.
+      Existing Asana tasks are not deleted if you turn it off.
+    </p>
+  </div>
+</div>
+
+<div class="tab-panel {% if active_tab == 'details' %}active{% endif %}" id="tab-details" role="tabpanel" {% if active_tab != 'details' %}hidden{% endif %}>
   <div class="card">
     <div class="page-header" style="margin-bottom:1rem">
       <h2 style="margin:0">Details</h2>
@@ -224,6 +337,8 @@
         <dt>Name</dt><dd>{{ client.company_name or '—' }}</dd>
         <dt>Company number</dt><dd>{{ client.company_number or '—' }}</dd>
         <dt>Type</dt><dd>{{ client.client_type or '—' }}</dd>
+        <dt>Date of engagement</dt><dd>{{ client.engagement_date or '—' }}</dd>
+        <dt>Date of disengagement</dt><dd>{{ client.disengagement_date or '—' }}</dd>
         <dt>Contact</dt><dd>{{ client.contact_name or '—' }}</dd>
         <dt>Email</dt><dd>{{ client.email or '—' }}</dd>
         <dt>Phone</dt><dd>{{ client.phone or '—' }}</dd>
@@ -233,6 +348,10 @@
         <dt>PAYE reference</dt><dd>{{ client.paye_reference or '—' }}</dd>
         <dt>Accounts Office Reference</dt><dd>{{ client.accounts_office_reference or '—' }}</dd>
       </dl>
+      <p class="small muted">
+        Engagement / disengagement dates override invoice proxies in the
+        <a href="/dashboard">practice book</a> (Opening + New − Lost = Closing).
+      </p>
 
       <h3>Access &amp; codes</h3>
       <dl class="dl-grid">
@@ -301,6 +420,16 @@
               <option value="{{ t }}" {% if client.client_type == t %}selected{% endif %}>{{ t }}</option>
               {% endfor %}
             </select>
+          </div>
+          <div>
+            <label for="engagement_date">Date of engagement</label>
+            <input id="engagement_date" type="date" name="engagement_date"
+              value="{{ client.engagement_date.isoformat() if client.engagement_date else '' }}">
+          </div>
+          <div>
+            <label for="disengagement_date">Date of disengagement</label>
+            <input id="disengagement_date" type="date" name="disengagement_date"
+              value="{{ client.disengagement_date.isoformat() if client.disengagement_date else '' }}">
           </div>
           <div>
             <label for="primary_person_id">Primary contact (from people)</label>
@@ -450,7 +579,7 @@
 </div>
 
 {# ========== PREVIOUS FEES + PREVIOUS JOBS ========== #}
-<div class="tab-panel" id="tab-fees" role="tabpanel" hidden>
+<div class="tab-panel {% if active_tab == 'fees' %}active{% endif %}" id="tab-fees" role="tabpanel" {% if active_tab != 'fees' %}hidden{% endif %}>
   <div class="card">
     <h2>Previous fees &amp; jobs</h2>
     <p class="small muted">Completed and historical work (including imported prior analysis).</p>
@@ -561,6 +690,13 @@ window.__feeChartData = {{ chart_json | safe }};
       showTab(el.getAttribute('data-goto-tab'));
     });
   });
+
+  // Deep-link: ?tab=connections
+  try {
+    var params = new URLSearchParams(window.location.search);
+    var tabQ = params.get('tab');
+    if (tabQ) { showTab(tabQ); }
+  } catch (e) { /* ignore */ }
 
   var viewEl = document.getElementById('details-view');
   var editEl = document.getElementById('details-edit');

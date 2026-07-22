@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Asana · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/settings">← Settings</a> · Jobs</p>
+    <h1>Asana</h1>
+    <p class="muted small">
+      Pull tasks assigned to you · push late Accounts &amp; Confirmation Statements · basic status sync.
+    </p>
+  </div>
+  <div class="actions">
+    <form method="post" action="/asana/test" style="display:inline">
+      <button class="btn btn-outline wc-touch" type="submit">Test connection</button>
+    </form>
+  </div>
+</div>
+
+{% if msg %}
+<div class="chase-banner chase-banner-info" role="status">{{ msg }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if not token_set %}
+<div class="chase-banner chase-banner-practice" role="status">
+  <strong>Not configured.</strong>
+  Add <code>ASANA_ACCESS_TOKEN</code> and <code>ASANA_WORKSPACE_GID</code> to <code>.env</code>,
+  then restart the server. Create a PAT at
+  <a href="https://app.asana.com/0/my-apps" target="_blank" rel="noopener">Asana developer console</a>.
+</div>
+{% elif not workspace_set %}
+<div class="chase-banner chase-banner-practice" role="status">
+  Token is set, but <code>ASANA_WORKSPACE_GID</code> is missing (needed to list My Tasks and create tasks).
+</div>
+{% else %}
+<div class="chase-banner chase-banner-info" role="status">
+  {% if me_name %}<strong>{{ me_name }}</strong> · {% endif %}
+  Workspace set{% if project_set %} · default project set{% endif %}.
+</div>
+{% endif %}
+
+<div class="grid-2">
+  <div class="card">
+    <div class="page-header" style="margin-bottom:0.5rem">
+      <h2 style="margin:0">My tasks (Asana)</h2>
+    </div>
+    {% if pull_error %}
+    <p class="alert alert-error">{{ pull_error }}</p>
+    {% elif my_tasks %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Task</th><th>Due</th></tr></thead>
+        <tbody>
+          {% for t in my_tasks %}
+          <tr>
+            <td>
+              {% if t.permalink_url %}
+              <a href="{{ t.permalink_url }}" target="_blank" rel="noopener">{{ t.name }}</a>
+              {% else %}
+              {{ t.name }}
+              {% endif %}
+            </td>
+            <td>{{ t.due_on or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">{% if token_set and workspace_set %}No incomplete tasks assigned to you.{% else %}Connect Asana to load tasks.{% endif %}</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="page-header" style="margin-bottom:0.5rem">
+      <h2 style="margin:0">Overdue statutory (CRM)</h2>
+      <form method="post" action="/asana/push-overdue">
+        <button class="btn btn-sm wc-touch" type="submit" {% if not workspace_set %}disabled{% endif %}>
+          Push overdue to Asana
+        </button>
+      </form>
+    </div>
+    <p class="muted small">
+      Open late <strong>Accounts</strong> &amp; <strong>Confirmation Statement</strong>
+      for clients with <strong>Asana enabled</strong> on Client → Connections (max 25).
+      Privacy: other clients are never pushed.
+    </p>
+    {% if overdue_jobs %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Job</th><th>Due</th><th>Asana</th><th></th></tr></thead>
+        <tbody>
+          {% for j in overdue_jobs %}
+          <tr>
+            <td>
+              <a href="/jobs/{{ j.id }}">{{ j.type }}</a>
+              <div class="small muted">{% if j.client %}{{ j.client.display_name() }}{% endif %}</div>
+            </td>
+            <td><span class="badge badge-overdue">{{ j.statutory_due_date }}</span></td>
+            <td class="small">{% if j.asana_task_gid %}linked{% else %}—{% endif %}</td>
+            <td>
+              <form method="post" action="/asana/jobs/{{ j.id }}/push?next=/asana">
+                <button class="btn btn-sm btn-outline wc-touch" type="submit" {% if not workspace_set %}disabled{% endif %}>Push</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">
+      No overdue Accounts / CS jobs for Asana-enabled clients.
+      Enable Asana on each client under <strong>Connections</strong>.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <div class="page-header" style="margin-bottom:0.5rem">
+    <h2 style="margin:0">Linked jobs</h2>
+    <form method="post" action="/asana/pull-linked-status">
+      <button class="btn btn-sm btn-outline wc-touch" type="submit" {% if not token_set %}disabled{% endif %}>
+        Pull status from Asana
+      </button>
+    </form>
+  </div>
+  {% if linked_jobs %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Job</th><th>CRM status</th><th>Asana gid</th><th></th></tr></thead>
+      <tbody>
+        {% for j in linked_jobs %}
+        <tr class="{% if j|job_overdue %}row-overdue{% endif %}">
+          <td><a href="/jobs/{{ j.id }}">#{{ j.id }} {{ j.type }}</a></td>
+          <td>
+            {% if j|job_overdue %}
+            <span class="badge badge-overdue">{{ j|job_status }}</span>
+            {% else %}
+            <span class="badge">{{ j|job_status }}</span>
+            {% endif %}
+          </td>
+          <td class="small">
+            <a href="https://app.asana.com/0/0/{{ j.asana_task_gid }}" target="_blank" rel="noopener">{{ j.asana_task_gid }}</a>
+          </td>
+          <td class="actions-cell">
+            <form method="post" action="/asana/jobs/{{ j.id }}/push?next=/asana" style="display:inline">
+              <button class="btn btn-sm btn-outline" type="submit">Re-push</button>
+            </form>
+            <form method="post" action="/asana/jobs/{{ j.id }}/pull-status?next=/asana" style="display:inline">
+              <button class="btn btn-sm btn-outline" type="submit">Pull</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No CRM jobs linked yet — push from overdue list or job detail.</p>
+  {% endif %}
+</div>
+{% endblock %}

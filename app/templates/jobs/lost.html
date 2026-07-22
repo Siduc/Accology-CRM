@@ -181,18 +181,24 @@
       </thead>
       <tbody>
         {% for j in jobs %}
-        <tr>
+        <tr class="{% if j|job_overdue %}row-overdue{% endif %}">
           <td>
             {% if j.client %}
             <a href="/clients/{{ j.client_id }}"><strong>{{ j.client.company_name or j.client.company_number }}</strong></a>
             {% else %}—{% endif %}
           </td>
           <td><a href="/jobs/{{ j.id }}">{{ j.type or '—' }}</a></td>
-          <td>{{ j.period_end or '—' }}</td>
+          <td>{{ j.period_end|uk_date }}</td>
           <td>£{{ '%.2f'|format(j.fee or 0) }}</td>
           <td>{{ j.billing_status or '—' }}</td>
           <td>{{ j.was_late or '—' }}</td>
-          <td><span class="badge">{{ j.status }}</span></td>
+          <td>
+            {% if j|job_overdue %}
+            <span class="badge badge-overdue">{{ j|job_status }}</span>
+            {% else %}
+            <span class="badge">{{ j|job_status }}</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

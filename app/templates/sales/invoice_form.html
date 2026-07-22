@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Raise invoice · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/sales/invoices">← Invoices</a></p>
+    <h1>Raise invoice</h1>
+    {% if job %}<p class="muted small">From job #{{ job.id }} · {{ job.title or job.type }}</p>{% endif %}
+  </div>
+</div>
+<div class="card">
+  <form class="stack" method="post" action="/sales/invoices/new">
+    <input type="hidden" name="job_id" value="{{ job.id if job else '' }}">
+    <div class="form-grid">
+      <div>
+        <label for="client_id">Client *</label>
+        <select id="client_id" name="client_id" required>
+          <option value="">Select…</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}" {% if selected_client_id == c.id %}selected{% endif %}>{{ c.display_name() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="issue_date">Issue date</label>
+        <input id="issue_date" type="date" name="issue_date" value="{{ today.isoformat() }}">
+      </div>
+      <div>
+        <label for="due_date">Due date</label>
+        <input id="due_date" type="date" name="due_date">
+      </div>
+    </div>
+    <h3>Lines</h3>
+    {% for n in [1,2,3] %}
+    <div class="form-grid" style="border-top:1px solid var(--border);padding-top:0.75rem">
+      <div>
+        <label>Service</label>
+        <select name="line_service_{{ n }}">
+          <option value="">— free text —</option>
+          {% for s in services %}
+          <option value="{{ s.id }}" data-fee="{{ s.default_fee }}">{{ s.name }} (£{{ '%.0f'|format(s.default_fee or 0) }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Description</label>
+        <input name="line_desc_{{ n }}" value="{% if n==1 and job %}{{ job.title or job.type }}{% endif %}">
+      </div>
+      <div>
+        <label>Qty</label>
+        <input name="line_qty_{{ n }}" value="1">
+      </div>
+      <div>
+        <label>Unit price (£)</label>
+        <input name="line_price_{{ n }}" value="{% if n==1 and job %}{{ '%.2f'|format(job.fee or 0) }}{% else %}0{% endif %}">
+      </div>
+      <div>
+        <label>VAT rate (e.g. 0.2)</label>
+        <input name="line_vat_{{ n }}" value="0">
+      </div>
+    </div>
+    {% endfor %}
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes"></textarea>
+    <div class="form-actions">
+      <button class="btn wc-touch" type="submit">Save &amp; send</button>
+      <a class="btn btn-outline" href="/sales/invoices">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

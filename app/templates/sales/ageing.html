@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Ageing · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/sales">← Sales Ledger</a> · <a href="/dashboard">Dashboard</a></p>
+    <h1>Debtors ageing</h1>
+    <p class="muted small">{{ count }} invoices · £{{ '{:,.2f}'.format(total) }} outstanding</p>
+  </div>
+</div>
+<div class="card">
+  {% for b in buckets %}
+  <div class="wc-age-row" style="margin-bottom:0.5rem">
+    <span class="wc-age-lab">{{ b.label }}</span>
+    <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-amber" style="width:{{ ((b.amount / ((total if total else 1))) * 100)|int }}%"></span></span>
+    <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+  </div>
+  {% endfor %}
+</div>
+<div class="card" style="margin-top:1rem">
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Invoice</th><th>Client</th><th>Issued</th><th>Age</th><th>Balance</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="row-link" onclick="window.location='/sales/invoices/{{ r.inv.id }}'">
+          <td>{{ r.inv.number }}</td>
+          <td>{% if r.client %}{{ r.client.display_name() }}{% else %}—{% endif %}</td>
+          <td>{{ r.inv.issue_date }}</td>
+          <td>{% if r.age > 30 %}<span class="badge badge-overdue">{{ r.age }}d</span>{% else %}{{ r.age }}d{% endif %}</td>
+          <td>£{{ '%.2f'|format(r.inv.balance or 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

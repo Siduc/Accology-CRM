@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import date, datetime
+from typing import Optional
 
 from sqlalchemy import (
     Column,
@@ -49,10 +50,36 @@ class Job(Base):
     was_late = Column(String, nullable=True)  # Yes / No
     lost_reason = Column(String, nullable=True)
     import_key = Column(String, nullable=True, unique=True, index=True)
+    # Asana integration
+    asana_task_gid = Column(String, nullable=True, index=True)
+    asana_synced_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     client = relationship("Client", back_populates="jobs", foreign_keys=[client_id])
 
-    OPEN_STATUSES = ("Planned", "In Progress", "Review", "Filed")
+    OPEN_STATUSES = ("Planned", "In Progress", "Review", "Overdue", "Filed")
     CLOSED_STATUSES = ("Completed", "Cancelled")
+
+    def is_closed(self) -> bool:
+        return (self.status or "") in self.CLOSED_STATUSES
+
+    def due_date(self):
+        """Date used for overdue checks: statutory due, else target completion."""
+        return self.statutory_due_date or self.target_completion
+
+    def is_overdue(self, today: Optional[date] = None) -> bool:
+        if self.is_closed():
+            return False
+        today = today or date.today()
+        due = self.due_date()
+        return bool(due and due < today)
+
+    def display_status(self, today: Optional[date] = None) -> str:
+        """
+        Status shown in lists. Open jobs past due date display as Overdue
+        (workflow status in DB is unchanged until edited/saved).
+        """
+        if self.is_overdue(today):
+            return "Overdue"
+        return self.status or "—"

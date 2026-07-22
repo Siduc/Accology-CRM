@@ -56,7 +56,7 @@ def _strip_wrapping_quotes(value: str) -> str:
 ENV = (_env("ENV") or _env("ENVIRONMENT") or "development").lower()
 IS_PRODUCTION = ENV == "production"
 
-APP_TITLE = _env("APP_TITLE", "Accountant CRM") or "Accountant CRM"
+APP_TITLE = _env("APP_TITLE", "Accologise") or "Accologise"
 APP_VERSION = _env("APP_VERSION", "1.0.0") or "1.0.0"
 
 
@@ -229,6 +229,92 @@ SESSION_HTTPS_ONLY = IS_PRODUCTION
 
 # Companies House
 COMPANIES_HOUSE_API_KEY = _env("COMPANIES_HOUSE_API_KEY")
+
+# Companies House OAuth 2.0 (API Filing / Software Filing web client)
+CH_OAUTH_CLIENT_ID = _env("CH_OAUTH_CLIENT_ID")
+CH_OAUTH_CLIENT_SECRET = _env("CH_OAUTH_CLIENT_SECRET")
+CH_OAUTH_REDIRECT_URI = _env(
+    "CH_OAUTH_REDIRECT_URI",
+    "http://127.0.0.1:8000/oauth/companies-house/callback",
+)
+CH_OAUTH_IDENTITY_BASE = (
+    _env(
+        "CH_OAUTH_IDENTITY_BASE",
+        "https://identity.company-information.service.gov.uk",
+    )
+    or "https://identity.company-information.service.gov.uk"
+)
+CH_OAUTH_API_BASE = (
+    _env(
+        "CH_OAUTH_API_BASE",
+        "https://api.company-information.service.gov.uk",
+    )
+    or "https://api.company-information.service.gov.uk"
+)
+CH_OAUTH_AUTHORISE_URL = _env(
+    "CH_OAUTH_AUTHORISE_URL",
+    f"{CH_OAUTH_IDENTITY_BASE.rstrip('/')}/oauth2/authorise",
+) or f"{CH_OAUTH_IDENTITY_BASE.rstrip('/')}/oauth2/authorise"
+CH_OAUTH_TOKEN_URL = _env(
+    "CH_OAUTH_TOKEN_URL",
+    f"{CH_OAUTH_IDENTITY_BASE.rstrip('/')}/oauth2/token",
+) or f"{CH_OAUTH_IDENTITY_BASE.rstrip('/')}/oauth2/token"
+# Optional extra scopes; may include {company_number} placeholder
+CH_OAUTH_EXTRA_SCOPES = _env("CH_OAUTH_EXTRA_SCOPES") or ""
+
+
+def _env_bool_early(name: str, default: bool = False) -> bool:
+    raw = (_env(name) or "").lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
+CH_OAUTH_ENABLED = _env_bool_early("CH_OAUTH_ENABLED", True) and bool(
+    (CH_OAUTH_CLIENT_ID or "").strip() and (CH_OAUTH_CLIENT_SECRET or "").strip()
+)
+
+
+def ch_oauth_configured() -> bool:
+    return bool(
+        (CH_OAUTH_CLIENT_ID or "").strip()
+        and (CH_OAUTH_CLIENT_SECRET or "").strip()
+        and (CH_OAUTH_REDIRECT_URI or "").strip()
+    )
+
+
+# Asana (PAT — single user “me”)
+ASANA_ACCESS_TOKEN = _env("ASANA_ACCESS_TOKEN")
+ASANA_WORKSPACE_GID = _env("ASANA_WORKSPACE_GID")
+ASANA_PROJECT_GID = _env("ASANA_PROJECT_GID")
+
+# Practice identity (letters / email footers)
+PRACTICE_NAME = _env("PRACTICE_NAME", "Accologise Practice") or "Accologise Practice"
+PRACTICE_EMAIL = _env("PRACTICE_EMAIL", "") or ""
+PRACTICE_PHONE = _env("PRACTICE_PHONE", "") or ""
+
+# Debt chasing — LIVE MODE DEFAULT OFF (no client emails until you enable)
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = (_env(name) or "").lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
+CHASE_LIVE_MODE = _env_bool("CHASE_LIVE_MODE", False)
+# Soft enable when token present (override with ASANA_ENABLED=false)
+ASANA_ENABLED = _env_bool("ASANA_ENABLED", True) and bool(ASANA_ACCESS_TOKEN)
+SMTP_HOST = _env("SMTP_HOST")
+SMTP_PORT = int(_env("SMTP_PORT", "587") or "587")
+SMTP_USER = _env("SMTP_USER")
+SMTP_PASSWORD = _env("SMTP_PASSWORD")
+SMTP_FROM = _env("SMTP_FROM") or PRACTICE_EMAIL or SMTP_USER
+SMTP_FROM_NAME = _env("SMTP_FROM_NAME", PRACTICE_NAME) or PRACTICE_NAME
+SMTP_USE_TLS = _env_bool("SMTP_USE_TLS", True)
 
 # Server
 HOST = _env("HOST", "0.0.0.0") or "0.0.0.0"

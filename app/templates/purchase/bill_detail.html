@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{{ bill.number or bill.id }} · Purchase · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/purchase/bills">← Bills</a></p>
+    <h1>{{ bill.number or ('Bill #' ~ bill.id) }}</h1>
+    <p class="muted small">
+      {{ bill.supplier_name }} ·
+      <span class="badge">{{ bill.status }}</span>
+      · age {{ age }}d
+    </p>
+  </div>
+  <div class="actions">
+    {% if bill.balance and bill.balance > 0 %}
+    <a class="btn wc-touch" href="/purchase/payments/new?bill_id={{ bill.id }}&supplier_id={{ bill.supplier_id or '' }}">Pay bill</a>
+    {% endif %}
+  </div>
+</div>
+<div class="grid-2">
+  <div class="card">
+    <dl class="dl-grid">
+      <dt>Issue</dt><dd>{{ bill.issue_date or '—' }}</dd>
+      <dt>Due</dt><dd>{{ bill.due_date or '—' }}</dd>
+      <dt>Category</dt><dd>{{ bill.category or 'supplier' }}</dd>
+      <dt>Net</dt><dd>£{{ '%.2f'|format(bill.subtotal or 0) }}</dd>
+      <dt>VAT (input)</dt><dd>£{{ '%.2f'|format(bill.vat_total or bill.vat_amount or 0) }}</dd>
+      <dt>Total</dt><dd>£{{ '%.2f'|format(bill.total or bill.amount or 0) }}</dd>
+      <dt>Paid</dt><dd>£{{ '%.2f'|format(bill.amount_paid or 0) }}</dd>
+      <dt>Balance</dt><dd><strong>£{{ '%.2f'|format(bill.balance or 0) }}</strong></dd>
+    </dl>
+    <h3>Lines</h3>
+    <ul>
+      {% for ln in bill.lines %}
+      <li>{{ ln.description }} — {{ ln.qty }} × £{{ '%.2f'|format(ln.unit_price) }} + {{ '%.0f'|format((ln.vat_rate or 0)*100) }}% VAT = £{{ '%.2f'|format(ln.line_total) }}</li>
+      {% else %}
+      <li class="muted">{{ bill.description or 'Single-line / legacy bill' }}</li>
+      {% endfor %}
+    </ul>
+    <form method="post" action="/purchase/bills/{{ bill.id }}/status" class="actions" style="margin-top:1rem">
+      <select name="status">
+        <option value="outstanding">Outstanding</option>
+        <option value="paid">Paid</option>
+        <option value="void">Void</option>
+        <option value="draft">Draft</option>
+      </select>
+      <button class="btn btn-sm btn-outline" type="submit">Update status</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Actions</h2>
+    <p class="muted small">Payments update balance and Working Capital creditors. Input VAT is on the <a href="/vat">VAT Ledger</a> by issue date.</p>
+    {% if bill.balance and bill.balance > 0 %}
+    <a class="btn btn-secondary wc-touch" href="/purchase/payments/new?bill_id={{ bill.id }}&supplier_id={{ bill.supplier_id or '' }}">Record payment</a>
+    {% endif %}
+    {% if bill.supplier_id %}
+    <p style="margin-top:1rem"><a href="/purchase/suppliers/{{ bill.supplier_id }}/edit">Edit supplier</a></p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

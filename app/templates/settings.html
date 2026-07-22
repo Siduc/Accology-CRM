@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Settings · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard">← Accologise</a></p>
+    <h1>Settings</h1>
+    <p class="muted small">Preferences are stored in this browser only.</p>
+  </div>
+</div>
+
+<div class="card" style="max-width:36rem;margin-bottom:1rem">
+  <h2>Debt chasing · practice safety</h2>
+  <p class="muted small">
+    Working Capital credit control. Automated client emails stay off until you
+    deliberately enable live mode after the sales ledger is cleaned.
+  </p>
+  {% if chase_live %}
+  <div class="chase-banner chase-banner-live" role="status">
+    <strong>CHASE_LIVE_MODE is ON</strong> — emails may be sent via SMTP.
+  </div>
+  {% else %}
+  <div class="chase-banner chase-banner-practice" role="status">
+    <strong>CHASE_LIVE_MODE is OFF</strong> (default) — previews and dry-run logs only; no client emails.
+  </div>
+  {% endif %}
+  <dl class="dl-grid">
+    <dt>SMTP</dt>
+    <dd>{% if smtp_ok %}Configured ({{ smtp_host }}){% else %}Not configured{% endif %}</dd>
+    <dt>From</dt>
+    <dd>{{ smtp_from or '—' }}</dd>
+    <dt>Practice</dt>
+    <dd>{{ practice_name }}{% if practice_email %} · {{ practice_email }}{% endif %}{% if practice_phone %} · {{ practice_phone }}{% endif %}</dd>
+  </dl>
+  <p class="small muted">
+    Set in <code>.env</code>: <code>CHASE_LIVE_MODE=true</code>, <code>SMTP_HOST</code>,
+    <code>SMTP_USER</code>, <code>SMTP_PASSWORD</code>, <code>SMTP_FROM</code>,
+    <code>PRACTICE_NAME</code>. Restart the server after changes.
+  </p>
+  <p><a class="btn btn-outline wc-touch" href="/sales/chase">Open debt chase desk</a></p>
+</div>
+
+<div class="card" style="max-width:36rem;margin-bottom:1rem">
+  <h2>Companies House · API Filing (OAuth)</h2>
+  <p class="muted small">
+    Software Filing uses OAuth 2.0 (web client id + secret). Authorise a Companies House
+    account, then connect per company from a CS pack (auth code entered on the CH consent screen).
+  </p>
+  {% if oauth_error %}
+  <div class="alert alert-error">{{ oauth_error }}</div>
+  {% endif %}
+  {% if oauth_msg == 'connected' %}
+  <div class="chase-banner chase-banner-info">Companies House OAuth connected.</div>
+  {% elif oauth_msg == 'disconnected' %}
+  <div class="chase-banner chase-banner-info">Local OAuth token revoked.</div>
+  {% endif %}
+  {% if ch_oauth_configured %}
+  <div class="chase-banner chase-banner-info" role="status">
+    <strong>Configured</strong>
+    · client id <code>{{ ch_oauth_client_mask or '…' }}</code>
+    · secret {% if ch_oauth_secret_set %}set{% else %}<em>missing</em>{% endif %}
+  </div>
+  {% else %}
+  <div class="chase-banner chase-banner-practice" role="status">
+    <strong>Not configured</strong> — add to <code>.env</code> then restart:
+    <code>CH_OAUTH_CLIENT_ID</code>, <code>CH_OAUTH_CLIENT_SECRET</code>,
+    <code>CH_OAUTH_REDIRECT_URI</code>.
+  </div>
+  {% endif %}
+  {% if ch_oauth_loopback %}
+  <div class="alert alert-error" role="alert">
+    <strong>403 Forbidden cause:</strong> {{ ch_oauth_redirect_warning }}
+  </div>
+  {% endif %}
+  <dl class="dl-grid">
+    <dt>Redirect URI</dt>
+    <dd><code class="small">{{ ch_oauth_redirect or '—' }}</code>
+      {% if ch_oauth_loopback %}<span class="badge badge-overdue">loopback — blocked by CH</span>{% endif %}
+    </dd>
+    <dt>Active tokens</dt>
+    <dd>{{ ch_oauth_tokens|length if ch_oauth_tokens is defined else 0 }}</dd>
+  </dl>
+  <p class="small muted">
+    Register a <strong>public HTTPS</strong> redirect URI on a Developer Hub
+    <strong>web client</strong> (not API-key-only). Localhost / 127.0.0.1 is rejected with 403.
+    Public CS electronic submit is not yet available; OAuth prepares API Filing.
+  </p>
+  {% if ch_oauth_last and ch_oauth_last.step %}
+  <p class="small" style="margin:0.5rem 0">
+    <strong>Last OAuth step:</strong>
+    <code>{{ ch_oauth_last.step }}</code>
+    {% if ch_oauth_last.attempt_id %}· attempt <code>{{ ch_oauth_last.attempt_id }}</code>{% endif %}
+    {% if ch_oauth_last.ts %}<span class="muted">· {{ ch_oauth_last.ts }}</span>{% endif %}
+    {% if ch_oauth_last.detail %}<br><span class="muted">{{ ch_oauth_last.detail }}</span>{% endif %}
+  </p>
+  {% endif %}
+  {% if ch_oauth_stu and ch_oauth_stu.likely_ch_side_stu %}
+  <div class="alert alert-error" style="margin:0.5rem 0">
+    No callback after Connect — “service temporarily unavailable” is usually
+    Companies House / One Login or a dead tunnel. Open OAuth details → Probe.
+  </div>
+  {% endif %}
+  <div class="actions">
+    {% if ch_oauth_configured %}
+    <a class="btn wc-touch" href="/oauth/companies-house/start?return_to=/settings">
+      Connect CH account
+    </a>
+    {% else %}
+    <span class="btn disabled" title="Add credentials to .env and restart" aria-disabled="true">
+      Connect CH account
+    </span>
+    {% endif %}
+    <a class="btn btn-outline wc-touch" href="/settings/companies-house-oauth">OAuth log &amp; probe</a>
+  </div>
+  {% if not ch_oauth_configured %}
+  <p class="small muted" style="margin-top:0.5rem">
+    After saving <code>.env</code>, <strong>restart the app</strong> (stop and start uvicorn) so credentials load.
+  </p>
+  {% endif %}
+  <p class="small muted" style="margin-top:0.5rem">
+    Logs: terminal <code>CH_OAUTH</code> lines and file <code>logs/ch_oauth.log</code>.
+  </p>
+</div>
+
+<div class="card" style="max-width:36rem;margin-bottom:1rem">
+  <h2>Asana</h2>
+  <p class="muted small">
+    Pull tasks assigned to you; push late Accounts &amp; Confirmation Statement jobs.
+    Basic status sync (complete ↔ complete).
+  </p>
+  {% if asana_token_set %}
+  <div class="chase-banner chase-banner-info" role="status">
+    <strong>Token set</strong>
+    · Workspace {% if asana_workspace_set %}OK{% else %}<em>missing</em>{% endif %}
+    · Project {% if asana_project_set %}OK{% else %}optional{% endif %}
+  </div>
+  {% else %}
+  <div class="chase-banner chase-banner-practice" role="status">
+    <strong>Not configured</strong> — add <code>ASANA_ACCESS_TOKEN</code> and
+    <code>ASANA_WORKSPACE_GID</code> to <code>.env</code>, then restart.
+  </div>
+  {% endif %}
+  <p class="small muted">
+    PAT from
+    <a href="https://app.asana.com/0/my-apps" target="_blank" rel="noopener">Asana developer console</a>.
+    Optional <code>ASANA_PROJECT_GID</code> for a default project.
+  </p>
+  <div class="actions">
+    <a class="btn wc-touch" href="/asana">Open Asana hub</a>
+    <form method="post" action="/asana/test" style="display:inline">
+      <button class="btn btn-outline wc-touch" type="submit">Test connection</button>
+    </form>
+  </div>
+</div>
+
+<div class="card" style="max-width:36rem;margin-bottom:1rem">
+  <h2>Install app (PWA)</h2>
+  <p class="muted small">
+    Accologise can be installed on your phone or desktop for a full-screen, app-like experience
+    (Live Tiles on mobile, professional desk on larger screens).
+  </p>
+  <ul class="muted small" style="margin:0.5rem 0 0;padding-left:1.2rem">
+    <li><strong>Android / Chrome:</strong> browser menu → Install app / Add to Home screen</li>
+    <li><strong>iPhone / Safari:</strong> Share → Add to Home Screen</li>
+  </ul>
+  <p class="small muted" style="margin-top:0.75rem">
+    Theme colour and icons match Accologise. Offline shows a reconnect screen — live data still needs the network.
+  </p>
+</div>
+
+<div class="card" style="max-width:32rem">
+  <h2>Dashboard view</h2>
+  <p class="muted small">
+    Choose how the home screen looks. <strong>Automatic</strong> uses live tiles under 768px
+    and the professional desk layout on larger screens.
+  </p>
+  <form id="dashboard-view-form" class="stack">
+    <label class="settings-radio">
+      <input type="radio" name="dashboard_view" value="auto" checked>
+      <span>
+        <strong>Automatic</strong>
+        <span class="muted small"> — switch by screen width</span>
+      </span>
+    </label>
+    <label class="settings-radio">
+      <input type="radio" name="dashboard_view" value="desktop">
+      <span>
+        <strong>Desktop professional</strong>
+        <span class="muted small"> — detailed 4-box cycle always</span>
+      </span>
+    </label>
+    <label class="settings-radio">
+      <input type="radio" name="dashboard_view" value="mobile">
+      <span>
+        <strong>Mobile live tiles</strong>
+        <span class="muted small"> — Windows Phone–style hub always</span>
+      </span>
+    </label>
+    <div class="form-actions">
+      <button class="btn" type="submit">Save &amp; open dashboard</button>
+      <a class="btn btn-outline" href="/dashboard">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

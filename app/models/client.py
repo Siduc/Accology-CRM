@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy import Column, Date, Integer, String, Text, DateTime
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -22,6 +22,9 @@ class Client(Base):
     postcode = Column(String)
     client_type = Column(String)
     overall_status = Column(String, default="Active")
+    # Practice book overrides (when set, replace invoice-proxy join/leave dates)
+    engagement_date = Column(Date, nullable=True, index=True)
+    disengagement_date = Column(Date, nullable=True, index=True)
     vat_number = Column(String, nullable=True)
     utr = Column(String, nullable=True)
     paye_reference = Column(String, nullable=True)

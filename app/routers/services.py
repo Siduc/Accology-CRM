@@ -6,10 +6,65 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import ServiceFee
+from app.models.sales import Service, ServicePrice
 from app.services.fees import DEFAULT_SERVICES, seed_default_fees
+from app.services.sales_ledger import seed_services
 from app.templating import render
 
 router = APIRouter(prefix="/services", tags=["services"])
+
+
+@router.get("", response_class=HTMLResponse)
+async def services_catalogue(request: Request, db: Session = Depends(get_db)):
+    """Services Ledger — master catalogue."""
+    seed_services(db)
+    services = db.query(Service).order_by(Service.category, Service.name).all()
+    return render(
+        request,
+        "services/catalogue.html",
+        {"services": services},
+    )
+
+
+@router.post("/catalogue/add", response_class=HTMLResponse)
+async def services_add(
+    request: Request,
+    code: str = Form(...),
+    name: str = Form(...),
+    description: str = Form(""),
+    default_fee: str = Form("0"),
+    default_vat_rate: str = Form("0"),
+    category: str = Form("compliance"),
+    unit: str = Form("job"),
+    is_sellable: str = Form("yes"),
+    db: Session = Depends(get_db),
+):
+    code_c = (code or "").strip().upper().replace(" ", "_")
+    if not code_c or db.query(Service).filter(Service.code == code_c).first():
+        return RedirectResponse("/services?error=code", status_code=303)
+    try:
+        fee = float((default_fee or "0").replace("£", "").replace(",", ""))
+    except ValueError:
+        fee = 0.0
+    try:
+        vat = float(default_vat_rate or 0)
+    except ValueError:
+        vat = 0.0
+    db.add(
+        Service(
+            code=code_c,
+            name=(name or code_c).strip(),
+            description=description or None,
+            default_fee=fee,
+            default_vat_rate=vat,
+            category=category or "compliance",
+            unit=unit or "job",
+            is_active=True,
+            is_sellable_to_clients=is_sellable == "yes",
+        )
+    )
+    db.commit()
+    return RedirectResponse("/services", status_code=303)
 
 
 @router.get("/fees", response_class=HTMLResponse)

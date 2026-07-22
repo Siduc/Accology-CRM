@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{% if account %}Edit account{% else %}New account{% endif %} · Bank · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/bank">← Bank Ledger</a></p>
+    <h1>{% if account %}Edit account{% else %}New bank account{% endif %}</h1>
+  </div>
+</div>
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+<div class="card" style="max-width:36rem">
+  <form class="stack" method="post" action="{% if account %}/bank/accounts/{{ account.id }}/edit{% else %}/bank/accounts/new{% endif %}">
+    <div class="form-grid">
+      <div>
+        <label for="name">Account name *</label>
+        <input id="name" name="name" required value="{{ account.name if account else '' }}" placeholder="Practice current">
+      </div>
+      <div>
+        <label for="bank_name">Bank</label>
+        <input id="bank_name" name="bank_name" value="{{ account.bank_name if account and account.bank_name else '' }}" list="banks" placeholder="NatWest">
+        <datalist id="banks">
+          <option value="NatWest">
+          <option value="Barclays">
+          <option value="HSBC">
+          <option value="Lloyds">
+          <option value="Santander">
+          <option value="Starling">
+          <option value="Monzo">
+        </datalist>
+      </div>
+      <div>
+        <label for="sort_code">Sort code</label>
+        <input id="sort_code" name="sort_code" value="{{ account.sort_code if account and account.sort_code else '' }}" placeholder="00-00-00">
+      </div>
+      <div>
+        <label for="account_number">Account number</label>
+        <input id="account_number" name="account_number" value="{{ account.account_number if account and account.account_number else '' }}">
+      </div>
+      <div>
+        <label for="currency">Currency</label>
+        <input id="currency" name="currency" value="{{ account.currency if account and account.currency else 'GBP' }}">
+      </div>
+      {% if not account %}
+      <div>
+        <label for="opening_balance">Opening balance (£)</label>
+        <input id="opening_balance" name="opening_balance" inputmode="decimal" value="0.00">
+      </div>
+      {% endif %}
+    </div>
+    {% if account %}
+    <label class="settings-radio">
+      <input type="checkbox" name="is_active" value="yes" {% if account.is_active is not false %}checked{% endif %}>
+      <span>Active (include in Working Capital cash)</span>
+    </label>
+    {% endif %}
+    <label class="settings-radio">
+      <input type="checkbox" name="make_primary" value="yes" {% if account and account.is_primary %}checked{% endif %}>
+      <span>Primary account (default for sales receipts)</span>
+    </label>
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes">{{ account.notes if account and account.notes else '' }}</textarea>
+    <div class="form-actions">
+      <button class="btn wc-touch" type="submit">Save</button>
+      <a class="btn btn-outline" href="{% if account %}/bank/{{ account.id }}{% else %}/bank{% endif %}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

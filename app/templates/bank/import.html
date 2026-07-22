@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Import · {{ account.name }} · Bank · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/bank/{{ account.id }}">← {{ account.name }}</a></p>
+    <h1>CSV import</h1>
+    <p class="muted small">NatWest export or general date / description / amount. Duplicates are skipped.</p>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+  <form class="stack" method="post" action="/bank/{{ account.id }}/import" enctype="multipart/form-data">
+    <label for="csv_format">Format</label>
+    <select id="csv_format" name="csv_format">
+      <option value="auto" {% if csv_format == 'auto' %}selected{% endif %}>Auto-detect</option>
+      <option value="natwest" {% if csv_format == 'natwest' %}selected{% endif %}>NatWest</option>
+      <option value="generic" {% if csv_format == 'generic' %}selected{% endif %}>Generic (date, description, amount)</option>
+    </select>
+    <label for="csv_file">Upload file</label>
+    <input id="csv_file" type="file" name="csv_file" accept=".csv,text/csv,text/plain">
+    <label for="csv_data">Or paste CSV</label>
+    <textarea id="csv_data" name="csv_data" rows="10" placeholder="Date,Description,Amount&#10;01/06/2026,Client ABC,1500.00">{{ csv_text if csv_text is defined else '' }}</textarea>
+    <div class="form-actions">
+      <button class="btn wc-touch" type="submit" name="action" value="preview">Preview</button>
+      {% if preview is defined and preview %}
+      <button class="btn btn-secondary wc-touch" type="submit" name="action" value="commit">
+        Import {{ new_count|default(0) }} new lines
+      </button>
+      {% endif %}
+      <a class="btn btn-outline" href="/bank/{{ account.id }}">Cancel</a>
+    </div>
+  </form>
+</div>
+
+{% if preview is defined and preview %}
+<div class="card" style="margin-top:1rem">
+  <h2>Preview</h2>
+  <p class="muted small">
+    {{ preview|length }} rows ·
+    <strong>{{ new_count|default(0) }}</strong> new ·
+    <strong>{{ dupes|default(0) }}</strong> duplicates (will skip)
+  </p>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Date</th><th>Description</th><th>Amount</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for p in preview[:200] %}
+        <tr class="{% if p.is_duplicate %}row-muted{% endif %}">
+          <td>{{ p.txn_date }}</td>
+          <td>{{ p.description }}{% if p.reference %}<div class="small muted">{{ p.reference }}</div>{% endif %}</td>
+          <td class="{% if p.amount >= 0 %}text-success{% else %}text-danger{% endif %}">
+            {% if p.amount >= 0 %}+{% endif %}£{{ '%.2f'|format(p.amount) }}
+          </td>
+          <td>{% if p.is_duplicate %}<span class="badge">Duplicate</span>{% else %}<span class="badge badge-active">New</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

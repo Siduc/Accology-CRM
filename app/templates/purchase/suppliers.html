@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Suppliers · Purchase · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/purchase">← Purchase Ledger</a></p>
+    <h1>Suppliers</h1>
+  </div>
+  <div class="actions">
+    <a class="btn wc-touch" href="/purchase/suppliers/new">New supplier</a>
+  </div>
+</div>
+<form class="actions" method="get" action="/purchase/suppliers" style="margin-bottom:1rem">
+  <input name="q" value="{{ q }}" placeholder="Search…" style="min-width:12rem">
+  <button class="btn btn-outline" type="submit">Search</button>
+</form>
+<div class="card">
+  {% if suppliers %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Name</th><th>VAT no.</th><th>Terms</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for s in suppliers %}
+        <tr>
+          <td><strong>{{ s.name }}</strong>{% if s.contact_name %}<div class="small muted">{{ s.contact_name }}</div>{% endif %}</td>
+          <td>{{ s.vat_number or '—' }}</td>
+          <td>{{ s.payment_terms_days or 30 }} days</td>
+          <td>{% if s.is_active %}<span class="badge badge-active">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td>
+          <td><a class="btn btn-sm btn-outline wc-touch" href="/purchase/suppliers/{{ s.id }}/edit">Edit</a>
+              <a class="btn btn-sm wc-touch" href="/purchase/bills/new?supplier_id={{ s.id }}">Bill</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No suppliers yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Reconcile · {{ account.name }} · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/bank/{{ account.id }}">← {{ account.name }}</a></p>
+    <h1>Reconciliation</h1>
+    <p class="muted small">Tick cleared lines to match your bank statement. Target difference £0.00.</p>
+  </div>
+</div>
+
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <form class="stack" method="get" action="/bank/{{ account.id }}/reconcile">
+    <div class="form-grid">
+      <div>
+        <label for="as_of">Statement date</label>
+        <input id="as_of" type="date" name="as_of" value="{{ as_of.isoformat() }}">
+      </div>
+      <div>
+        <label for="statement_balance">Statement balance (£)</label>
+        <input id="statement_balance" name="statement_balance" inputmode="decimal"
+               value="{{ statement_balance }}" placeholder="From bank statement">
+      </div>
+    </div>
+    <button class="btn wc-touch" type="submit">Calculate difference</button>
+  </form>
+</div>
+
+{% if summary %}
+<div class="sales-kpi-row bank-kpi-row">
+  <div class="sales-kpi">
+    <div class="sales-kpi-lab">Book balance</div>
+    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.book_balance) }}</div>
+    <div class="sales-kpi-sub">As at {{ summary.as_of }}</div>
+  </div>
+  <div class="sales-kpi sales-kpi-ok">
+    <div class="sales-kpi-lab">Statement</div>
+    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.statement_balance) }}</div>
+    <div class="sales-kpi-sub">You entered</div>
+  </div>
+  <div class="sales-kpi {% if summary.difference == 0 %}sales-kpi-ok{% else %}sales-kpi-danger{% endif %}">
+    <div class="sales-kpi-lab">Difference</div>
+    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.difference) }}</div>
+    <div class="sales-kpi-sub">{% if summary.difference == 0 %}Balanced{% else %}Statement − book{% endif %}</div>
+  </div>
+  <div class="sales-kpi sales-kpi-warn">
+    <div class="sales-kpi-lab">Unreconciled</div>
+    <div class="sales-kpi-val">{{ summary.unreconciled_count }}</div>
+    <div class="sales-kpi-sub">Lines open</div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Unreconciled lines (to {{ as_of }})</h2>
+  {% if unreconciled %}
+  <form method="post" action="/bank/{{ account.id }}/reconcile">
+    <input type="hidden" name="as_of" value="{{ as_of.isoformat() }}">
+    <input type="hidden" name="statement_balance" value="{{ statement_balance }}">
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Clear</th>
+            <th>Date</th>
+            <th>Description</th>
+            <th>Amount</th>
+            <th>Running</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in unreconciled %}
+          {% set t = r.txn %}
+          <tr>
+            <td><input type="checkbox" name="txn_ids" value="{{ t.id }}"></td>
+            <td>{{ t.txn_date }}</td>
+            <td>{{ t.description or '—' }}</td>
+            <td class="{% if t.amount >= 0 %}text-success{% else %}text-danger{% endif %}">
+              {% if t.amount >= 0 %}+{% endif %}£{{ '%.2f'|format(t.amount) }}
+            </td>
+            <td>£{{ '%.2f'|format(r.running_balance) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="form-actions" style="margin-top:1rem">
+      <button class="btn wc-touch" type="submit">Mark selected cleared</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="empty">No unreconciled lines up to this date.</p>
+  {% endif %}
+</div>
+{% endblock %}

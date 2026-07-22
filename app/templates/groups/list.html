@@ -1,59 +1,112 @@
 {% extends "base.html" %}
-{% block title %}Groups · Accountant CRM{% endblock %}
+{% block title %}Groups · Accologise{% endblock %}
 {% block content %}
+<div class="groups-page">
 <div class="page-header">
   <div>
-    <p class="small muted"><a href="/dashboard">← Dashboard</a></p>
+    <p class="small muted"><a href="/dashboard">← Accologise</a> · Practice book</p>
     <h1>Groups</h1>
     <p class="muted small">
-      {{ count }} group{% if count != 1 %}s{% endif %}.
-      Each name is the client with the <strong>highest job fees</strong> in that group.
-      Open a row to see the companies and people inside.
+      Drag companies between columns, or use the <strong>Move to</strong> box under each company.
+      Scroll sideways to see every group.
     </p>
   </div>
+  <div class="actions">
+    <form method="post" action="/groups/new" class="actions" style="gap:0.35rem">
+      <input name="name" placeholder="New group name" style="min-width:10rem" required>
+      <button class="btn wc-touch" type="submit">Add group</button>
+    </form>
+  </div>
 </div>
 
-<form class="filters" method="get" action="/groups">
-  <div>
-    <label class="small muted" for="q">Search</label><br>
-    <input id="q" type="search" name="q" value="{{ q }}" placeholder="Group name…">
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
+{% endif %}
+
+<form class="groups-search" method="get" action="/groups">
+  <label class="small muted" for="group-q">Find company or group</label>
+  <div class="actions" style="flex-wrap:wrap">
+    <input id="group-q" name="q" value="{{ q }}" placeholder="e.g. Sixty Six South…" style="min-width:16rem">
+    <button class="btn wc-touch" type="submit">Search</button>
+    {% if q %}<a class="btn btn-outline" href="/groups">Clear</a>{% endif %}
   </div>
-  <button class="btn btn-sm" type="submit">Filter</button>
-  {% if q %}<a class="btn btn-sm btn-outline" href="/groups">Clear</a>{% endif %}
+  <p class="small muted" style="margin:0.35rem 0 0">
+    Lost clients (status <strong>Inactive</strong> or with a disengagement date) are hidden from this board.
+    <strong>Former</strong> stays on the live list — use Inactive to mark lost.
+  </p>
 </form>
 
-<div class="card">
-  {% if groups %}
-  <div class="table-wrap">
-    <table class="data">
-      <thead>
-        <tr>
-          <th>Group</th>
-          <th>Companies</th>
-          <th>People</th>
-          <th>Fees</th>
-          <th>Status mix</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for g in groups %}
-        <tr class="row-link" onclick="window.location='/groups/{{ g.group_id }}'">
-          <td>
-            <a href="/groups/{{ g.group_id }}" onclick="event.stopPropagation()">
-              <strong>{{ g.name }}</strong>
-            </a>
-          </td>
-          <td>{{ g.client_count }}</td>
-          <td>{{ g.person_count }}</td>
-          <td>£{{ '%.2f'|format(g.total_fees or 0) }}</td>
-          <td class="small muted">{{ g.statuses|join(', ') }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="empty">No groups found.</p>
-  {% endif %}
+<div class="groups-scroll-hint">
+  <span>{{ count }} group{{ 's' if count != 1 else '' }}{% if q %} matching “{{ q }}”{% endif %} · scroll horizontally →</span>
+  <span class="small">Ungrouped column stays pinned on the left</span>
 </div>
+
+<div class="group-board" id="group-board" tabindex="0" role="region" aria-label="Groups board — scroll horizontally">
+  {# Ungrouped first so it sticks left while scrolling #}
+  <section class="group-column group-column-ungrouped" data-group-id="" data-drop-zone="ungrouped">
+    <header class="group-column-head">
+      <span class="group-column-title">Ungrouped</span>
+      <span class="small muted">{{ ungrouped|length }}</span>
+    </header>
+    <div class="group-drop" data-group-id="">
+      {% for m in ungrouped %}
+      <div class="group-chip" draggable="true" data-client-id="{{ m.client.id }}">
+        <a class="group-chip-name" href="/clients/{{ m.client.id }}" onclick="event.stopPropagation()">{{ m.client.display_name() }}</a>
+        <span class="group-chip-meta">£{{ '{:,.0f}'.format(m.fees) }}</span>
+        <form class="group-move-form" method="post" action="/groups/move" onclick="event.stopPropagation()">
+          <label class="group-move-label" for="move-u-{{ m.client.id }}">Move to</label>
+          <select id="move-u-{{ m.client.id }}" name="group_id" class="group-move-select" aria-label="Move company" onchange="this.form.submit()">
+            <option value="" selected>Ungrouped</option>
+            {% for og in board %}
+            <option value="{{ og.group.id }}">{{ og.group.name }}</option>
+            {% endfor %}
+          </select>
+          <input type="hidden" name="client_id" value="{{ m.client.id }}">
+        </form>
+      </div>
+      {% else %}
+      <p class="group-empty muted small">All companies are in a group</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% for bg in board %}
+  <section class="group-column" data-group-id="{{ bg.group.id }}" data-drop-zone="group">
+    <header class="group-column-head">
+      <a href="/groups/{{ bg.group.id }}" class="group-column-title" title="{{ bg.group.name }}">{{ bg.group.name }}</a>
+      <span class="small muted">{{ bg.members|length }} · £{{ '{:,.0f}'.format(bg.total_fees) }}</span>
+    </header>
+    <div class="group-conn-pills small">
+      {% for code, label, _d in providers %}
+      <span class="badge {% if bg.conn_summary.get(code)=='on' %}badge-active{% elif bg.conn_summary.get(code)=='mixed' %}badge-overdue{% endif %}">
+        {{ label }}: {{ bg.conn_summary.get(code, 'off') }}
+      </span>
+      {% endfor %}
+    </div>
+    <div class="group-drop" data-group-id="{{ bg.group.id }}">
+      {% for m in bg.members %}
+      <div class="group-chip" draggable="true" data-client-id="{{ m.client.id }}">
+        <a class="group-chip-name" href="/clients/{{ m.client.id }}" onclick="event.stopPropagation()">{{ m.client.display_name() }}</a>
+        <span class="group-chip-meta">£{{ '{:,.0f}'.format(m.fees) }}</span>
+        <form class="group-move-form" method="post" action="/groups/move" onclick="event.stopPropagation()">
+          <label class="group-move-label" for="move-{{ bg.group.id }}-{{ m.client.id }}">Move to</label>
+          <select id="move-{{ bg.group.id }}-{{ m.client.id }}" name="group_id" class="group-move-select" aria-label="Move company" onchange="this.form.submit()">
+            <option value="">→ Ungrouped</option>
+            {% for og in board %}
+            <option value="{{ og.group.id }}" {% if og.group.id == bg.group.id %}selected{% endif %}>{{ og.group.name }}</option>
+            {% endfor %}
+          </select>
+          <input type="hidden" name="client_id" value="{{ m.client.id }}">
+        </form>
+      </div>
+      {% else %}
+      <p class="group-empty muted small">Drop companies here</p>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>
+</div>
+
+<script src="/static/groups_board.js?v=2" defer></script>
 {% endblock %}

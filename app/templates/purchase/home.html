@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Purchase Ledger · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard#working-capital">← Working capital</a> · Creditors</p>
+    <h1>Purchase Ledger</h1>
+    <p class="muted small">Suppliers · bills · payments · ageing — drives the Creditors box.</p>
+  </div>
+  <div class="actions">
+    <a class="btn wc-touch" href="/purchase/bills/new">Enter bill</a>
+    <a class="btn btn-secondary wc-touch" href="/purchase/payments/new">Record payment</a>
+  </div>
+</div>
+
+<div class="sales-kpi-row">
+  <a class="sales-kpi sales-kpi-danger" href="/purchase/bills?status=outstanding">
+    <div class="sales-kpi-lab">Outstanding</div>
+    <div class="sales-kpi-val">£{{ '{:,.0f}'.format(outstanding_total) }}</div>
+    <div class="sales-kpi-sub">{{ outstanding_count }} open bills</div>
+  </a>
+  <a class="sales-kpi sales-kpi-warn" href="/purchase/ageing">
+    <div class="sales-kpi-lab">Overdue</div>
+    <div class="sales-kpi-val">£{{ '{:,.0f}'.format(overdue_total) }}</div>
+    <div class="sales-kpi-sub">Past due date</div>
+  </a>
+  <a class="sales-kpi" href="/purchase/bills">
+    <div class="sales-kpi-lab">Bills</div>
+    <div class="sales-kpi-val">{{ bill_count }}</div>
+    <div class="sales-kpi-sub">All documents</div>
+  </a>
+  <a class="sales-kpi sales-kpi-ok" href="/purchase/payments">
+    <div class="sales-kpi-lab">Payments</div>
+    <div class="sales-kpi-val">{{ payment_count }}</div>
+    <div class="sales-kpi-sub">To suppliers</div>
+  </a>
+</div>
+
+<div class="card">
+  <h2>Ageing snapshot</h2>
+  <div class="wc-ageing">
+    {% for b in ageing %}
+    <div class="wc-age-row">
+      <span class="wc-age-lab">{{ b.label }}</span>
+      <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-red" style="width:{{ ((b.amount / ((outstanding_total if outstanding_total else 1))) * 100)|int }}%"></span></span>
+      <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="grid-2" style="margin-top:1rem">
+  <div class="card">
+    <h2>Shortcuts</h2>
+    <div class="actions" style="flex-direction:column;align-items:stretch">
+      <a class="btn btn-outline wc-touch" href="/purchase/suppliers">Suppliers</a>
+      <a class="btn btn-outline wc-touch" href="/purchase/bills?status=outstanding">Outstanding bills</a>
+      <a class="btn btn-outline wc-touch" href="/purchase/ageing">Full ageing</a>
+      <a class="btn btn-outline wc-touch" href="/vat">VAT Ledger</a>
+      <a class="btn btn-outline wc-touch" href="/bank">Bank Ledger</a>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Working capital</h2>
+    <p class="muted small">
+      Purchase Ledger balances feed <strong>Creditors</strong> on the dashboard
+      (WIP + Debtors + Cash − Creditors).
+    </p>
+    <p class="muted small">Input VAT on bills is tracked in the <a href="/vat">VAT Ledger</a> (invoice basis).</p>
+  </div>
+</div>
+{% endblock %}

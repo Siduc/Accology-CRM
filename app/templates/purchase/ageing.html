@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Ageing · Purchase · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/purchase">← Purchase Ledger</a></p>
+    <h1>Creditors ageing</h1>
+    <p class="muted small">Outstanding £{{ '{:,.2f}'.format(total) }} · {{ count }} bills · {{ today }}</p>
+  </div>
+</div>
+<div class="card">
+  <h2>Buckets</h2>
+  <div class="wc-ageing">
+    {% for b in buckets %}
+    <div class="wc-age-row">
+      <span class="wc-age-lab">{{ b.label }}</span>
+      <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-red" style="width:{{ ((b.amount / ((total if total else 1))) * 100)|int }}%"></span></span>
+      <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+<div class="card" style="margin-top:1rem">
+  <h2>Bills by age</h2>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Bill</th><th>Supplier</th><th>Due</th><th>Age</th><th>Balance</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><a href="/purchase/bills/{{ r.bill.id }}">{{ r.bill.number or r.bill.id }}</a></td>
+          <td>{{ r.bill.supplier_name }}</td>
+          <td>{{ r.bill.due_date or '—' }}</td>
+          <td><span class="badge badge-overdue">{{ r.age }}d</span></td>
+          <td>£{{ '%.2f'|format(r.balance) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">Nothing outstanding.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -58,6 +58,25 @@ def init_db():
     _add_missing_columns()
     _migrate_person_clients()
     _seed_service_fees()
+    _seed_sales_ledger()
+
+
+def _seed_sales_ledger():
+    """Seed Services catalogue; backfill invoices from jobs once."""
+    from app.services.sales_ledger import backfill_invoices_from_jobs, seed_services
+
+    db = SessionLocal()
+    try:
+        seed_services(db)
+        # Only auto-backfill if sales ledger is empty
+        from app.models.sales import Invoice
+
+        if db.query(Invoice).count() == 0:
+            backfill_invoices_from_jobs(db)
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 
 def _seed_service_fees():
@@ -84,6 +103,8 @@ def _add_missing_columns():
             ("accounts_software_password", "VARCHAR"),
             ("ch_authentication_code", "VARCHAR"),
             ("ch_personal_code", "VARCHAR"),
+            ("engagement_date", "DATE"),
+            ("disengagement_date", "DATE"),
         ],
         "people": [
             ("client_id", "INTEGER"),
@@ -101,6 +122,54 @@ def _add_missing_columns():
             ("was_late", "VARCHAR"),
             ("lost_reason", "VARCHAR"),
             ("import_key", "VARCHAR"),
+            ("asana_task_gid", "VARCHAR"),
+            ("asana_synced_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+        ],
+        "debt_chase_actions": [
+            ("stage", "VARCHAR"),
+            ("channel", "VARCHAR"),
+            ("email_to", "VARCHAR"),
+            ("email_subject", "VARCHAR"),
+            ("email_body", "TEXT" if not IS_SQLITE else "TEXT"),
+            ("send_status", "VARCHAR"),
+        ],
+        "cs_packs": [
+            ("ch_transaction_id", "VARCHAR"),
+            ("filing_prep_json", "TEXT"),
+            ("oauth_token_id", "INTEGER"),
+        ],
+        "bank_accounts": [
+            ("bank_name", "VARCHAR"),
+            ("sort_code", "VARCHAR"),
+            ("account_number", "VARCHAR"),
+            ("currency", "VARCHAR"),
+            ("is_active", "INTEGER DEFAULT 1" if IS_SQLITE else "BOOLEAN DEFAULT TRUE"),
+            ("is_primary", "INTEGER DEFAULT 0" if IS_SQLITE else "BOOLEAN DEFAULT FALSE"),
+            ("notes", "TEXT" if not IS_SQLITE else "TEXT"),
+        ],
+        "bank_transactions": [
+            ("reference", "VARCHAR"),
+            ("counterparty", "VARCHAR"),
+            ("category", "VARCHAR"),
+            ("source", "VARCHAR"),
+            ("reconciled", "INTEGER DEFAULT 0" if IS_SQLITE else "BOOLEAN DEFAULT FALSE"),
+            ("reconciled_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+            ("import_hash", "VARCHAR"),
+            ("matched_type", "VARCHAR"),
+            ("matched_id", "INTEGER"),
+            ("notes", "TEXT" if not IS_SQLITE else "TEXT"),
+        ],
+        "creditor_bills": [
+            ("bank_transaction_id", "INTEGER"),
+            ("supplier_id", "INTEGER"),
+            ("number", "VARCHAR"),
+            ("notes", "TEXT" if not IS_SQLITE else "TEXT"),
+            ("issue_date", "DATE"),
+            ("subtotal", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+            ("vat_total", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+            ("total", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+            ("amount_paid", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+            ("balance", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
         ],
     }
 
