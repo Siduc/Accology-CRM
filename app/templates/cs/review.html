@@ -246,6 +246,7 @@
           <th>CH officer</th>
           <th>Role / appointed</th>
           <th>Accologise contact</th>
+          <th>CH PIC</th>
           <th></th>
         </tr>
       </thead>
@@ -262,6 +263,18 @@
             <span class="muted">{{ o.practice_name }}</span>
             {% endif %}
           </td>
+          <td>
+            {% if not o.match %}
+            <span class="muted small">—</span>
+            {% elif o.ch_code_on_file %}
+            <span class="badge badge-active" title="Personal identification code on person record">On file</span>
+            {% else %}
+            <span class="badge badge-progress" title="Add on person edit">Missing</span>
+            {% if o.practice_id %}
+            <a class="btn btn-sm btn-outline" href="/people/{{ o.practice_id }}/edit#ch_code" style="margin-left:0.25rem">Add</a>
+            {% endif %}
+            {% endif %}
+          </td>
           <td class="actions-cell">
             {% if o.match %}
             <span class="badge badge-active">Linked</span>
@@ -276,7 +289,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="muted">No officers in pack — refresh from CH.</td></tr>
+        <tr><td colspan="5" class="muted">No officers in pack — refresh from CH.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -291,7 +304,7 @@
   <div class="table-wrap">
     <table class="data">
       <thead>
-        <tr><th>Name</th><th>Role</th><th>Email</th><th></th></tr>
+        <tr><th>Name</th><th>Role</th><th>Email</th><th>CH PIC</th><th></th></tr>
       </thead>
       <tbody>
         {% for p in compare.crm_only_people %}
@@ -302,6 +315,13 @@
           </td>
           <td>{{ p.role or '—' }}</td>
           <td class="small">{{ p.email or '—' }}</td>
+          <td>
+            {% if p.ch_code_on_file %}
+            <span class="badge badge-active">On file</span>
+            {% else %}
+            <span class="muted small">—</span>
+            {% endif %}
+          </td>
           <td class="actions-cell">
             <span class="badge badge-progress">CRM only</span>
             <form method="post" action="/cs/{{ pack.id }}/fix/unlink" style="display:inline;margin-left:0.35rem"

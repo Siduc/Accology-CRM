@@ -90,7 +90,20 @@
       </div>
       <div>
         <label for="utr">UTR (useful for individual clients)</label>
-        <input id="utr" name="utr" value="{{ person.utr if person and person.utr else '' }}">
+        <input id="utr" name="utr" value="{{ person.utr if person and person.utr else '' }}" autocomplete="off">
+      </div>
+      <div>
+        <label for="ni_number">NI number</label>
+        <input id="ni_number" name="ni_number" value="{{ person.ni_number if person and person.ni_number else '' }}" autocomplete="off">
+      </div>
+      <div>
+        <label for="ch_code">Companies House personal identification code</label>
+        <input id="ch_code" name="ch_code" value="{{ person.ch_code if person and person.ch_code else '' }}"
+               placeholder="Director / individual PIC" autocomplete="off" spellcheck="false">
+        <p class="small muted" style="margin:0.25rem 0 0">
+          Personal code for this person (not the company authentication code).
+          Stored for WebFiling / presenters; never exported in CS packs.
+        </p>
       </div>
       <div>
         <label for="person_status">Status</label>

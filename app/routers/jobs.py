@@ -36,8 +36,15 @@ def _list_jobs_page(
 ):
     today = date.today()
     query = db.query(Job).options(joinedload(Job.client))
-    # "Overdue" is computed from due date — not a stored status for most jobs
-    if status and status != "Overdue":
+    # Horizon statuses are computed from due dates — not always stored on the row
+    _computed = {
+        "Overdue",
+        "Overdue and Imminent",
+        "Planning",
+        "Pre Planning",
+        "Later",
+    }
+    if status and status not in _computed:
         query = query.filter(Job.status == status)
     if job_type == "Accounts":
         query = query.filter(Job.type == "Accounts")
@@ -54,11 +61,21 @@ def _list_jobs_page(
     else:
         jobs = [j for j in jobs if not _client_is_lost(j.client)]
 
-    if status == "Overdue":
-        jobs = [j for j in jobs if j.is_overdue(today)]
+    if status == "Overdue" or status == "Overdue and Imminent":
+        jobs = [
+            j
+            for j in jobs
+            if j.display_status(today) == "Overdue and Imminent" or j.is_overdue(today)
+        ]
+    elif status in ("Planning", "Pre Planning", "Later"):
+        jobs = [j for j in jobs if j.display_status(today) == status]
 
     if filter == "overdue":
-        jobs = [j for j in jobs if j.is_overdue(today)]
+        jobs = [
+            j
+            for j in jobs
+            if j.is_overdue(today) or j.display_status(today) == "Overdue and Imminent"
+        ]
     elif filter == "due_soon":
         soon = today + timedelta(days=30)
         jobs = [
@@ -129,6 +146,65 @@ async def list_cs_jobs(
         title="Confirmation Statement jobs",
         view="cs",
     )
+
+
+@router.get("/completion", response_class=HTMLResponse)
+async def jobs_completion_list(
+    request: Request,
+    period: str = Query("week"),
+    type: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Invoicing control: completed jobs in chronological order.
+    Defaults to jobs completed this week. Invoice number + net value
+    are editable and will be filled automatically when raising invoices in-app.
+    """
+    from app.services.job_completion import list_completed_jobs
+
+    snap = list_completed_jobs(db, period=period or "week", job_type=type or "")
+    return render(
+        request,
+        "jobs/completion.html",
+        {
+            **snap,
+            "saved": request.query_params.get("saved", ""),
+            "msg": request.query_params.get("msg", ""),
+        },
+    )
+
+
+@router.post("/completion/save")
+async def jobs_completion_save(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Bulk-save invoice number + net value from the completion control list."""
+    from app.services.job_completion import update_invoicing_fields
+
+    form = await request.form()
+    period = (form.get("period") or "week").strip()
+    job_type = (form.get("type") or "").strip()
+
+    # Collect job_id[] / invoice_number[] / net_value[] parallel lists
+    ids = form.getlist("job_id")
+    invs = form.getlist("invoice_number")
+    nets = form.getlist("net_value")
+    updates = []
+    for i, jid in enumerate(ids):
+        updates.append(
+            {
+                "job_id": jid,
+                "invoice_number": invs[i] if i < len(invs) else "",
+                "net_value": nets[i] if i < len(nets) else "",
+            }
+        )
+    n = update_invoicing_fields(db, updates)
+    q = f"period={period}"
+    if job_type:
+        q += f"&type={job_type}"
+    q += f"&saved=1&msg={n}+updated"
+    return RedirectResponse(f"/jobs/completion?{q}", status_code=303)
 
 
 @router.get("/lost", response_class=HTMLResponse)
@@ -234,6 +310,11 @@ async def create_job(
     tc = _parse_date(target_completion) if target_completion else calc_tc
     act_s = _parse_date(actual_start) if actual_start else None
     act_c = _parse_date(actual_completion) if actual_completion else None
+    status_val = status or "Planned"
+    if status_val == "Completed" and not act_c:
+        act_c = date.today()
+    if act_c and status_val not in ("Completed", "Cancelled"):
+        status_val = "Completed"
 
     job_title = title or f"{type}" + (f" — {pe.isoformat()}" if pe else "")
     job = Job(
@@ -247,7 +328,7 @@ async def create_job(
         actual_start=act_s,
         actual_completion=act_c,
         fee=fee_val,
-        status=status or "Planned",
+        status=status_val,
         is_recurring=is_recurring or "Yes",
         notes=notes or None,
     )
@@ -357,6 +438,13 @@ async def update_job(
 
     job.actual_start = _parse_date(actual_start) if actual_start else None
     job.actual_completion = _parse_date(actual_completion) if actual_completion else None
+    # Completing: status ↔ actual_completion stay in sync
+    if status == "Completed" and not job.actual_completion:
+        job.actual_completion = date.today()
+    if job.actual_completion and status not in ("Completed", "Cancelled"):
+        # Date filled = treated as complete for invoicing control
+        status = "Completed"
+        job.status = "Completed"
 
     if status == "Completed" and (is_recurring or "").lower() in (
         "yes",

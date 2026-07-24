@@ -59,6 +59,7 @@ def init_db():
     _migrate_person_clients()
     _seed_service_fees()
     _seed_sales_ledger()
+    _seed_dev_backlog()
 
 
 def _seed_sales_ledger():
@@ -89,6 +90,19 @@ def _seed_service_fees():
         db.close()
 
 
+def _seed_dev_backlog():
+    try:
+        from app.services.dev_backlog import seed_system_backlog
+
+        db = SessionLocal()
+        try:
+            seed_system_backlog(db)
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+
 def _add_missing_columns():
     """Additive column migration for existing DBs (SQLite + Postgres)."""
     inspector = inspect(engine)
@@ -110,6 +124,9 @@ def _add_missing_columns():
             ("client_id", "INTEGER"),
             ("is_primary", "INTEGER DEFAULT 0" if IS_SQLITE else "BOOLEAN DEFAULT FALSE"),
             ("is_individual_client", "INTEGER DEFAULT 0" if IS_SQLITE else "BOOLEAN DEFAULT FALSE"),
+            ("utr", "VARCHAR"),
+            ("ni_number", "VARCHAR"),
+            ("ch_code", "VARCHAR"),  # Companies House personal identification code
         ],
         "jobs": [
             ("created_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),

@@ -7,6 +7,8 @@ from app.models.cs_pack import CsPack
 from app.models.person import Person, person_clients
 from app.models.job import Job, client_job
 from app.models.service_fee import ServiceFee
+from app.models.practice_task import PracticeTask
+from app.models.dev_backlog import DevBacklogItem
 from app.models.finance import (
     BankAccount,
     BankTransaction,
@@ -57,4 +59,6 @@ __all__ = [
     "Payment",
     "PaymentAllocation",
     "DebtChaseAction",
+    "PracticeTask",
+    "DevBacklogItem",
 ]

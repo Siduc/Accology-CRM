@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ page_title or 'Jobs' }} · Accountant CRM{% endblock %}
+{% block apple_title %}Jobs{% endblock %}
+{% block apple_touch_icon %}/static/icons/home/jobs.png?v=home1{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
@@ -8,7 +10,8 @@
   </div>
   <div class="actions">
     <a class="btn btn-sm" href="/jobs/new">Add Job</a>
-    <a class="btn btn-sm btn-secondary" href="/companies-house/jobs">From Companies House</a>
+    <a class="btn btn-sm btn-secondary" href="/jobs/completion">Completion / invoice</a>
+    <a class="btn btn-sm btn-outline" href="/companies-house/jobs">From Companies House</a>
     <a class="btn btn-sm btn-outline" href="/services/fees">Service fees</a>
   </div>
 </div>
@@ -17,6 +20,7 @@
   <a class="btn btn-sm {% if view == 'all' %}{% else %}btn-outline{% endif %}" href="/jobs">All jobs</a>
   <a class="btn btn-sm {% if view == 'accounts' %}{% else %}btn-outline{% endif %}" href="/jobs/accounts">Accounts</a>
   <a class="btn btn-sm {% if view == 'cs' %}{% else %}btn-outline{% endif %}" href="/jobs/confirmation-statements">Confirmation Statements</a>
+  <a class="btn btn-sm btn-outline" href="/jobs/completion">Completion list</a>
   <a class="btn btn-sm {% if view == 'lost' %}{% else %}btn-outline{% endif %}" href="/lost/jobs">Lost jobs</a>
 </div>
 

@@ -62,6 +62,10 @@ def _person_row(person: Person) -> dict:
         "is_individual_client": individual,
         "company_clients": cos,
         "needs_company_link": (not individual) and (not cos),
+        "ch_code": (person.ch_code or "").strip() or None,
+        "has_ch_code": bool((person.ch_code or "").strip()),
+        "utr": (person.utr or "").strip() or None,
+        "ni_number": (person.ni_number or "").strip() or None,
     }
 
 
@@ -393,6 +397,8 @@ async def create_person(
     is_primary: str = Form(""),
     is_individual_client: str = Form(""),
     utr: str = Form(""),
+    ni_number: str = Form(""),
+    ch_code: str = Form(""),
     db: Session = Depends(get_db),
 ):
     form = await request.form()
@@ -412,7 +418,9 @@ async def create_person(
         notes=notes or None,
         is_primary=is_primary == "yes",
         is_individual_client=individual,
-        utr=utr or None,
+        utr=(utr or "").strip() or None,
+        ni_number=(ni_number or "").strip() or None,
+        ch_code=(ch_code or "").strip() or None,
     )
     person.clients = _resolve_clients_from_ids(db, client_ids)
     db.add(person)
@@ -465,6 +473,8 @@ async def update_person(
     is_primary: str = Form(""),
     is_individual_client: str = Form(""),
     utr: str = Form(""),
+    ni_number: str = Form(""),
+    ch_code: str = Form(""),
     db: Session = Depends(get_db),
 ):
     person = (
@@ -487,7 +497,9 @@ async def update_person(
     person.notes = notes or None
     person.is_primary = is_primary == "yes"
     person.is_individual_client = individual
-    person.utr = utr or None
+    person.utr = (utr or "").strip() or None
+    person.ni_number = (ni_number or "").strip() or None
+    person.ch_code = (ch_code or "").strip() or None
     # Keep company links from form; preserve any Individual shell client
     company_clients = _resolve_clients_from_ids(db, client_ids)
     individual_shells = [

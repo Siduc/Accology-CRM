@@ -172,7 +172,7 @@
     <div class="table-wrap">
       <table class="data">
         <thead>
-          <tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th></tr>
+          <tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>CH PIC</th></tr>
         </thead>
         <tbody>
           {% for p in people %}
@@ -184,6 +184,13 @@
             <td>{{ p.role or '—' }}</td>
             <td>{{ p.email or '—' }}</td>
             <td>{{ p.phone or '—' }}</td>
+            <td>
+              {% if p.ch_code %}
+              <span class="badge badge-active" title="Companies House personal identification code on file">On file</span>
+              {% else %}
+              <span class="muted small">—</span>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>

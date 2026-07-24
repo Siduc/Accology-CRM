@@ -827,6 +827,7 @@ def build_cs_comparison(
                 hit = p
                 matched_person_ids.add(p.id)
                 break
+        pic_on_file = bool(hit and (hit.ch_code or "").strip())
         officer_matches.append(
             {
                 "ch_name": oname,
@@ -836,6 +837,8 @@ def build_cs_comparison(
                 "practice_role": (hit.role or "") if hit else "",
                 "practice_id": hit.id if hit else None,
                 "match": bool(hit),
+                "ch_code_on_file": pic_on_file,
+                # Never expose the actual code in the pack UI
                 "severity": "ok" if hit else "warn",
             }
         )
@@ -852,6 +855,7 @@ def build_cs_comparison(
                 "email": p.email or "",
                 "id": p.id,
                 "is_primary": bool(p.is_primary),
+                "ch_code_on_file": bool((p.ch_code or "").strip()),
                 "severity": "warn",
                 "note": "On Accologise contacts but not an active CH officer in this download",
             }
@@ -869,15 +873,29 @@ def build_cs_comparison(
                 "severity": "info",
             }
 
+        officers_with_pic = sum(
+            1 for o in officer_matches if o.get("ch_code_on_file")
+        )
+        officers_linked = sum(1 for o in officer_matches if o.get("match"))
         practice_only = [
             _secret_row(
-                "CH authentication code",
+                "CH authentication code (company)",
                 bool((client.ch_authentication_code or "").strip()),
                 "Required for WebFiling — never shown on public CH record",
             ),
             _secret_row(
-                "CH personal code",
+                "CH personal code (client / individual)",
                 bool((client.ch_personal_code or "").strip()),
+                "On client record (individual clients)",
+            ),
+            _secret_row(
+                "Officer personal identification codes",
+                officers_linked > 0 and officers_with_pic == officers_linked,
+                (
+                    f"{officers_with_pic} of {officers_linked} linked officers have PIC on file"
+                    if officers_linked
+                    else "No linked officers yet"
+                ),
             ),
             _secret_row(
                 "Government Gateway",

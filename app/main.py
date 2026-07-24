@@ -48,6 +48,7 @@ from app.routers import (
     notes,
     cs,
     ch_oauth,
+    tasks,
 )
 
 app = FastAPI(
@@ -147,6 +148,7 @@ app.include_router(asana_integration.router)
 app.include_router(notes.router)
 app.include_router(cs.router)
 app.include_router(ch_oauth.router)
+app.include_router(tasks.router)
 app.include_router(settings.router)
 app.include_router(sales.router)
 

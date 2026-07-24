@@ -46,6 +46,29 @@ def _existing_open_job(
     return q.first()
 
 
+def _existing_job_same_period(
+    db: Session, client_id: int, job_type: str, period_end
+) -> Optional[Job]:
+    """Any non-cancelled job for this client/type/period (incl. already Completed).
+
+    Prevents Companies House refresh from recreating a PE year that was already
+    imported and billed (e.g. prior analysis job with INV-0732).
+    """
+    if period_end is None:
+        return _existing_open_job(db, client_id, job_type, period_end)
+    return (
+        db.query(Job)
+        .filter(
+            Job.client_id == client_id,
+            Job.type == job_type,
+            Job.period_end == period_end,
+            Job.status != "Cancelled",
+        )
+        .order_by(Job.id.asc())
+        .first()
+    )
+
+
 def create_jobs_from_drafts(
     db: Session,
     client: Client,
@@ -60,13 +83,14 @@ def create_jobs_from_drafts(
     )
     for draft in drafts:
         if skip_duplicates:
-            existing = _existing_open_job(
+            existing = _existing_job_same_period(
                 db, client.id, draft.type, draft.period_end
             )
             if existing:
                 result.skipped += 1
                 result.skipped_jobs.append(
-                    f"{draft.type} period {draft.period_end} (job #{existing.id})"
+                    f"{draft.type} period {draft.period_end} "
+                    f"(job #{existing.id}, {existing.status})"
                 )
                 continue
         fee = draft.fee or 0.0

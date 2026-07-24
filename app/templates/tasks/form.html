@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{% if task %}Edit task{% else %}New task{% endif %} · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/tasks">← Task ledger</a></p>
+    <h1>{% if task %}Edit task{% else %}New task{% endif %}</h1>
+  </div>
+</div>
+
+<div class="card" style="max-width:36rem">
+  <form class="stack" method="post" action="{% if task %}/tasks/{{ task.id }}/edit{% else %}/tasks/new{% endif %}">
+    <label>Title *</label>
+    <input name="title" required value="{{ task.title if task else '' }}" placeholder="e.g. VAT query, payroll setup">
+
+    <label>Fee (£)</label>
+    <input name="fee" type="text" inputmode="decimal" value="{{ '%.2f'|format(task.fee) if task and task.fee is not none else '0.00' }}"
+           style="font-size:1.35rem;font-weight:800;letter-spacing:-0.02em">
+
+    <label>Status</label>
+    <select name="status">
+      {% for s in statuses %}
+      <option value="{{ s }}" {% if (task and task.status == s) or (not task and s == 'Planned') %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Due date</label>
+    <input name="due_on" type="date" value="{{ task.due_on if task and task.due_on else '' }}">
+
+    <label>Period end (optional)</label>
+    <input name="period_end" type="date" value="{{ task.period_end if task and task.period_end else '' }}">
+
+    <label>Client (optional — leave blank for standalone)</label>
+    <select name="client_id">
+      <option value="">— Standalone —</option>
+      {% for c in clients %}
+      <option value="{{ c.id }}" {% if (task and task.client_id == c.id) or pre_client_id == c.id %}selected{% endif %}>
+        {{ c.display_name() }}
+      </option>
+      {% endfor %}
+    </select>
+
+    <label>Linked job (optional)</label>
+    <select name="job_id">
+      <option value="">— None —</option>
+      {% for j in jobs %}
+      <option value="{{ j.id }}" {% if (task and task.job_id == j.id) or pre_job_id == j.id %}selected{% endif %}>
+        #{{ j.id }} {{ j.type }} · {{ j.period_end or '—' }}
+      </option>
+      {% endfor %}
+    </select>
+    {% if not jobs and (pre_client_id or (task and task.client_id)) %}
+    <p class="small muted">No jobs loaded for this client — save with client first, then re-edit to pick a job.</p>
+    {% endif %}
+
+    <label>Description</label>
+    <textarea name="description" rows="3">{{ task.description if task else '' }}</textarea>
+
+    <label>Notes</label>
+    <textarea name="notes" rows="2">{{ task.notes if task else '' }}</textarea>
+
+    <div class="actions">
+      <button class="btn wc-touch" type="submit">Save task</button>
+      <a class="btn btn-outline" href="/tasks">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Completion · Invoicing control · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/jobs">← Jobs</a> · <a href="/sales">Sales</a></p>
+    <h1>Jobs completion</h1>
+    <p class="muted small">
+      Invoicing control · completed jobs in chronological order ·
+      {{ period_label }}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm" href="/sales/invoices/new">Raise invoice</a>
+    <a class="btn btn-sm btn-outline" href="/jobs?status=Completed">All completed</a>
+    <a class="btn btn-sm btn-outline" href="/working-capital/wip">WIP</a>
+  </div>
+</div>
+
+{% if saved %}
+<div class="chase-banner chase-banner-info">Saved. {{ msg or 'Invoice fields updated.' }}</div>
+{% endif %}
+
+<div class="completion-summary card">
+  <div class="completion-kpis">
+    <div>
+      <div class="small muted">Jobs</div>
+      <div class="completion-kpi-val">{{ count }}</div>
+    </div>
+    <div>
+      <div class="small muted">Net total</div>
+      <div class="completion-kpi-val">£{{ '{:,.2f}'.format(total_net) }}</div>
+    </div>
+    <div>
+      <div class="small muted">Unbilled</div>
+      <div class="completion-kpi-val">{{ unbilled_count }} · £{{ '{:,.2f}'.format(unbilled_net) }}</div>
+    </div>
+    <div>
+      <div class="small muted">Invoiced</div>
+      <div class="completion-kpi-val">{{ billed_count }} · £{{ '{:,.2f}'.format(billed_net) }}</div>
+    </div>
+  </div>
+  <p class="small muted" style="margin:0.75rem 0 0">
+    Invoice number and net value are pre-filled from the job when known.
+    When you raise invoices in Accologise, these fields will populate automatically.
+    Jobs with an <strong>actual completion</strong> date appear here even if status was left open
+    (status is corrected to Completed automatically).
+  </p>
+</div>
+
+<form class="filters completion-filters" method="get" action="/jobs/completion">
+  <div>
+    <label class="small muted">Period</label><br>
+    <select name="period" onchange="this.form.submit()">
+      <option value="week" {% if period == 'week' %}selected{% endif %}>This week</option>
+      <option value="last_week" {% if period == 'last_week' %}selected{% endif %}>Last week</option>
+      <option value="month" {% if period == 'month' %}selected{% endif %}>This month</option>
+      <option value="last_month" {% if period == 'last_month' %}selected{% endif %}>Last month</option>
+      <option value="unbilled" {% if period == 'unbilled' %}selected{% endif %}>Unbilled only</option>
+      <option value="all" {% if period == 'all' %}selected{% endif %}>All completed</option>
+    </select>
+  </div>
+  <div>
+    <label class="small muted">Type</label><br>
+    <select name="type" onchange="this.form.submit()">
+      <option value="" {% if not job_type %}selected{% endif %}>All types</option>
+      <option value="Accounts" {% if job_type == 'Accounts' %}selected{% endif %}>Accounts</option>
+      <option value="Confirmation Statement" {% if job_type == 'Confirmation Statement' %}selected{% endif %}>Confirmation Statement</option>
+    </select>
+  </div>
+  <noscript><button class="btn btn-sm" type="submit">Apply</button></noscript>
+</form>
+
+<div class="period-toggle" role="group" aria-label="Quick period" style="margin-bottom:1rem">
+  <a class="period-btn {% if period == 'week' %}is-active{% endif %}" href="/jobs/completion?period=week{% if job_type %}&type={{ job_type }}{% endif %}">This week</a>
+  <a class="period-btn {% if period == 'last_week' %}is-active{% endif %}" href="/jobs/completion?period=last_week{% if job_type %}&type={{ job_type }}{% endif %}">Last week</a>
+  <a class="period-btn {% if period == 'month' %}is-active{% endif %}" href="/jobs/completion?period=month{% if job_type %}&type={{ job_type }}{% endif %}">This month</a>
+  <a class="period-btn {% if period == 'unbilled' %}is-active{% endif %}" href="/jobs/completion?period=unbilled{% if job_type %}&type={{ job_type }}{% endif %}">Unbilled</a>
+  <a class="period-btn {% if period == 'all' %}is-active{% endif %}" href="/jobs/completion?period=all{% if job_type %}&type={{ job_type }}{% endif %}">All</a>
+</div>
+
+<form method="post" action="/jobs/completion/save" class="card">
+  <input type="hidden" name="period" value="{{ period }}">
+  <input type="hidden" name="type" value="{{ job_type }}">
+
+  <div class="page-header" style="margin-bottom:0.75rem">
+    <h2 style="margin:0">Completion list</h2>
+    <button class="btn wc-touch" type="submit">Save invoice fields</button>
+  </div>
+
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data completion-table">
+      <thead>
+        <tr>
+          <th>Completed</th>
+          <th>Client</th>
+          <th>Type</th>
+          <th>Period end</th>
+          <th>Invoice number</th>
+          <th class="num">Net value</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set j = r.job %}
+        <tr class="{% if not r.is_billed %}row-unbilled{% endif %}">
+          <td>
+            <input type="hidden" name="job_id" value="{{ j.id }}">
+            {{ r.completed_on|uk_date }}
+          </td>
+          <td>
+            {% if j.client %}
+            <a href="/clients/{{ j.client_id }}">{{ j.client.display_name() }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="small">{{ j.type or '—' }}</td>
+          <td>{{ j.period_end|uk_date }}</td>
+          <td>
+            <input
+              class="completion-input"
+              name="invoice_number"
+              type="text"
+              value="{{ r.invoice_number }}"
+              placeholder="e.g. INV-0801"
+              autocomplete="off"
+              aria-label="Invoice number for job {{ j.id }}"
+            >
+          </td>
+          <td class="num">
+            <input
+              class="completion-input completion-input-net"
+              name="net_value"
+              type="text"
+              inputmode="decimal"
+              value="{{ '%.2f'|format(r.net_value) }}"
+              aria-label="Net value for job {{ j.id }}"
+            >
+          </td>
+          <td class="actions-cell">
+            <a class="btn btn-sm btn-outline" href="/jobs/{{ j.id }}">Job</a>
+            {% if not r.is_billed %}
+            <span class="badge">unbilled</span>
+            {% else %}
+            <span class="badge badge-active">invoiced</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="5" class="num"><strong>Total net</strong></td>
+          <td class="num"><strong>£{{ '{:,.2f}'.format(total_net) }}</strong></td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  <div class="actions" style="margin-top:0.85rem">
+    <button class="btn wc-touch" type="submit">Save invoice fields</button>
+  </div>
+  {% else %}
+  <p class="empty">
+    {% if period == 'week' %}
+    No jobs completed this week yet.
+    Mark a job <strong>Completed</strong> (actual completion is set to today if blank),
+    or choose <a href="/jobs/completion?period=month">this month</a>
+    / <a href="/jobs/completion?period=unbilled">unbilled</a>
+    / <a href="/jobs/completion?period=all">all completed</a>.
+    {% else %}
+    No completed jobs in this view.
+    {% endif %}
+  </p>
+  {% endif %}
+</form>
+{% endblock %}

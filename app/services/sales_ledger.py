@@ -259,6 +259,22 @@ def create_invoice(
         )
     db.flush()
     recompute_invoice_totals(db, inv)
+
+    # Keep job completion / invoicing control in sync
+    if job_id:
+        from app.models.job import Job
+
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if job:
+            job.invoice_reference = inv.number
+            job.billing_status = "invoiced"
+            if inv.subtotal is not None:
+                job.fee = float(inv.subtotal)
+            if inv.total is not None:
+                job.gross_amount = float(inv.total)
+            if inv.vat_total is not None:
+                job.vat_amount = float(inv.vat_total)
+
     db.commit()
     db.refresh(inv)
     return inv

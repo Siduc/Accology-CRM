@@ -5,8 +5,59 @@
   <div>
     <p class="small muted"><a href="/dashboard">← Accologise</a></p>
     <h1>Settings</h1>
-    <p class="muted small">Preferences are stored in this browser only.</p>
+    <p class="muted small">Preferences, integrations, and development backlog.</p>
   </div>
+</div>
+
+<div class="card" id="dev-backlog" style="max-width:42rem;margin-bottom:1rem">
+  <h2>Development backlog</h2>
+  <p class="muted small">
+    Things started but not finished, modules from the original plan still outstanding,
+    and notes you add yourself.
+  </p>
+  {% if backlog_msg == 'added' %}
+  <div class="chase-banner chase-banner-info">Backlog item added.</div>
+  {% elif backlog_msg == 'updated' %}
+  <div class="chase-banner chase-banner-info">Status updated.</div>
+  {% elif backlog_msg == 'archived' %}
+  <div class="chase-banner chase-banner-info">Item archived.</div>
+  {% endif %}
+
+  <ul class="dev-backlog-list">
+    {% for item in backlog|default([]) %}
+    <li class="dev-backlog-item is-{{ item.status or 'planned' }}">
+      <strong>{{ item.title }}</strong>
+      {% if item.area %}<span class="badge">{{ item.area }}</span>{% endif %}
+      <span class="badge badge-{% if item.status == 'done' %}active{% elif item.status == 'paused' %}progress{% elif item.status == 'started' %}active{% else %}{% endif %}">{{ item.status }}</span>
+      {% if item.detail %}<div class="small muted" style="margin-top:0.35rem">{{ item.detail }}</div>{% endif %}
+      <div class="dev-backlog-meta">{{ item.source }} · #{{ item.id }}</div>
+      <form method="post" action="/settings/backlog/{{ item.id }}/status" class="actions" style="margin-top:0.5rem;flex-wrap:wrap">
+        <select name="status" class="btn btn-sm btn-outline" style="min-height:36px">
+          {% for s in ['planned','started','paused','done'] %}
+          <option value="{{ s }}" {% if item.status == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-sm btn-outline" type="submit">Set status</button>
+      </form>
+      <form method="post" action="/settings/backlog/{{ item.id }}/archive" style="display:inline">
+        <button class="btn btn-sm btn-outline" type="submit">Archive</button>
+      </form>
+    </li>
+    {% else %}
+    <li class="muted small">No backlog items yet (will seed on next restart).</li>
+    {% endfor %}
+  </ul>
+
+  <h3 style="margin-top:1.25rem">Add your own note</h3>
+  <form method="post" action="/settings/backlog/add" class="stack">
+    <label>Title</label>
+    <input name="title" required placeholder="e.g. Bulk CH date refresh for all clients">
+    <label>Area (optional)</label>
+    <input name="area" placeholder="CH / WIP / Sales / Data…">
+    <label>Detail</label>
+    <textarea name="detail" rows="3" placeholder="What you want, why it matters…"></textarea>
+    <button class="btn wc-touch" type="submit">Add to backlog</button>
+  </form>
 </div>
 
 <div class="card" style="max-width:36rem;margin-bottom:1rem">
@@ -164,7 +215,13 @@
     <li><strong>iPhone / Safari:</strong> Share → Add to Home Screen</li>
   </ul>
   <p class="small muted" style="margin-top:0.75rem">
-    Theme colour and icons match Accologise. Offline shows a reconnect screen — live data still needs the network.
+    The main app icon is Accologise branding.
+    On iPhone, open <strong>Dashboard</strong>, <strong>Clients</strong>, <strong>Jobs</strong>,
+    <strong>Sales / Debtors</strong>, <strong>Bank / Cash</strong>, or <strong>Purchase / Creditors</strong>
+    first, then Add to Home Screen for a section-specific icon and short name.
+  </p>
+  <p class="small muted" style="margin-top:0.5rem">
+    Offline shows a reconnect screen — live data still needs the network.
   </p>
 </div>
 

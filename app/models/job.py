@@ -58,7 +58,17 @@ class Job(Base):
 
     client = relationship("Client", back_populates="jobs", foreign_keys=[client_id])
 
-    OPEN_STATUSES = ("Planned", "In Progress", "Review", "Overdue", "Filed")
+    OPEN_STATUSES = (
+        "Planned",
+        "In Progress",
+        "Review",
+        "Overdue",
+        "Overdue and Imminent",
+        "Planning",
+        "Pre Planning",
+        "Later",
+        "Filed",
+    )
     CLOSED_STATUSES = ("Completed", "Cancelled")
 
     def is_closed(self) -> bool:
@@ -77,9 +87,19 @@ class Job(Base):
 
     def display_status(self, today: Optional[date] = None) -> str:
         """
-        Status shown in lists. Open jobs past due date display as Overdue
-        (workflow status in DB is unchanged until edited/saved).
+        Status shown in lists from WIP horizon:
+        Overdue and Imminent | Planning | Pre Planning | Later
+        (workflow status in DB kept unless user edits).
         """
-        if self.is_overdue(today):
-            return "Overdue"
-        return self.status or "—"
+        if self.is_closed():
+            return self.status or "—"
+        today = today or date.today()
+        try:
+            from app.services.working_capital import HORIZON_STATUS, job_horizon_key
+
+            key = job_horizon_key(self, today) or "later"
+            return HORIZON_STATUS.get(key, self.status or "—")
+        except Exception:
+            if self.is_overdue(today):
+                return "Overdue and Imminent"
+            return self.status or "—"

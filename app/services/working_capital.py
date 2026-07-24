@@ -271,16 +271,25 @@ def _job_due_for_horizon(job: Job) -> Optional[date]:
 
 
 def wip_horizon_boundaries(today: date) -> Dict[str, date]:
+    """
+    WIP horizons (practice view):
+    - imminent: through end of current month (includes overdue)
+    - planning: next 3 calendar months after EOM
+    - pre_planning: 3 months after that
+    - later: everything else / undated
+    """
     eom = _end_of_month(today)
-    eom_next = _end_of_month(_add_months(today, 1))
-    eom_plus4 = _end_of_month(_add_months(today, 4))
-    eom_plus7 = _end_of_month(_add_months(today, 7))
+    plan_end = _end_of_month(_add_months(today, 3))
+    pre_end = _end_of_month(_add_months(today, 6))
     return {
         "today": today,
         "eom": eom,
-        "eom_next": eom_next,
-        "eom_plus4": eom_plus4,
-        "eom_plus7": eom_plus7,
+        "plan_end": plan_end,
+        "pre_end": pre_end,
+        # aliases kept for older templates
+        "eom_next": plan_end,
+        "eom_plus4": plan_end,
+        "eom_plus7": pre_end,
     }
 
 
@@ -294,42 +303,45 @@ def _empty_horizon_buckets(today: date) -> List[WipHorizonBucket]:
 
     return [
         WipHorizonBucket(
-            key="overdue",
-            label="Overdue",
-            to_date=b["today"] - timedelta(days=1),
-        ),
-        WipHorizonBucket(
-            key="eom",
-            label="End of month",
-            from_date=b["today"],
+            key="imminent",
+            label="Overdue and Imminent",
+            from_date=None,
             to_date=b["eom"],
         ),
         WipHorizonBucket(
-            key="next_eom",
-            label="End of next month",
+            key="planning",
+            label="Planning",
             from_date=day_after(b["eom"]),
-            to_date=b["eom_next"],
+            to_date=b["plan_end"],
         ),
         WipHorizonBucket(
-            key="plus3",
-            label="Following 3 months",
-            from_date=day_after(b["eom_next"]),
-            to_date=b["eom_plus4"],
+            key="pre_planning",
+            label="Pre Planning",
+            from_date=day_after(b["plan_end"]),
+            to_date=b["pre_end"],
         ),
-        WipHorizonBucket(
-            key="plus3b",
-            label="Next 3 months",
-            from_date=day_after(b["eom_plus4"]),
-            to_date=b["eom_plus7"],
-        ),
-        # Remainder so type-row tiles sum to full open WIP for that service
         WipHorizonBucket(
             key="later",
-            label="Later / undated",
-            from_date=day_after(b["eom_plus7"]),
+            label="Everything else",
+            from_date=day_after(b["pre_end"]),
             to_date=None,
         ),
     ]
+
+
+def job_horizon_key_for_due(due: Optional[date], today: Optional[date] = None) -> str:
+    """Map a due date into WIP horizon key (also used for tasks)."""
+    today = today or date.today()
+    if due is None:
+        return "later"
+    b = wip_horizon_boundaries(today)
+    if due <= b["eom"]:
+        return "imminent"
+    if due <= b["plan_end"]:
+        return "planning"
+    if due <= b["pre_end"]:
+        return "pre_planning"
+    return "later"
 
 
 def _match_job_type(job_type: Optional[str], wanted: str) -> bool:
@@ -347,32 +359,28 @@ def _match_job_type(job_type: Optional[str], wanted: str) -> bool:
 def job_horizon_key(job: Job, today: Optional[date] = None) -> Optional[str]:
     """
     Which WIP horizon bucket a job falls in.
-    Keys: overdue | eom | next_eom | plus3 | plus3b | later
-    Undated and due after the +7 month window → later (so tiles cover full WIP).
+    Keys: imminent | planning | pre_planning | later
     """
     today = today or date.today()
     due = _job_due_for_horizon(job)
-    if due is None:
-        return "later"
-    buckets = _empty_horizon_buckets(today)
-    by_key = {b.key: b for b in buckets}
-    if due < today:
-        return "overdue"
-    for key in ("eom", "next_eom", "plus3", "plus3b"):
-        b = by_key[key]
-        if b.from_date and b.to_date and b.from_date <= due <= b.to_date:
-            return key
-    # After last dated window (or any other residual)
-    return "later"
+    return job_horizon_key_for_due(due, today)
+
+
+# Status label applied to open jobs by horizon (display + optional persist)
+HORIZON_STATUS = {
+    "imminent": "Overdue and Imminent",
+    "planning": "Planning",
+    "pre_planning": "Pre Planning",
+    "later": "Later",
+}
 
 
 def compute_wip_type_horizons(
     db: Session, today: Optional[date] = None
 ) -> List[WipTypeHorizon]:
     """
-    Two rows for WIP page: Accounts and Confirmation Statements.
-    Buckets: overdue · end of month · end of next month · following 3 months ·
-    next 3 months · later/undated (so tile fees sum to full open WIP for the type).
+    Rows for WIP page: Accounts, Confirmation Statements (and optionally tasks separately).
+    Buckets: Overdue and Imminent · Planning · Pre Planning · Everything else.
     """
     today = today or date.today()
     jobs = wip_jobs(db)
@@ -381,12 +389,10 @@ def compute_wip_type_horizons(
         ("Confirmation Statement", "Confirmation statements"),
     ]
     titles = {
-        "overdue": "Overdue",
-        "eom": "End of month",
-        "next_eom": "End of next month",
-        "plus3": "Following 3 months",
-        "plus3b": "Next 3 months",
-        "later": "Later / undated",
+        "imminent": "Overdue and Imminent",
+        "planning": "Planning",
+        "pre_planning": "Pre Planning",
+        "later": "Everything else",
     }
     out: List[WipTypeHorizon] = []
     for type_key, label in rows_spec:

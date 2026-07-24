@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Sales Ledger · Accologise{% endblock %}
+{% block apple_title %}Debtors{% endblock %}
+{% block apple_touch_icon %}/static/icons/home/debtors.png?v=home1{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
@@ -78,6 +80,7 @@
   <div class="card">
     <h2>Shortcuts</h2>
     <div class="actions" style="flex-direction:column;align-items:stretch">
+      <a class="btn btn-outline wc-touch" href="/jobs/completion">Jobs completion (invoice control)</a>
       <a class="btn btn-outline wc-touch" href="/sales/invoices?status=outstanding">Outstanding invoices</a>
       <a class="btn btn-outline wc-touch" href="/sales/ageing">Full ageing report</a>
       <a class="btn btn-outline wc-touch" href="/sales/chase">Debt chasing</a>

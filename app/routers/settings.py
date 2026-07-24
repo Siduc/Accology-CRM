@@ -1,7 +1,9 @@
 """User settings (client-side preferences for now)."""
 
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.config import (
@@ -21,6 +23,7 @@ from app.config import (
     ch_oauth_configured,
 )
 from app.database import get_db
+from app.models.dev_backlog import DevBacklogItem
 from app.services.chase_emails import smtp_configured
 from app.services.ch_oauth import (
     diagnose_stu_from_events,
@@ -30,6 +33,7 @@ from app.services.ch_oauth import (
     mask_client_id,
     redirect_uri_warning,
 )
+from app.services.dev_backlog import list_backlog, seed_system_backlog
 from app.templating import render
 
 router = APIRouter(tags=["settings"])
@@ -42,6 +46,11 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
         oauth_tokens = list_active_tokens(db, 8)
     except Exception:
         oauth_tokens = []
+    try:
+        seed_system_backlog(db)
+        backlog = list_backlog(db)
+    except Exception:
+        backlog = []
     oauth_last = latest_oauth_summary()
     oauth_stu = diagnose_stu_from_events()
     return render(
@@ -70,5 +79,56 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "ch_oauth_stu": oauth_stu,
             "oauth_error": request.query_params.get("oauth_error", ""),
             "oauth_msg": request.query_params.get("oauth_msg", ""),
+            "backlog": backlog,
+            "backlog_msg": request.query_params.get("backlog_msg", ""),
         },
     )
+
+
+@router.post("/settings/backlog/add")
+async def backlog_add(
+    title: str = Form(...),
+    detail: str = Form(""),
+    area: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    t = (title or "").strip()
+    if t:
+        db.add(
+            DevBacklogItem(
+                title=t[:240],
+                detail=(detail or "").strip() or None,
+                area=(area or "").strip() or "User",
+                status="planned",
+                source="user",
+                sort_order=200,
+            )
+        )
+        db.commit()
+    return RedirectResponse("/settings?backlog_msg=added#dev-backlog", status_code=303)
+
+
+@router.post("/settings/backlog/{item_id:int}/status")
+async def backlog_status(
+    item_id: int,
+    status: str = Form("planned"),
+    db: Session = Depends(get_db),
+):
+    item = db.query(DevBacklogItem).filter(DevBacklogItem.id == item_id).first()
+    if item and status in ("planned", "started", "paused", "done"):
+        item.status = status
+        item.updated_at = datetime.utcnow()
+        if status == "done":
+            item.is_archived = False
+        db.commit()
+    return RedirectResponse("/settings?backlog_msg=updated#dev-backlog", status_code=303)
+
+
+@router.post("/settings/backlog/{item_id:int}/archive")
+async def backlog_archive(item_id: int, db: Session = Depends(get_db)):
+    item = db.query(DevBacklogItem).filter(DevBacklogItem.id == item_id).first()
+    if item:
+        item.is_archived = True
+        item.updated_at = datetime.utcnow()
+        db.commit()
+    return RedirectResponse("/settings?backlog_msg=archived#dev-backlog", status_code=303)

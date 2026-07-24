@@ -8,71 +8,288 @@
     <p class="muted small">{{ count }} open jobs · £{{ '{:,.2f}'.format(total) }} · as at {{ today.strftime('%d-%m-%Y') }}</p>
   </div>
   <div class="actions">
-    <a class="btn btn-sm" href="/jobs/new">Add job</a>
-    <a class="btn btn-sm btn-outline" href="/jobs?filter=open">All open jobs</a>
+    <a class="btn btn-sm" href="/tasks/new?next=/working-capital/wip">Add task</a>
+    <a class="btn btn-sm btn-outline" href="/tasks">Task ledger</a>
+    <a class="btn btn-sm btn-outline" href="/jobs/new">Add job</a>
   </div>
 </div>
 
-{% if horizons %}
-{% for row in horizons %}
-{% set type_q = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation+Statement' %}
-{% set type_match = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation Statement' %}
-<div class="headcount-panel card wip-horizon-panel" style="margin-bottom:1.25rem">
-  <div class="headcount-toolbar" style="margin-bottom:0.85rem">
-    <div>
-      <h2 class="headcount-heading">{{ row.label }}</h2>
-      <p class="muted small headcount-hint">
-        {{ row.total_count }} open · £{{ '{:,.2f}'.format(row.total_amount) }}
-        · tiles sum to full WIP for this service · click to drill down
-      </p>
-    </div>
-  </div>
-  <div class="wip-stat-grid wip-stat-grid-6" role="list">
-    {% for b in row.buckets %}
-    <a class="stat-tile wip-stat-tile {% if b.key == 'overdue' %}stat-tile-danger{% elif b.key == 'later' %}stat-tile-later{% else %}stat-tile-wip{% endif %} {% if filter_type == type_match and filter_horizon == b.key %}is-selected{% endif %}"
-       href="/working-capital/wip?type={{ type_q }}&amp;horizon={{ b.key }}#wip-list"
-       role="listitem"
-       title="Show {{ row.label }} · {{ b.label }}">
-      <span class="stat-num" style="{% if b.key == 'overdue' %}color:#b91c1c;{% else %}color:#0f172a;{% endif %}font-size:2.1rem;font-weight:800;line-height:1.1;">
-        {{ b.count }}
-      </span>
-      <span class="stat-fee">£{{ '{:,.0f}'.format(b.amount) }}</span>
-      <span class="stat-name">{{ b.label }}</span>
-      <span class="stat-range">
-        {% if b.key == 'overdue' %}
-        Before {{ today.strftime('%d-%m-%Y') }}
-        {% elif b.key == 'later' %}
-        After {{ (b.from_date.strftime('%d-%m-%Y') if b.from_date else '—') }} · or no due date
-        {% elif b.to_date %}
-        {% if b.from_date %}{{ b.from_date.strftime('%d-%m-%Y') }} – {% endif %}{{ b.to_date.strftime('%d-%m-%Y') }}
-        {% endif %}
-      </span>
-    </a>
-    {% endfor %}
-  </div>
+{# Section toggles — compact professional chips on desk, larger on phone #}
+<div class="wip-toggles" role="group" aria-label="Show sections">
+  <a class="wip-toggle {% if show_accounts %}is-on{% endif %}"
+     href="/working-capital/wip?show={% if show_accounts %}{% if show_cs and show_tasks %}cs,tasks{% elif show_cs %}cs{% elif show_tasks %}tasks{% else %}accounts{% endif %}{% else %}{{ show_query }}{% if show_query %},{% endif %}accounts{% endif %}">
+    Accounts
+  </a>
+  <a class="wip-toggle {% if show_cs %}is-on{% endif %}"
+     href="/working-capital/wip?show={% if show_cs %}{% if show_accounts and show_tasks %}accounts,tasks{% elif show_accounts %}accounts{% elif show_tasks %}tasks{% else %}cs{% endif %}{% else %}{{ show_query }}{% if show_query %},{% endif %}cs{% endif %}">
+    Confirmation statements
+  </a>
+  <a class="wip-toggle {% if show_tasks %}is-on{% endif %}"
+     href="/working-capital/wip?show={% if show_tasks %}{% if show_accounts and show_cs %}accounts,cs{% elif show_accounts %}accounts{% elif show_cs %}cs{% else %}tasks{% endif %}{% else %}{{ show_query }}{% if show_query %},{% endif %}tasks{% endif %}">
+    Tasks
+  </a>
 </div>
-{% endfor %}
-{% endif %}
+<p class="small muted wip-toggle-hint wip-hint-mobile">Toggle sections for a neater phone view. Fees stay on each tile.</p>
+<p class="small muted wip-toggle-hint wip-hint-desk">Toggle Accounts, CS, and Tasks. Click a horizon to filter the list below.</p>
+
+{# ========== DESKTOP PROFESSIONAL VIEW ========== #}
+<div class="wip-desk">
+  {% if horizons %}
+  {% for row in horizons %}
+  {% set type_q = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation+Statement' %}
+  {% set type_match = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation Statement' %}
+  {% set accent = 'wip' if row.job_type == 'Accounts' else 'debtors' %}
+  <section class="wip-pro-section card wip-pro-{{ accent }}">
+    <div class="wip-pro-head">
+      <div>
+        <h2 class="wip-pro-title">{{ row.label }}</h2>
+        <p class="muted small" style="margin:0.2rem 0 0">{{ row.total_count }} open · £{{ '{:,.0f}'.format(row.total_amount) }}</p>
+      </div>
+    </div>
+    <div class="wip-pro-grid" aria-label="{{ row.label }} horizons">
+      {% for b in row.buckets %}
+      {% set href = '/working-capital/wip?type=' ~ type_q ~ '&horizon=' ~ b.key ~ '&show=' ~ show_query ~ '#wip-list' %}
+      {% set selected = filter_type == type_match and filter_horizon == b.key %}
+      <a class="wip-pro-cell wip-pro-h-{{ b.key }} {% if selected %}is-selected{% endif %}" href="{{ href }}">
+        <span class="wip-pro-kicker">{{ b.label }}</span>
+        <span class="wip-pro-value">£{{ '{:,.0f}'.format(b.amount) }}</span>
+        <span class="wip-pro-meta">{{ b.count }} jobs</span>
+        <span class="wip-pro-range">
+          {% if b.key == 'imminent' %}
+          Through {{ horizon_bounds.eom.strftime('%d-%m-%Y') if horizon_bounds.eom else '' }}
+          {% elif b.to_date %}
+          {% if b.from_date %}{{ b.from_date.strftime('%d-%m') }} – {% endif %}{{ b.to_date.strftime('%d-%m-%Y') }}
+          {% else %}
+          Beyond / undated
+          {% endif %}
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+  {% endif %}
+
+  {% if show_tasks and task_horizon %}
+  <section class="wip-pro-section card wip-pro-cash">
+    <div class="wip-pro-head">
+      <div>
+        <h2 class="wip-pro-title">Tasks</h2>
+        <p class="muted small" style="margin:0.2rem 0 0">
+          {{ task_horizon.total_count }} open · £{{ '{:,.0f}'.format(task_horizon.total_amount) }}
+          · <a href="/tasks">Full ledger</a>
+        </p>
+      </div>
+      <a class="btn btn-sm" href="/tasks/new?next=/working-capital/wip%3Fshow%3D{{ show_query }}">Add task</a>
+    </div>
+    <div class="wip-pro-grid" aria-label="Task horizons">
+      {% for b in task_horizon.buckets %}
+      <a class="wip-pro-cell wip-pro-h-{{ b.key }} {% if filter_type == 'Tasks' and filter_horizon == b.key %}is-selected{% endif %}"
+         href="/working-capital/wip?type=Tasks&amp;horizon={{ b.key }}&amp;show={{ show_query }}#wip-list">
+        <span class="wip-pro-kicker">{{ b.label }}</span>
+        <span class="wip-pro-value">£{{ '{:,.0f}'.format(b.amount) }}</span>
+        <span class="wip-pro-meta">{{ b.count }} tasks</span>
+      </a>
+      {% endfor %}
+    </div>
+
+    <div class="wip-task-pane" style="margin-top:1rem">
+      <h3 class="wip-pro-subtitle">Task ledger</h3>
+      {% if task_rows %}
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Client</th>
+              <th>Due</th>
+              <th class="num">Fee</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in task_rows[:25] %}
+            <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
+              <td><a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a></td>
+              <td class="small">{% if t.client %}{{ t.client.display_name() }}{% else %}<span class="muted">Standalone</span>{% endif %}</td>
+              <td>{{ t.due_on|uk_date }}</td>
+              <td class="num"><strong>£{{ '%.2f'|format(t.fee or 0) }}</strong></td>
+              <td>
+                <form method="post" action="/tasks/{{ t.id }}/complete" style="display:inline">
+                  <input type="hidden" name="next" value="/working-capital/wip?show={{ show_query }}">
+                  <button class="btn btn-sm btn-outline" type="submit">Done</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="empty">No open tasks. <a href="/tasks/new">Add one</a>.</p>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+
+{# ========== PHONE / SMALL SCREEN — dashboard Live OS tiles ========== #}
+<div class="wip-mobile">
+  {% if horizons %}
+  {% for row in horizons %}
+  {% set type_q = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation+Statement' %}
+  {% set type_match = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation Statement' %}
+  <section class="wip-live-section">
+    <div class="wip-live-section-head">
+      <h2>{{ row.label }}</h2>
+      <span class="muted small">{{ row.total_count }} · £{{ '{:,.0f}'.format(row.total_amount) }}</span>
+    </div>
+    <div class="live-grid wip-live-grid" aria-label="{{ row.label }} horizons">
+      {% for b in row.buckets %}
+      {% set href = '/working-capital/wip?type=' ~ type_q ~ '&horizon=' ~ b.key ~ '&show=' ~ show_query ~ '#wip-list' %}
+      {# Horizon → same palette as dashboard 1–4 tiles #}
+      {% if b.key == 'imminent' %}
+        {% set h_tile = 'tile-creditors' %}
+      {% elif b.key == 'planning' %}
+        {% set h_tile = 'tile-wip' %}
+      {% elif b.key == 'pre_planning' %}
+        {% set h_tile = 'tile-debtors' %}
+      {% else %}
+        {% set h_tile = 'tile-cash' %}
+      {% endif %}
+      <a class="live-tile {{ h_tile }} {% if filter_type == type_match and filter_horizon == b.key %}is-selected{% endif %}"
+         href="{{ href }}">
+        <span class="live-kicker">{{ b.label }}</span>
+        <span class="live-value">£{{ '{:,.0f}'.format(b.amount) }}</span>
+        <span class="live-sub">{{ b.count }} jobs</span>
+        <span class="live-age">
+          {% if b.key == 'imminent' %}
+          <span>Through {{ horizon_bounds.eom.strftime('%d-%m-%Y') if horizon_bounds.eom else '' }}</span>
+          {% elif b.to_date %}
+          <span>{% if b.from_date %}{{ b.from_date.strftime('%d-%m') }} – {% endif %}{{ b.to_date.strftime('%d-%m-%Y') }}</span>
+          {% else %}
+          <span>Beyond / undated</span>
+          {% endif %}
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+  {% endif %}
+
+  {% if show_tasks and task_horizon %}
+  <section class="wip-live-section">
+    <div class="wip-live-section-head">
+      <h2>Tasks</h2>
+      <span class="muted small">
+        {{ task_horizon.total_count }} · £{{ '{:,.0f}'.format(task_horizon.total_amount) }}
+        · <a href="/tasks">Full ledger</a>
+      </span>
+    </div>
+    <div class="live-grid wip-live-grid" aria-label="Task horizons">
+      {% for b in task_horizon.buckets %}
+      {% if b.key == 'imminent' %}
+        {% set h_tile = 'tile-creditors' %}
+      {% elif b.key == 'planning' %}
+        {% set h_tile = 'tile-wip' %}
+      {% elif b.key == 'pre_planning' %}
+        {% set h_tile = 'tile-debtors' %}
+      {% else %}
+        {% set h_tile = 'tile-cash' %}
+      {% endif %}
+      <a class="live-tile {{ h_tile }} {% if filter_type == 'Tasks' and filter_horizon == b.key %}is-selected{% endif %}"
+         href="/working-capital/wip?type=Tasks&amp;horizon={{ b.key }}&amp;show={{ show_query }}#wip-list">
+        <span class="live-kicker">{{ b.label }}</span>
+        <span class="live-value">£{{ '{:,.0f}'.format(b.amount) }}</span>
+        <span class="live-sub">{{ b.count }} tasks</span>
+      </a>
+      {% endfor %}
+    </div>
+
+    <div class="card wip-task-pane" style="margin-top:0.85rem">
+      <div class="page-header" style="margin-bottom:0.5rem">
+        <h3 style="margin:0">Task ledger</h3>
+        <a class="btn btn-sm" href="/tasks/new?next=/working-capital/wip%3Fshow%3D{{ show_query }}">Add task</a>
+      </div>
+      {% if task_rows %}
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Client</th>
+              <th>Due</th>
+              <th class="num">Fee</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in task_rows[:25] %}
+            <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
+              <td><a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a></td>
+              <td class="small">{% if t.client %}{{ t.client.display_name() }}{% else %}<span class="muted">Standalone</span>{% endif %}</td>
+              <td>{{ t.due_on|uk_date }}</td>
+              <td class="num"><strong>£{{ '%.2f'|format(t.fee or 0) }}</strong></td>
+              <td>
+                <form method="post" action="/tasks/{{ t.id }}/complete" style="display:inline">
+                  <input type="hidden" name="next" value="/working-capital/wip?show={{ show_query }}">
+                  <button class="btn btn-sm btn-outline" type="submit">Done</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="empty">No open tasks. <a href="/tasks/new">Add one</a>.</p>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+</div>
 
 <div class="card" id="wip-list">
   <div class="page-header" style="margin-bottom:0.75rem">
     <div>
       <h2 style="margin:0">
-        {% if filter_label %}
-        {{ filter_label }}
-        {% else %}
-        All open WIP
-        {% endif %}
+        {% if filter_label %}{{ filter_label }}{% else %}Open list{% endif %}
       </h2>
       {% if filter_label %}
       <p class="muted small" style="margin:0.35rem 0 0">
-        {{ filter_count }} jobs · £{{ '{:,.2f}'.format(filter_fee) }}
-        · <a href="/working-capital/wip">Clear filter</a>
+        {{ filter_count }} · £{{ '{:,.2f}'.format(filter_fee) }}
+        · <a href="/working-capital/wip?show={{ show_query }}">Clear filter</a>
       </p>
       {% endif %}
     </div>
   </div>
-  {% if rows %}
+
+  {% if filter_type == 'Tasks' %}
+    {% if task_rows %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Task</th><th>Client</th><th>Job</th><th>Due</th><th>Status</th><th class="num">Fee</th></tr>
+        </thead>
+        <tbody>
+          {% for t in task_rows %}
+          <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
+            <td><a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a></td>
+            <td class="small">{% if t.client %}{{ t.client.display_name() }}{% else %}Standalone{% endif %}</td>
+            <td class="small">{% if t.job %}{{ t.job.type }}{% else %}—{% endif %}</td>
+            <td>{{ t.due_on|uk_date }}</td>
+            <td><span class="badge {% if t.is_overdue() %}badge-overdue{% endif %}">{{ t.display_status() }}</span></td>
+            <td class="num"><strong>£{{ '%.2f'|format(t.fee or 0) }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No tasks in this time frame.</p>
+    {% endif %}
+  {% elif rows %}
   <div class="table-wrap">
     <table class="data">
       <thead>
@@ -81,9 +298,9 @@
           <th>Type</th>
           <th>Period end</th>
           <th>Due</th>
-          <th>Age (days)</th>
+          <th>Age</th>
           <th>Status</th>
-          <th>Fee</th>
+          <th class="num">Fee</th>
         </tr>
       </thead>
       <tbody>
@@ -100,20 +317,20 @@
           <td>{% if j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
           <td>{% if r.age_days > 0 %}<span class="badge badge-overdue">{{ r.age_days }}</span>{% else %}0{% endif %}</td>
           <td>
-            {% if j|job_overdue %}
+            {% if j|job_overdue or (j|job_status) == 'Overdue and Imminent' %}
             <span class="badge badge-overdue">{{ j|job_status }}</span>
             {% else %}
             <span class="badge">{{ j|job_status }}</span>
             {% endif %}
           </td>
-          <td>£{{ '%.2f'|format(r.amount) }}</td>
+          <td class="num"><strong>£{{ '%.2f'|format(r.amount) }}</strong></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <p class="empty">{% if filter_label %}No jobs in this time frame.{% else %}No open WIP jobs.{% endif %}</p>
+  <p class="empty">{% if filter_label %}No jobs in this time frame.{% else %}No open WIP in the selected sections.{% endif %}</p>
   {% endif %}
 </div>
 {% endblock %}
