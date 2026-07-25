@@ -62,10 +62,10 @@
       </div>
     </a>
 
-    <a class="wc-box wc-box-debtors wc-touch" href="/sales/chase">
+    <a class="wc-box wc-box-debtors wc-touch" href="/sales/ageing">
       <div class="wc-box-head">
         <span class="wc-box-title">2 · Debtors</span>
-        <span class="wc-box-link">Chase desk →</span>
+        <span class="wc-box-link">Open →</span>
       </div>
       <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}</div>
       <div class="wc-box-meta">
@@ -262,7 +262,7 @@
           {% endfor %}
         </span>
       </a>
-      <a class="live-tile tile-debtors" href="/sales/chase">
+      <a class="live-tile tile-debtors" href="/sales/ageing">
         <span class="live-kicker">2 · Debtors</span>
         <span class="live-value">£{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}</span>
         <span class="live-sub">{{ chase_pipeline_count|default(0) }} in chase · {{ wc_debtors_count|default(0) }} inv</span>

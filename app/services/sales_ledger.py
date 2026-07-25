@@ -162,6 +162,12 @@ def line_amounts(qty: float, unit_price: float, vat_rate: float) -> Tuple[float,
 
 
 def recompute_invoice_totals(db: Session, invoice: Invoice) -> None:
+    """Refresh invoice totals from lines + payment allocations.
+
+    Flushes pending allocations first so SUM(amount) sees rows just added in
+    the same transaction (otherwise paid stays 0 and balance never drops).
+    """
+    db.flush()
     lines = db.query(InvoiceLine).filter(InvoiceLine.invoice_id == invoice.id).all()
     subtotal = 0.0
     vat_total = 0.0
@@ -178,8 +184,12 @@ def recompute_invoice_totals(db: Session, invoice: Invoice) -> None:
     )
     paid_f = float(paid or 0)
     total = round(subtotal + vat_total, 2)
-    invoice.subtotal = round(subtotal, 2)
-    invoice.vat_total = round(vat_total, 2)
+    # Opening-balance / imported invoices may store total without relying on
+    # line math if lines are missing; prefer computed lines when present.
+    if not lines and invoice.total is not None:
+        total = round(float(invoice.total or 0), 2)
+    invoice.subtotal = round(subtotal, 2) if lines else float(invoice.subtotal or 0)
+    invoice.vat_total = round(vat_total, 2) if lines else float(invoice.vat_total or 0)
     invoice.total = total
     invoice.amount_paid = round(paid_f, 2)
     invoice.balance = round(max(0.0, total - paid_f), 2)
@@ -391,7 +401,27 @@ def invoice_overdue_days(inv: Invoice, today: Optional[date] = None) -> int:
     return max(0, (today - base).days)
 
 
+def ageing_bucket_key(days: int) -> str:
+    """Bucket key for debtor age in days since invoice date."""
+    if days <= 30:
+        return "d30"
+    if days <= 60:
+        return "d60"
+    if days <= 90:
+        return "d90"
+    return "older"
+
+
+DEBTOR_BUCKET_META = [
+    ("d30", "30 days", "0–30 days"),
+    ("d60", "60 days", "31–60 days"),
+    ("d90", "90 days", "61–90 days"),
+    ("older", "Older", "Over 90 days"),
+]
+
+
 def ageing_report(db: Session, today: Optional[date] = None) -> List[AgeBucket]:
+    """Legacy-style buckets for dashboard bars (labels 0–30 … 90+)."""
     today = today or date.today()
     buckets = {
         "0–30": AgeBucket("0–30"),
@@ -399,21 +429,46 @@ def ageing_report(db: Session, today: Optional[date] = None) -> List[AgeBucket]:
         "61–90": AgeBucket("61–90"),
         "90+": AgeBucket("90+"),
     }
+    key_to_lab = {
+        "d30": "0–30",
+        "d60": "31–60",
+        "d90": "61–90",
+        "older": "90+",
+    }
     for inv in outstanding_invoices(db):
         days = invoice_age_days(inv, today)
-        if days <= 30:
-            lab = "0–30"
-        elif days <= 60:
-            lab = "31–60"
-        elif days <= 90:
-            lab = "61–90"
-        else:
-            lab = "90+"
+        lab = key_to_lab[ageing_bucket_key(days)]
         buckets[lab].count += 1
         buckets[lab].amount += float(inv.balance or 0)
     for b in buckets.values():
         b.amount = round(b.amount, 2)
     return list(buckets.values())
+
+
+def debtor_age_tiles(db: Session, today: Optional[date] = None) -> List[dict]:
+    """
+    Tiles for debtors drill-down: 30 / 60 / 90 days, Older (no Total tile).
+    Each: key, label, detail, count, amount.
+    """
+    today = today or date.today()
+    totals = {k: {"count": 0, "amount": 0.0} for k, _, _ in DEBTOR_BUCKET_META}
+    for inv in outstanding_invoices(db):
+        days = invoice_age_days(inv, today)
+        k = ageing_bucket_key(days)
+        totals[k]["count"] += 1
+        totals[k]["amount"] += float(inv.balance or 0)
+    tiles = []
+    for key, label, detail in DEBTOR_BUCKET_META:
+        tiles.append(
+            {
+                "key": key,
+                "label": label,
+                "detail": detail or "",
+                "count": totals[key]["count"],
+                "amount": round(totals[key]["amount"], 2),
+            }
+        )
+    return tiles
 
 
 def debtors_total(db: Session) -> Tuple[float, int]:

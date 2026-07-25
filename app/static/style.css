@@ -687,6 +687,122 @@ form.stack textarea { min-height: 100px; max-width: 100%; }
 .badge-development { background: #ede9fe; color: #6d28d9; }
 .badge-retainer { background: #dbeafe; color: #1d4ed8; font-weight: 700; }
 
+/* ========== Debtors ageing tiles (professional + Live OS) ========== */
+.debtors-pro-section {
+  margin-bottom: 1rem;
+  border-top: 4px solid #d97706;
+}
+.debtors-pro-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+@media (max-width: 1100px) {
+  .debtors-pro-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+a.debtors-pro-h-d30 { border-left-color: #15803d; }
+a.debtors-pro-h-d60 { border-left-color: #2563eb; }
+a.debtors-pro-h-d90 { border-left-color: #d97706; }
+a.debtors-pro-h-older { border-left-color: #dc2626; }
+
+.debtors-mobile { display: none; }
+.debtors-desk { display: block; }
+
+.debtors-live-grid.live-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+@media (max-width: 420px) {
+  .debtors-live-grid.live-grid { grid-template-columns: 1fr; }
+}
+.debtors-live-grid .live-tile.is-selected {
+  outline: 3px solid #fde047;
+  outline-offset: 2px;
+}
+
+@media (max-width: 767.98px) {
+  .debtors-desk { display: none !important; }
+  .debtors-mobile { display: block !important; }
+}
+
+/* ========== WIP metric tiles (type home) ========== */
+.wip-top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.wip-metric-section {
+  border-top-color: #2563eb;
+}
+.wip-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+@media (max-width: 1100px) {
+  .wip-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+a.wip-metric-accounts { border-left-color: #2563eb; }
+a.wip-metric-cs { border-left-color: #d97706; }
+a.wip-metric-tasks { border-left-color: #15803d; }
+a.wip-metric-vat { border-left-color: #7c3aed; }
+
+.wip-metric-live.live-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+/* ========== Settings sections ========== */
+.settings-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 1.25rem;
+  padding: 0.4rem;
+  background: #e2e8f0;
+  border-radius: 12px;
+}
+.settings-nav a {
+  flex: 1 1 auto;
+  text-align: center;
+  min-width: 5.5rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 9px;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #0f172a !important;
+  text-decoration: none !important;
+  background: #f8fafc;
+  border: 1px solid transparent;
+}
+.settings-nav a:hover {
+  background: #fff;
+  border-color: #93c5fd;
+}
+.settings-section {
+  margin-bottom: 2rem;
+  scroll-margin-top: 4.5rem;
+}
+.settings-section-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid #cbd5e1;
+}
+.settings-card {
+  max-width: 42rem;
+  margin-bottom: 1rem;
+}
+.settings-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
 .filters {
   display: flex;
   flex-wrap: wrap;
@@ -854,10 +970,34 @@ a.wc-box:hover {
   color: inherit !important;
 }
 
+a.wc-box.is-selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.28), 0 8px 22px rgba(15, 23, 42, 0.1);
+  background: #f8fafc;
+}
+
 .wc-box-wip { border-top: 4px solid #2563eb; }
 .wc-box-debtors { border-top: 4px solid #d97706; }
 .wc-box-cash { border-top: 4px solid #15803d; }
 .wc-box-creditors { border-top: 4px solid #b91c1c; }
+
+/* Sub-dashboards (WIP / Debtors) — same 4-box + total as main WC cycle */
+.subdash-hint { margin: 0 0 0.85rem; }
+.wc-grid.wc-grid-compact a.wc-box {
+  min-height: 7.5rem;
+  padding: 0.85rem 1rem 0.95rem;
+}
+.wc-grid.wc-grid-compact .wc-box-value {
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+}
+.live-tile.is-selected {
+  outline: 3px solid #fde047;
+  outline-offset: 2px;
+}
+.live-net a {
+  color: #e2e8f0 !important;
+  text-decoration: underline;
+}
 
 /* ========== WIP page ========== */
 /* Dual layout: professional desk (default) · Live OS tiles only on small screens */

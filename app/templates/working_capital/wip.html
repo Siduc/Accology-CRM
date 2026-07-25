@@ -15,197 +15,225 @@
       ) · as at {{ today.strftime('%d-%m-%Y') }}
     </p>
   </div>
-  <div class="actions">
-    <a class="btn btn-sm" href="/tasks/new?next=/working-capital/wip">Add task</a>
-    <a class="btn btn-sm btn-outline" href="/tasks">Task ledger</a>
-    <a class="btn btn-sm btn-outline" href="/export/wip">Export WIP CSV</a>
-    <a class="btn btn-sm btn-outline" href="/import/csv?dataset=wip">Reimport CSV</a>
-    <a class="btn btn-sm btn-outline" href="/jobs/new">Add job</a>
+  <div class="actions wip-top-actions">
+    <a class="btn wc-touch" href="/jobs/new?next=/working-capital/wip">New job</a>
+    <a class="btn btn-outline wc-touch" href="/tasks/new?next=/working-capital/wip">New task</a>
   </div>
 </div>
 
-{# Section toggles — compact professional chips on desk, larger on phone #}
-<div class="wip-toggles" role="group" aria-label="Show sections">
-  <a class="wip-toggle {% if show_accounts %}is-on{% endif %}"
-     href="/working-capital/wip?show={% if show_accounts %}{% if show_cs and show_tasks %}cs,tasks{% elif show_cs %}cs{% elif show_tasks %}tasks{% else %}accounts{% endif %}{% else %}{{ show_query }}{% if show_query %},{% endif %}accounts{% endif %}">
-    Accounts
-  </a>
-  <a class="wip-toggle {% if show_cs %}is-on{% endif %}"
-     href="/working-capital/wip?show={% if show_cs %}{% if show_accounts and show_tasks %}accounts,tasks{% elif show_accounts %}accounts{% elif show_tasks %}tasks{% else %}cs{% endif %}{% else %}{{ show_query }}{% if show_query %},{% endif %}cs{% endif %}">
-    Confirmation statements
-  </a>
-  <a class="wip-toggle {% if show_tasks %}is-on{% endif %}"
-     href="/working-capital/wip?show={% if show_tasks %}{% if show_accounts and show_cs %}accounts,cs{% elif show_accounts %}accounts{% elif show_cs %}cs{% else %}tasks{% endif %}{% else %}{{ show_query }}{% if show_query %},{% endif %}tasks{% endif %}">
-    Tasks
-  </a>
-</div>
-<p class="small muted wip-toggle-hint wip-hint-mobile">Toggle sections for a neater phone view. Tap a tile to open its list.</p>
-<p class="small muted wip-toggle-hint wip-hint-desk">Toggle Accounts, CS, and Tasks. Click a horizon tile to drill into the list (with filters).</p>
+{% set box_class = {
+  'accounts': 'wc-box-wip',
+  'cs': 'wc-box-debtors',
+  'tasks': 'wc-box-cash',
+  'vat': 'wc-box-creditors',
+  'imminent': 'wc-box-creditors',
+  'planning': 'wc-box-wip',
+  'pre_planning': 'wc-box-debtors',
+  'later': 'wc-box-cash'
+} %}
+{% set tile_class = {
+  'accounts': 'tile-wip',
+  'cs': 'tile-debtors',
+  'tasks': 'tile-cash',
+  'vat': 'tile-creditors',
+  'imminent': 'tile-creditors',
+  'planning': 'tile-wip',
+  'pre_planning': 'tile-debtors',
+  'later': 'tile-cash'
+} %}
 
-{# ========== DESKTOP PROFESSIONAL VIEW ========== #}
-<div class="wip-desk">
-  {% if horizons %}
-  {% for row in horizons %}
-  {% set type_q = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation+Statement' %}
-  {% set type_match = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation Statement' %}
-  {% set accent = 'wip' if row.job_type == 'Accounts' else 'debtors' %}
-  <section class="wip-pro-section card wip-pro-{{ accent }}">
-    <div class="wip-pro-head">
-      <div>
-        <h2 class="wip-pro-title">{{ row.label }}</h2>
-        <p class="muted small" style="margin:0.2rem 0 0">{{ row.total_count }} open · £{{ '{:,.0f}'.format(row.total_amount) }}</p>
+{# ========== LEVEL 1: four metric boxes + total (dashboard style) ========== #}
+{% if show_type_home %}
+<p class="small muted subdash-hint">Same layout as the main dashboard — open a box to age it, then filter the list. VAT opens the VAT ledger.</p>
+
+{# —— Desktop professional —— #}
+<div class="wip-desk subdash-desk">
+  <div class="wc-grid" aria-label="WIP type metrics">
+    {% for m in type_metrics %}
+    {% set n = loop.index %}
+    <a class="wc-box {{ box_class.get(m.kind, 'wc-box-wip') }} wc-touch" href="{{ m.href }}">
+      <div class="wc-box-head">
+        <span class="wc-box-title">{{ n }} · {{ m.label }}</span>
+        <span class="wc-box-link">{% if m.kind == 'vat' %}VAT →{% else %}Age →{% endif %}</span>
+      </div>
+      <div class="wc-box-value">
+        {% if m.kind == 'vat' and m.amount_signed is defined and m.amount_signed < 0 %}-{% endif %}£{{ '{:,.0f}'.format(m.amount) }}
+      </div>
+      <div class="wc-box-meta">
+        {% if m.kind == 'vat' %}
+          {{ m.subtitle|default('This quarter') }} · net VAT
+        {% else %}
+          {{ m.count }} {{ m.unit }} · drill for horizons
+        {% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  <section class="wc-net-banner wc-net-result wc-net-pos" aria-label="Total WIP">
+    <div class="wc-net-main">
+      <div class="wc-net-label">Total WIP</div>
+      <div class="wc-net-value">£{{ '{:,.0f}'.format(total) }}</div>
+      <div class="wc-net-formula muted small">
+        Jobs £{{ '{:,.0f}'.format(jobs_value|default(0)) }}
+        {% if (retainer_annual|default(0)) > 0 %}+ retainers £{{ '{:,.0f}'.format(retainer_annual) }}/yr{% endif %}
+        {% if (tasks_value|default(0)) > 0 %}+ tasks £{{ '{:,.0f}'.format(tasks_value) }}{% endif %}
+        · {{ count }} jobs
       </div>
     </div>
-    <div class="wip-pro-grid" aria-label="{{ row.label }} horizons">
-      {% for b in row.buckets %}
-      {% set href = '/working-capital/wip?type=' ~ type_q ~ '&horizon=' ~ b.key ~ '&show=' ~ show_query ~ '#wip-list' %}
-      {% set selected = filter_type == type_match and filter_horizon == b.key %}
-      <a class="wip-pro-cell wip-pro-h-{{ b.key }} {% if selected %}is-selected{% endif %}" href="{{ href }}">
-        <span class="wip-pro-kicker">{{ b.label }}</span>
-        <span class="wip-pro-value">£{{ '{:,.0f}'.format(b.amount) }}</span>
-        <span class="wip-pro-meta">{{ b.count }} jobs</span>
-        <span class="wip-pro-range">
-          {% if b.key == 'imminent' %}
-          Through {{ horizon_bounds.eom.strftime('%d-%m-%Y') if horizon_bounds.eom else '' }}
-          {% elif b.to_date %}
-          {% if b.from_date %}{{ b.from_date.strftime('%d-%m') }} – {% endif %}{{ b.to_date.strftime('%d-%m-%Y') }}
-          {% else %}
-          Beyond / undated
-          {% endif %}
-        </span>
-      </a>
-      {% endfor %}
-    </div>
+    <p class="wc-net-hint muted small">Sum of open work. Tap a box above for aged columns.</p>
   </section>
-  {% endfor %}
-  {% endif %}
-
-  {% if show_tasks and task_horizon %}
-  <section class="wip-pro-section card wip-pro-cash">
-    <div class="wip-pro-head">
-      <div>
-        <h2 class="wip-pro-title">Tasks</h2>
-        <p class="muted small" style="margin:0.2rem 0 0">
-          {{ task_horizon.total_count }} open · £{{ '{:,.0f}'.format(task_horizon.total_amount) }}
-          · <a href="/tasks">Full ledger</a>
-        </p>
-      </div>
-      <a class="btn btn-sm" href="/tasks/new?next=/working-capital/wip%3Fshow%3D{{ show_query }}">Add task</a>
-    </div>
-    <div class="wip-pro-grid" aria-label="Task horizons">
-      {% for b in task_horizon.buckets %}
-      <a class="wip-pro-cell wip-pro-h-{{ b.key }} {% if filter_type == 'Tasks' and filter_horizon == b.key %}is-selected{% endif %}"
-         href="/working-capital/wip?type=Tasks&amp;horizon={{ b.key }}&amp;show={{ show_query }}#wip-list">
-        <span class="wip-pro-kicker">{{ b.label }}</span>
-        <span class="wip-pro-value">£{{ '{:,.0f}'.format(b.amount) }}</span>
-        <span class="wip-pro-meta">{{ b.count }} tasks</span>
-      </a>
-      {% endfor %}
-    </div>
-
-    <p class="small muted" style="margin-top:0.75rem">
-      Click a task horizon tile to open the list ·
-      <a href="/tasks">Full task ledger</a> ·
-      <a href="/tasks/new?next=/working-capital/wip%3Fshow%3D{{ show_query }}">Add task</a>
-    </p>
-  </section>
-  {% endif %}
 </div>
 
-{# ========== PHONE / SMALL SCREEN — dashboard Live OS tiles ========== #}
-<div class="wip-mobile">
-  {% if horizons %}
-  {% for row in horizons %}
-  {% set type_q = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation+Statement' %}
-  {% set type_match = 'Accounts' if row.job_type == 'Accounts' else 'Confirmation Statement' %}
-  <section class="wip-live-section">
-    <div class="wip-live-section-head">
-      <h2>{{ row.label }}</h2>
-      <span class="muted small">{{ row.total_count }} · £{{ '{:,.0f}'.format(row.total_amount) }}</span>
-    </div>
-    <div class="live-grid wip-live-grid" aria-label="{{ row.label }} horizons">
-      {% for b in row.buckets %}
-      {% set href = '/working-capital/wip?type=' ~ type_q ~ '&horizon=' ~ b.key ~ '&show=' ~ show_query ~ '#wip-list' %}
-      {# Horizon → same palette as dashboard 1–4 tiles #}
-      {% if b.key == 'imminent' %}
-        {% set h_tile = 'tile-creditors' %}
-      {% elif b.key == 'planning' %}
-        {% set h_tile = 'tile-wip' %}
-      {% elif b.key == 'pre_planning' %}
-        {% set h_tile = 'tile-debtors' %}
-      {% else %}
-        {% set h_tile = 'tile-cash' %}
-      {% endif %}
-      <a class="live-tile {{ h_tile }} {% if filter_type == type_match and filter_horizon == b.key %}is-selected{% endif %}"
-         href="{{ href }}">
-        <span class="live-kicker">{{ b.label }}</span>
-        <span class="live-value">£{{ '{:,.0f}'.format(b.amount) }}</span>
-        <span class="live-sub">{{ b.count }} jobs</span>
-        <span class="live-age">
-          {% if b.key == 'imminent' %}
-          <span>Through {{ horizon_bounds.eom.strftime('%d-%m-%Y') if horizon_bounds.eom else '' }}</span>
-          {% elif b.to_date %}
-          <span>{% if b.from_date %}{{ b.from_date.strftime('%d-%m') }} – {% endif %}{{ b.to_date.strftime('%d-%m-%Y') }}</span>
-          {% else %}
-          <span>Beyond / undated</span>
-          {% endif %}
-        </span>
-      </a>
-      {% endfor %}
-    </div>
-  </section>
-  {% endfor %}
-  {% endif %}
-
-  {% if show_tasks and task_horizon %}
-  <section class="wip-live-section">
-    <div class="wip-live-section-head">
-      <h2>Tasks</h2>
-      <span class="muted small">
-        {{ task_horizon.total_count }} · £{{ '{:,.0f}'.format(task_horizon.total_amount) }}
-        · <a href="/tasks">Full ledger</a>
+{# —— Phone Live OS —— #}
+<div class="wip-mobile subdash-mobile">
+  <div class="live-grid" aria-label="WIP type Live tiles">
+    {% for m in type_metrics %}
+    {% set n = loop.index %}
+    <a class="live-tile {{ tile_class.get(m.kind, 'tile-wip') }}" href="{{ m.href }}">
+      <span class="live-kicker">{{ n }} · {{ m.label }}</span>
+      <span class="live-value">
+        {% if m.kind == 'vat' and m.amount_signed is defined and m.amount_signed < 0 %}-{% endif %}£{{ '{:,.0f}'.format(m.amount) }}
       </span>
-    </div>
-    <div class="live-grid wip-live-grid" aria-label="Task horizons">
-      {% for b in task_horizon.buckets %}
-      {% if b.key == 'imminent' %}
-        {% set h_tile = 'tile-creditors' %}
-      {% elif b.key == 'planning' %}
-        {% set h_tile = 'tile-wip' %}
-      {% elif b.key == 'pre_planning' %}
-        {% set h_tile = 'tile-debtors' %}
-      {% else %}
-        {% set h_tile = 'tile-cash' %}
-      {% endif %}
-      <a class="live-tile {{ h_tile }} {% if filter_type == 'Tasks' and filter_horizon == b.key %}is-selected{% endif %}"
-         href="/working-capital/wip?type=Tasks&amp;horizon={{ b.key }}&amp;show={{ show_query }}#wip-list">
-        <span class="live-kicker">{{ b.label }}</span>
-        <span class="live-value">£{{ '{:,.0f}'.format(b.amount) }}</span>
-        <span class="live-sub">{{ b.count }} tasks</span>
-      </a>
-      {% endfor %}
-    </div>
-    <p class="small muted" style="margin-top:0.55rem">
-      Tap a task tile for the list · <a href="/tasks">Full ledger</a>
-    </p>
+      <span class="live-sub">
+        {% if m.kind == 'vat' %}{{ m.subtitle|default('VAT ledger') }}{% else %}{{ m.count }} {{ m.unit }}{% endif %}
+      </span>
+      <span class="live-age"><span>{% if m.kind == 'vat' %}Open service{% else %}Tap to age{% endif %}</span></span>
+    </a>
+    {% endfor %}
+  </div>
+  <section class="live-net" aria-label="Total WIP">
+    <div class="live-net-label">Total WIP</div>
+    <div class="live-net-value">£{{ '{:,.0f}'.format(total) }}</div>
+    <div class="live-net-formula">Jobs + retainers + tasks</div>
   </section>
-  {% endif %}
+</div>
+{% endif %}
+
+{# ========== LEVEL 2: four aged horizon boxes + type total ========== #}
+{% if show_type_horizons and active_horizon_row %}
+{% set row = active_horizon_row %}
+{% set type_title = row.label if row.label is defined else filter_type %}
+{% set type_total = row.total_amount if row.total_amount is defined else 0 %}
+{% set type_count = row.total_count if row.total_count is defined else 0 %}
+<p class="small muted">
+  <a href="/working-capital/wip">← All WIP metrics</a>
+  · {{ type_title }} · click a horizon for the list
+</p>
+
+<div class="wip-desk subdash-desk">
+  <div class="wc-grid" aria-label="{{ type_title }} horizons">
+    {% for b in row.buckets %}
+    {% set bkey = b.key if b.key is defined else b['key'] %}
+    {% set blabel = b.label if b.label is defined else b['label'] %}
+    {% set bcount = b.count if b.count is defined else b['count'] %}
+    {% set bamount = b.amount if b.amount is defined else b['amount'] %}
+    {% set n = loop.index %}
+    <a class="wc-box {{ box_class.get(bkey, 'wc-box-wip') }} wc-touch"
+       href="/working-capital/wip?type={{ type_query }}&amp;horizon={{ bkey }}#wip-list">
+      <div class="wc-box-head">
+        <span class="wc-box-title">{{ n }} · {{ blabel }}</span>
+        <span class="wc-box-link">List →</span>
+      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(bamount) }}</div>
+      <div class="wc-box-meta">
+        {{ bcount }} {% if filter_type == 'Tasks' %}tasks{% else %}jobs{% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  <section class="wc-net-banner wc-net-result wc-net-pos" aria-label="{{ type_title }} total">
+    <div class="wc-net-main">
+      <div class="wc-net-label">Total · {{ type_title }}</div>
+      <div class="wc-net-value">£{{ '{:,.0f}'.format(type_total) }}</div>
+      <div class="wc-net-formula muted small">{{ type_count }} open · sum of the four horizons</div>
+    </div>
+    <p class="wc-net-hint muted small"><a href="/working-capital/wip" style="color:#cbd5e1">← Back to WIP metrics</a></p>
+  </section>
 </div>
 
+<div class="wip-mobile subdash-mobile">
+  <div class="live-grid" aria-label="{{ type_title }} horizons">
+    {% for b in row.buckets %}
+    {% set bkey = b.key if b.key is defined else b['key'] %}
+    {% set blabel = b.label if b.label is defined else b['label'] %}
+    {% set bcount = b.count if b.count is defined else b['count'] %}
+    {% set bamount = b.amount if b.amount is defined else b['amount'] %}
+    {% set n = loop.index %}
+    <a class="live-tile {{ tile_class.get(bkey, 'tile-wip') }}"
+       href="/working-capital/wip?type={{ type_query }}&amp;horizon={{ bkey }}#wip-list">
+      <span class="live-kicker">{{ n }} · {{ blabel }}</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(bamount) }}</span>
+      <span class="live-sub">{{ bcount }} {% if filter_type == 'Tasks' %}tasks{% else %}jobs{% endif %}</span>
+    </a>
+    {% endfor %}
+  </div>
+  <section class="live-net" aria-label="{{ type_title }} total">
+    <div class="live-net-label">{{ type_title }}</div>
+    <div class="live-net-value">£{{ '{:,.0f}'.format(type_total) }}</div>
+    <div class="live-net-formula">{{ type_count }} open · <a href="/working-capital/wip" style="color:#e2e8f0">All metrics</a></div>
+  </section>
+</div>
+{% endif %}
+
+{# ========== LEVEL 3: horizon switcher + list ========== #}
 {% if show_list %}
+{% if active_horizon_row %}
+{% set row = active_horizon_row %}
+<div class="wip-desk subdash-desk" style="margin-bottom:1rem">
+  <div class="wc-grid wc-grid-compact" aria-label="Switch horizon">
+    {% for b in row.buckets %}
+    {% set bkey = b.key if b.key is defined else b['key'] %}
+    {% set blabel = b.label if b.label is defined else b['label'] %}
+    {% set bcount = b.count if b.count is defined else b['count'] %}
+    {% set bamount = b.amount if b.amount is defined else b['amount'] %}
+    {% set n = loop.index %}
+    <a class="wc-box {{ box_class.get(bkey, 'wc-box-wip') }} wc-touch {% if filter_horizon == bkey %}is-selected{% endif %}"
+       href="/working-capital/wip?type={{ type_query }}&amp;horizon={{ bkey }}#wip-list">
+      <div class="wc-box-head">
+        <span class="wc-box-title">{{ n }} · {{ blabel }}</span>
+        {% if filter_horizon == bkey %}<span class="wc-box-link">Selected</span>{% endif %}
+      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(bamount) }}</div>
+      <div class="wc-box-meta">{{ bcount }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  <p class="small muted" style="margin:0.35rem 0 0">
+    <a href="{{ back_type_url }}">← Aged columns</a> ·
+    <a href="/working-capital/wip">All metrics</a>
+  </p>
+</div>
+<div class="wip-mobile subdash-mobile" style="margin-bottom:0.75rem">
+  <div class="live-grid" aria-label="Switch horizon">
+    {% for b in row.buckets %}
+    {% set bkey = b.key if b.key is defined else b['key'] %}
+    {% set blabel = b.label if b.label is defined else b['label'] %}
+    {% set bamount = b.amount if b.amount is defined else b['amount'] %}
+    {% set n = loop.index %}
+    <a class="live-tile {{ tile_class.get(bkey, 'tile-wip') }} {% if filter_horizon == bkey %}is-selected{% endif %}"
+       href="/working-capital/wip?type={{ type_query }}&amp;horizon={{ bkey }}#wip-list">
+      <span class="live-kicker">{{ n }} · {{ blabel }}</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(bamount) }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <div class="card" id="wip-list">
   <div class="page-header" style="margin-bottom:0.75rem">
     <div>
       <h2 style="margin:0">{{ filter_label or 'Drill-down list' }}</h2>
       <p class="muted small" style="margin:0.35rem 0 0">
         {{ filter_count }} · £{{ '{:,.2f}'.format(filter_fee) }}
-        · <a href="/working-capital/wip?show={{ show_query }}">Clear · back to tiles</a>
+        · <a href="{{ back_type_url }}">← Aged columns</a>
+        · <a href="/working-capital/wip">All metrics</a>
       </p>
     </div>
   </div>
 
   <form class="filters" method="get" action="/working-capital/wip" style="margin-bottom:0.85rem">
-    <input type="hidden" name="show" value="{{ show_query }}">
     {% if filter_type %}<input type="hidden" name="type" value="{{ filter_type }}">{% endif %}
     {% if filter_horizon %}<input type="hidden" name="horizon" value="{{ filter_horizon }}">{% endif %}
     <div>
@@ -231,15 +259,14 @@
     <noscript><button class="btn btn-sm" type="submit">Filter</button></noscript>
   </form>
 
-  {# Quick status chips when in Overdue and Imminent tile #}
   {% if filter_horizon == 'imminent' and filter_type != 'Tasks' %}
   <div class="period-toggle" style="margin-bottom:0.85rem" role="group" aria-label="Overdue or imminent">
     <a class="period-btn {% if not filter_status %}is-active{% endif %}"
-       href="/working-capital/wip?type={{ filter_type }}&horizon=imminent&show={{ show_query }}#wip-list">All</a>
+       href="/working-capital/wip?type={{ type_query }}&horizon=imminent#wip-list">All</a>
     <a class="period-btn {% if filter_status == 'Overdue' %}is-active{% endif %}"
-       href="/working-capital/wip?type={{ filter_type }}&horizon=imminent&status=Overdue&show={{ show_query }}#wip-list">Overdue</a>
+       href="/working-capital/wip?type={{ type_query }}&horizon=imminent&status=Overdue#wip-list">Overdue</a>
     <a class="period-btn {% if filter_status == 'Imminent' %}is-active{% endif %}"
-       href="/working-capital/wip?type={{ filter_type }}&horizon=imminent&status=Imminent&show={{ show_query }}#wip-list">Imminent</a>
+       href="/working-capital/wip?type={{ type_query }}&horizon=imminent&status=Imminent#wip-list">Imminent</a>
   </div>
   {% endif %}
 

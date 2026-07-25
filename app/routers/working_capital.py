@@ -52,22 +52,37 @@ async def wc_wip(
     request: Request,
     type: str = "",
     horizon: str = "",
-    show: str = "",
     status: str = "",
     client_id: str = "",
     db: Session = Depends(get_db),
 ):
+    """
+    WIP desk (hierarchical):
+      1) Four metric tiles — Accounts, CS, Tasks, VAT
+      2) Type drill → aged horizon tiles for that type
+      3) Horizon drill → filtered list
+    VAT tile links out to /vat (not horizons).
+    """
     today = date.today()
     snap = compute_wip(db, today)
     horizons = compute_wip_type_horizons(db, today)
     bounds = wip_horizon_boundaries(today)
     task_horizon = compute_task_horizons(db, today)
 
+    # VAT snapshot for WIP home tile
+    vat_summary = None
+    try:
+        from app.services.vat_ledger import vat_return_summary
+
+        vat_summary = vat_return_summary(db, "this_quarter")
+    except Exception:
+        vat_summary = None
+
     filter_type = (type or "").strip()
     filter_horizon = (horizon or "").strip()
     filter_status = (status or "").strip()
     filter_client_id = int(client_id) if (client_id or "").isdigit() else None
-    # Legacy keys → new keys
+
     legacy = {
         "overdue": "imminent",
         "eom": "imminent",
@@ -86,24 +101,26 @@ async def wc_wip(
         "confirmation",
         "confirmation statement",
         "confirmation statements",
+        "confirmation+statement",
     ):
         filter_type = "Confirmation Statement"
     elif filter_type.lower() in ("accounts", "account"):
         filter_type = "Accounts"
     elif filter_type.lower() == "tasks":
         filter_type = "Tasks"
+    elif filter_type.lower() == "vat":
+        return RedirectResponse("/vat", status_code=303)
+    elif filter_type:
+        # unknown type — ignore
+        filter_type = ""
 
-    # show= toggles: accounts,cs,tasks (comma list) — default all on
-    show_raw = (show or "accounts,cs,tasks").lower()
-    show_set = {s.strip() for s in show_raw.split(",") if s.strip()}
-    if not show_set:
-        show_set = {"accounts", "cs", "tasks"}
-    show_accounts = "accounts" in show_set
-    show_cs = "cs" in show_set
-    show_tasks = "tasks" in show_set
-
-    # Only show list after drilling a tile (or explicit status/client filter)
-    show_list = bool(filter_type or filter_horizon or filter_status or filter_client_id)
+    # View levels
+    # home: no type → 4 metric tiles
+    # type: type set, no horizon → aged columns for that type
+    # list: type + horizon (or status/client with type)
+    show_type_home = not filter_type
+    show_type_horizons = bool(filter_type) and not filter_horizon and not filter_status and not filter_client_id
+    show_list = bool(filter_type and (filter_horizon or filter_status or filter_client_id))
 
     horizon_labels = {
         "imminent": "Overdue and Imminent",
@@ -129,7 +146,6 @@ async def wc_wip(
 
     from app.services.working_capital import wip_list_status
 
-    # Retainer shares for list amounts (same logic as compute_wip)
     _book = retainer_book(db)
     _monthly_by = _book.get("monthly_by_client") or {}
     _open_counts: dict = {}
@@ -137,15 +153,79 @@ async def wc_wip(
         if jj.client_id and jj.client and jj.client.is_retainer():
             _open_counts[jj.client_id] = _open_counts.get(jj.client_id, 0) + 1
 
-    # Job rows — only build when drilling
+    # Metric tiles for home
+    type_metrics = []
+    for h in horizons:
+        type_metrics.append(
+            {
+                "key": "Accounts" if h.job_type == "Accounts" else "Confirmation Statement",
+                "href": (
+                    "/working-capital/wip?type=Accounts"
+                    if h.job_type == "Accounts"
+                    else "/working-capital/wip?type=Confirmation+Statement"
+                ),
+                "label": h.label,
+                "count": h.total_count,
+                "amount": h.total_amount,
+                "kind": "accounts" if h.job_type == "Accounts" else "cs",
+                "unit": "jobs",
+            }
+        )
+    type_metrics.append(
+        {
+            "key": "Tasks",
+            "href": "/working-capital/wip?type=Tasks",
+            "label": "Tasks",
+            "count": task_horizon.get("total_count", 0),
+            "amount": task_horizon.get("total_amount", 0.0),
+            "kind": "tasks",
+            "unit": "tasks",
+        }
+    )
+    vat_net = float(getattr(vat_summary, "box5_net", 0) or 0) if vat_summary else 0.0
+    type_metrics.append(
+        {
+            "key": "VAT",
+            "href": "/vat",
+            "label": "VAT",
+            "count": 0,
+            "amount": abs(vat_net),
+            "amount_signed": vat_net,
+            "kind": "vat",
+            "unit": "this quarter",
+            "subtitle": (
+                "Due to HMRC"
+                if vat_net >= 0
+                else "Reclaim"
+            )
+            if vat_summary
+            else "Open VAT ledger",
+        }
+    )
+
+    # Active type horizon row (for level 2)
+    active_horizon_row = None
+    if filter_type == "Tasks":
+        active_horizon_row = {
+            "job_type": "Tasks",
+            "label": "Tasks",
+            "buckets": task_horizon.get("buckets") or [],
+            "total_count": task_horizon.get("total_count", 0),
+            "total_amount": task_horizon.get("total_amount", 0.0),
+        }
+    elif filter_type in ("Accounts", "Confirmation Statement"):
+        for h in horizons:
+            if h.job_type == filter_type:
+                active_horizon_row = h
+                break
+
+    # Job rows — list level
     rows = []
     clients_for_filter = []
     if show_list and filter_type != "Tasks":
         seen_c = {}
         for j in snap.jobs:
-            if filter_type and filter_type != "Tasks" and not _match_job_type(
-                j.type, filter_type
-            ):
+            if filter_type and not _match_job_type(j.type, filter_type):
                 continue
             if filter_horizon:
                 if job_horizon_key(j, today) != filter_horizon:
@@ -190,20 +270,14 @@ async def wc_wip(
             key=lambda c: (c.display_name() or "").lower(),
         )
 
-    # Task rows — only when drilling tasks (or status filter on tasks)
     task_rows = []
-    if show_list and (filter_type == "Tasks" or (not filter_type and filter_horizon and show_tasks)):
+    if show_list and filter_type == "Tasks":
         open_tasks = list_tasks(db, include_closed=False, include_hold=False, limit=200)
         from app.services.working_capital import job_horizon_key_for_due
 
         for t in open_tasks:
-            if float(t.fee or 0) <= 0 and filter_type == "Tasks":
-                # still show zero-fee when explicitly drilling tasks
-                pass
             hk = job_horizon_key_for_due(t.due_on, today)
             if filter_horizon and hk != filter_horizon:
-                continue
-            if filter_type and filter_type != "Tasks":
                 continue
             if filter_client_id and t.client_id != filter_client_id:
                 continue
@@ -213,12 +287,8 @@ async def wc_wip(
             task_rows.append(t)
 
     filter_fee = round(sum(r["amount"] for r in rows), 2)
-    if filter_type == "Tasks" or (
-        filter_horizon and filter_type in ("", "Tasks") and task_rows
-    ):
-        filter_fee = round(
-            filter_fee + sum(float(t.fee or 0) for t in task_rows), 2
-        )
+    if filter_type == "Tasks":
+        filter_fee = round(sum(float(t.fee or 0) for t in task_rows), 2)
 
     filter_label = ""
     if filter_type or filter_horizon or filter_status:
@@ -235,23 +305,17 @@ async def wc_wip(
             parts.append(filter_status)
         filter_label = " · ".join(parts)
 
-    # Filter which horizon rows to show based on toggles
-    display_horizons = []
-    for h in horizons:
-        if h.job_type == "Accounts" and show_accounts:
-            display_horizons.append(h)
-        elif h.job_type == "Confirmation Statement" and show_cs:
-            display_horizons.append(h)
+    type_query = ""
+    if filter_type == "Accounts":
+        type_query = "Accounts"
+    elif filter_type == "Confirmation Statement":
+        type_query = "Confirmation+Statement"
+    elif filter_type == "Tasks":
+        type_query = "Tasks"
 
-    show_query = ",".join(
-        s
-        for s, on in (
-            ("accounts", show_accounts),
-            ("cs", show_cs),
-            ("tasks", show_tasks),
-        )
-        if on
-    ) or "accounts,cs,tasks"
+    back_type_url = (
+        f"/working-capital/wip?type={type_query}" if type_query else "/working-capital/wip"
+    )
 
     return render(
         request,
@@ -268,7 +332,6 @@ async def wc_wip(
             "retainer_job_count": getattr(snap, "retainer_job_count", 0) or 0,
             "jobs_value": getattr(snap, "jobs_value", 0) or 0,
             "tasks_value": getattr(snap, "tasks_value", 0) or 0,
-            "horizons": display_horizons,
             "horizon_bounds": bounds,
             "filter_type": filter_type,
             "filter_horizon": filter_horizon,
@@ -276,17 +339,19 @@ async def wc_wip(
             "filter_client_id": filter_client_id,
             "filter_label": filter_label,
             "filter_fee": filter_fee,
-            "filter_count": len(rows)
-            + (len(task_rows) if filter_type in ("", "Tasks") else 0),
+            "filter_count": len(rows) + len(task_rows),
+            "show_type_home": show_type_home,
+            "show_type_horizons": show_type_horizons,
             "show_list": show_list,
-            "show_accounts": show_accounts,
-            "show_cs": show_cs,
-            "show_tasks": show_tasks,
-            "show_query": show_query,
+            "type_metrics": type_metrics,
+            "active_horizon_row": active_horizon_row,
+            "type_query": type_query,
+            "back_type_url": back_type_url,
             "list_status_options": list_status_options,
             "filter_clients": clients_for_filter,
             "task_horizon": task_horizon,
-            "task_rows": task_rows if show_tasks else [],
+            "task_rows": task_rows,
+            "vat_summary": vat_summary,
         },
     )
 

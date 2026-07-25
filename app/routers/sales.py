@@ -29,6 +29,7 @@ from app.services.chase_emails import (
 )
 from app.services.sales_ledger import (
     CHASE_TYPES,
+    ageing_bucket_key,
     ageing_report,
     backfill_invoices_from_jobs,
     build_legal_export_zip,
@@ -37,6 +38,7 @@ from app.services.sales_ledger import (
     clear_debtors_ledger,
     create_invoice,
     create_quote,
+    debtor_age_tiles,
     debtors_total,
     import_opening_balances,
     invoice_age_days,
@@ -542,37 +544,97 @@ async def payment_create(
 
 
 @router.get("/ageing", response_class=HTMLResponse)
-async def sales_ageing(request: Request, db: Session = Depends(get_db)):
+async def sales_ageing(
+    request: Request,
+    bucket: str = Query(""),
+    client_id: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Debtors drill-down: age tiles (Total / 30 / 60 / 90 / Older) then filtered list.
+    """
     today = date.today()
-    buckets = ageing_report(db, today)
-    invs = outstanding_invoices(db)
-    clients = {
-        c.id: c
-        for c in db.query(Client)
-        .filter(Client.id.in_({i.client_id for i in invs} or {-1}))
-        .all()
-    }
-    rows = sorted(
-        [
-            {
-                "inv": i,
-                "client": clients.get(i.client_id),
-                "age": invoice_age_days(i, today),
-            }
-            for i in invs
-        ],
-        key=lambda r: -r["age"],
-    )
+    tiles = debtor_age_tiles(db, today)
     total, count = debtors_total(db)
+    filter_bucket = (bucket or "").strip().lower()
+    if filter_bucket in ("0-30", "0–30", "30", "30days", "d30"):
+        filter_bucket = "d30"
+    elif filter_bucket in ("31-60", "31–60", "60", "60days", "d60"):
+        filter_bucket = "d60"
+    elif filter_bucket in ("61-90", "61–90", "90", "90days", "d90"):
+        filter_bucket = "d90"
+    elif filter_bucket in ("90+", "older", "90plus"):
+        filter_bucket = "older"
+    elif filter_bucket in ("total", "all"):
+        # Total tile removed — show all ages as list if requested
+        filter_bucket = "all"
+    elif filter_bucket and filter_bucket not in ("all", "d30", "d60", "d90", "older"):
+        filter_bucket = ""
+
+    filter_client_id = int(client_id) if (client_id or "").isdigit() else None
+    show_list = bool(filter_bucket)
+
+    bucket_labels = {
+        "all": "All outstanding",
+        "d30": "30 days (0–30)",
+        "d60": "60 days (31–60)",
+        "d90": "90 days (61–90)",
+        "older": "Older (90+)",
+    }
+
+    rows = []
+    filter_clients = []
+    if show_list:
+        invs = outstanding_invoices(db)
+        clients = {
+            c.id: c
+            for c in db.query(Client)
+            .filter(Client.id.in_({i.client_id for i in invs if i.client_id} or {-1}))
+            .all()
+        }
+        seen = {}
+        for i in invs:
+            age = invoice_age_days(i, today)
+            bkey = ageing_bucket_key(age)
+            if filter_bucket not in ("", "all") and bkey != filter_bucket:
+                continue
+            if filter_client_id and i.client_id != filter_client_id:
+                continue
+            cl = clients.get(i.client_id)
+            if cl and i.client_id not in seen:
+                seen[i.client_id] = cl
+            rows.append(
+                {
+                    "inv": i,
+                    "client": cl,
+                    "age": age,
+                    "bucket": bkey,
+                }
+            )
+        rows.sort(key=lambda r: (-r["age"], -(r["inv"].balance or 0)))
+        filter_clients = sorted(
+            seen.values(), key=lambda c: (c.display_name() or "").lower()
+        )
+
+    filter_fee = round(sum(float(r["inv"].balance or 0) for r in rows), 2)
+    filter_label = bucket_labels.get(filter_bucket, "") if show_list else ""
+
     return render(
         request,
         "sales/ageing.html",
         {
-            "buckets": buckets,
+            "tiles": tiles,
             "rows": rows,
             "total": total,
             "count": count,
             "today": today,
+            "filter_bucket": filter_bucket,
+            "filter_client_id": filter_client_id,
+            "filter_clients": filter_clients,
+            "filter_label": filter_label,
+            "filter_fee": filter_fee,
+            "filter_count": len(rows),
+            "show_list": show_list,
         },
     )
 

@@ -1,10 +1,11 @@
 /* Accologise CRM — basic service worker (shell + offline fallback) */
 /* Bump CACHE_NAME when shipping static asset changes. */
-const CACHE_NAME = "accologise-v1";
+/* Bump this whenever dashboard/WIP UI or CSS changes ship. */
+const CACHE_NAME = "accologise-v2-wip-horizons";
 const PRECACHE = [
-  "/static/style.css",
-  "/static/dashboard_view.js",
-  "/static/pwa.js",
+  "/static/style.css?v=wip-horizons2",
+  "/static/dashboard_view.js?v=dual1",
+  "/static/pwa.js?v=2",
   "/static/offline.html",
   "/static/manifest.webmanifest",
   "/static/icons/icon-192.png",
@@ -72,8 +73,24 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets: cache first, then network
+  // Static assets: network first for CSS/JS so deploys are not stuck on old SW cache
   if (url.pathname.startsWith("/static/") || url.pathname === "/manifest.webmanifest") {
+    const isCodeAsset =
+      url.pathname.endsWith(".css") ||
+      url.pathname.endsWith(".js") ||
+      url.pathname.endsWith(".webmanifest");
+    if (isCodeAsset) {
+      event.respondWith(
+        fetch(req)
+          .then((res) => {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+            return res;
+          })
+          .catch(() => caches.match(req))
+      );
+      return;
+    }
     event.respondWith(
       caches.match(req).then((cached) => {
         if (cached) {

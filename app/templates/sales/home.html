@@ -12,7 +12,6 @@
   <div class="actions">
     <a class="btn" href="/sales/invoices/new">Raise invoice</a>
     <a class="btn btn-secondary" href="/sales/payments/new">Record payment</a>
-    <a class="btn btn-outline" href="/sales/opening-balances">Opening balances</a>
     <a class="btn btn-outline" href="/sales/quotes/new">New quote</a>
   </div>
 </div>
@@ -82,20 +81,20 @@
     <h2>Shortcuts</h2>
     <div class="actions" style="flex-direction:column;align-items:stretch">
       <a class="btn btn-outline wc-touch" href="/jobs/completion">Jobs completion (invoice control)</a>
+      <a class="btn btn-outline wc-touch" href="/sales/ageing">Debtors (age tiles)</a>
+      <a class="btn wc-touch" href="/sales/chase">Debt chasing</a>
       <a class="btn btn-outline wc-touch" href="/sales/invoices?status=outstanding">Outstanding invoices</a>
-      <a class="btn btn-outline wc-touch" href="/sales/ageing">Full ageing report</a>
-      <a class="btn btn-outline wc-touch" href="/sales/chase">Debt chasing</a>
       <a class="btn btn-outline wc-touch" href="/sales/quotes">Quotes (prospects)</a>
       <a class="btn btn-outline wc-touch" href="/services">Services Ledger</a>
     </div>
   </div>
   <div class="card">
-    <h2>Opening balances</h2>
+    <h2>Settings</h2>
     <p class="muted small">
-      Clear the old job-import debtors book and load real outstanding invoices from CSV
-      (Client, Invoice Date, Invoice Number, Gross, VAT, Net).
+      Opening balances, export/import and debt-chase safety live under
+      <strong>Settings · Debtors</strong>.
     </p>
-    <a class="btn wc-touch" href="/sales/opening-balances">Clear &amp; import opening balances</a>
+    <a class="btn btn-outline wc-touch" href="/settings#settings-debtors">Debtors settings</a>
   </div>
 </div>
 
