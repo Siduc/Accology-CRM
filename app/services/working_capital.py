@@ -30,10 +30,18 @@ class AgeBucket:
 
 @dataclass
 class WipSnapshot:
-    value: float
-    count: int
+    value: float  # total WIP: jobs + retainers + open task fees
+    count: int  # open jobs count
     ageing: List[AgeBucket] = field(default_factory=list)
     jobs: List[Job] = field(default_factory=list)
+    # Breakdown
+    jobs_value: float = 0.0  # per-job fees only (non-retainer clients)
+    retainer_count: int = 0
+    retainer_monthly: float = 0.0
+    retainer_annual: float = 0.0  # included in value
+    retainer_job_count: int = 0
+    tasks_value: float = 0.0  # open practice task fees (excl. Development / hold)
+    tasks_count: int = 0
 
 
 @dataclass
@@ -181,7 +189,10 @@ def cash_balance(db: Session, account: Optional[BankAccount] = None) -> float:
 
 
 def is_open_job(job: Job) -> bool:
-    return (job.status or "") not in ("Completed", "Cancelled")
+    """Active WIP job (excludes completed, cancelled, and on hold)."""
+    if hasattr(job, "is_active"):
+        return bool(job.is_active())
+    return (job.status or "") not in ("Completed", "Cancelled", "On hold")
 
 
 def is_debtor_job(job: Job) -> bool:
@@ -207,7 +218,7 @@ def wip_jobs(db: Session) -> List[Job]:
     jobs = (
         db.query(Job)
         .options(joinedload(Job.client))
-        .filter(Job.status.notin_(["Completed", "Cancelled"]))
+        .filter(Job.status.notin_(["Completed", "Cancelled", "On hold"]))
         .all()
     )
     return [j for j in jobs if not _client_is_lost(j.client)]
@@ -229,27 +240,178 @@ def debtor_jobs(db: Session) -> List[Job]:
     return out
 
 
+def _client_is_retainer(client: Optional[Client]) -> bool:
+    if not client:
+        return False
+    if hasattr(client, "is_retainer"):
+        return bool(client.is_retainer())
+    return float(getattr(client, "retainer_amount", 0) or 0) > 0
+
+
+def retainer_book(db: Session) -> Dict[str, float]:
+    """Active clients on retainer — monthly / annual book."""
+    clients = (
+        db.query(Client)
+        .filter(Client.overall_status.notin_(["Inactive", "Former", "Prospect"]))
+        .all()
+    )
+    count = 0
+    monthly = 0.0
+    by_id: Dict[int, float] = {}
+    for c in clients:
+        if not _client_is_retainer(c):
+            continue
+        count += 1
+        if hasattr(c, "retainer_monthly_net"):
+            m = float(c.retainer_monthly_net())
+        else:
+            m = float(c.retainer_amount or 0)
+        monthly += m
+        by_id[c.id] = m
+    return {
+        "count": count,
+        "monthly": round(monthly, 2),
+        "annual": round(monthly * 12.0, 2),
+        "monthly_by_client": by_id,
+    }
+
+
+def _retainer_share_for_job(
+    job: Job,
+    open_counts: Dict[int, int],
+    monthly_by_client: Dict[int, float],
+) -> float:
+    """
+    Spread a retainer client's annual book across their open WIP jobs
+    so horizons / list amounts include retainers without double-counting.
+    """
+    cid = job.client_id
+    if not cid:
+        return 0.0
+    monthly = float(monthly_by_client.get(cid, 0) or 0)
+    if monthly <= 0 and job.client and hasattr(job.client, "retainer_monthly_net"):
+        monthly = float(job.client.retainer_monthly_net())
+    annual = monthly * 12.0
+    n = int(open_counts.get(cid, 0) or 0)
+    if n <= 0:
+        return round(annual, 2)
+    return round(annual / n, 2)
+
+
+def wip_amount_for_job(
+    job: Job,
+    *,
+    open_counts: Optional[Dict[int, int]] = None,
+    monthly_by_client: Optional[Dict[int, float]] = None,
+) -> float:
+    """Fee that counts toward WIP for this job (retainer share or job fee)."""
+    if _client_is_retainer(job.client):
+        return _retainer_share_for_job(
+            job, open_counts or {}, monthly_by_client or {}
+        )
+    return float(job.fee or 0)
+
+
 def compute_wip(db: Session, today: Optional[date] = None) -> WipSnapshot:
+    """
+    WIP value = per-job fees (non-retainer clients)
+              + annualised retainer book
+              + open task fees (practice tasks; not Development / On hold).
+
+    Retainer clients' listed jobs carry a share of annual retainer so horizon
+    tiles and lists include them; retainer clients with no open jobs still add
+    their full annual into Current.
+    """
     today = today or date.today()
     jobs = wip_jobs(db)
-    buckets = _empty_buckets(["Current", "1–30", "31–60", "61+"])
-    total = 0.0
+    book = retainer_book(db)
+    monthly_by = book.get("monthly_by_client") or {}
+
+    open_counts: Dict[int, int] = {}
     for j in jobs:
-        amt = float(j.fee or 0)
-        total += amt
-        due = _as_date(j.target_completion) or _as_date(j.statutory_due_date)
-        if due and due < today:
-            days = _days_overdue(due, today)
-            label = _age_bucket_overdue(days)
+        if _client_is_retainer(j.client) and j.client_id:
+            open_counts[j.client_id] = open_counts.get(j.client_id, 0) + 1
+
+    # Dashboard ageing matches WIP page horizons (not debtor-style days late)
+    horizon_labels = {
+        "imminent": "Overdue and Imminent",
+        "planning": "Planning",
+        "pre_planning": "Pre Planning",
+        "later": "Everything else",
+    }
+    buckets = _empty_buckets(
+        [
+            "Overdue and Imminent",
+            "Planning",
+            "Pre Planning",
+            "Everything else",
+        ]
+    )
+    total = 0.0
+    jobs_value = 0.0
+    retainer_job_count = 0
+    clients_with_jobs = set()
+
+    for j in jobs:
+        is_ret = _client_is_retainer(j.client)
+        if is_ret:
+            retainer_job_count += 1
+            if j.client_id:
+                clients_with_jobs.add(j.client_id)
+            amt = _retainer_share_for_job(j, open_counts, monthly_by)
         else:
-            label = "Current"
+            amt = float(j.fee or 0)
+            jobs_value += amt
+        total += amt
+        hkey = job_horizon_key(j, today) or "later"
+        label = horizon_labels.get(hkey, "Everything else")
         buckets[label].count += 1
         buckets[label].amount += amt
+
+    # Retainer clients with no open jobs — still count full annual in WIP
+    for cid, monthly in monthly_by.items():
+        if cid in clients_with_jobs:
+            continue
+        annual = float(monthly) * 12.0
+        if annual <= 0:
+            continue
+        total += annual
+        buckets["Everything else"].count += 1
+        buckets["Everything else"].amount += annual
+
+    # Open task ledger fees (excludes Completed / Cancelled / On hold / Development)
+    # Included in total value; not mixed into horizon ageing (dashboard ageing
+    # matches WIP page job tiles).
+    tasks_value = 0.0
+    tasks_count = 0
+    try:
+        from app.services.practice_tasks import open_tasks
+
+        for t in open_tasks(db):
+            fee = float(t.fee or 0)
+            if fee <= 0:
+                continue
+            tasks_count += 1
+            tasks_value += fee
+            total += fee
+    except Exception:
+        pass
+
+    for b in buckets.values():
+        b.amount = round(b.amount, 2)
+
     return WipSnapshot(
         value=round(total, 2),
         count=len(jobs),
         ageing=list(buckets.values()),
         jobs=jobs,
+        jobs_value=round(jobs_value, 2),
+        retainer_count=int(book["count"]),
+        retainer_monthly=float(book["monthly"]),
+        retainer_annual=float(book["annual"]),
+        retainer_job_count=retainer_job_count,
+        tasks_value=round(tasks_value, 2),
+        tasks_count=tasks_count,
     )
 
 
@@ -367,12 +529,27 @@ def job_horizon_key(job: Job, today: Optional[date] = None) -> Optional[str]:
 
 
 # Status label applied to open jobs by horizon (display + optional persist)
+# Note: imminent horizon is further split to Overdue | Imminent on lists.
 HORIZON_STATUS = {
-    "imminent": "Overdue and Imminent",
+    "imminent": "Imminent",
     "planning": "Planning",
     "pre_planning": "Pre Planning",
     "later": "Later",
 }
+
+
+def wip_list_status(job: Job, today: Optional[date] = None) -> str:
+    """List status: Overdue | Imminent | Planning | Pre Planning | Later."""
+    today = today or date.today()
+    if getattr(job, "is_closed", lambda: False)():
+        return job.status or "—"
+    if getattr(job, "is_on_hold", lambda: False)():
+        return "On hold"
+    due = _job_due_for_horizon(job)
+    if due and due < today:
+        return "Overdue"
+    key = job_horizon_key_for_due(due, today)
+    return HORIZON_STATUS.get(key, "Later")
 
 
 def compute_wip_type_horizons(
@@ -384,6 +561,13 @@ def compute_wip_type_horizons(
     """
     today = today or date.today()
     jobs = wip_jobs(db)
+    book = retainer_book(db)
+    monthly_by = book.get("monthly_by_client") or {}
+    open_counts: Dict[int, int] = {}
+    for j in jobs:
+        if _client_is_retainer(j.client) and j.client_id:
+            open_counts[j.client_id] = open_counts.get(j.client_id, 0) + 1
+
     rows_spec = [
         ("Accounts", "Accounts"),
         ("Confirmation Statement", "Confirmation statements"),
@@ -403,7 +587,9 @@ def compute_wip_type_horizons(
         for j in jobs:
             if not _match_job_type(j.type, type_key):
                 continue
-            amt = float(j.fee or 0)
+            amt = wip_amount_for_job(
+                j, open_counts=open_counts, monthly_by_client=monthly_by
+            )
             total_c += 1
             total_a += amt
             key = job_horizon_key(j, today) or "later"

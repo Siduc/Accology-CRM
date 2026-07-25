@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from urllib.parse import quote as url_quote
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session, joinedload
 
@@ -34,9 +34,11 @@ from app.services.sales_ledger import (
     build_legal_export_zip,
     chase_pipeline_rows,
     chase_status_summary,
+    clear_debtors_ledger,
     create_invoice,
     create_quote,
     debtors_total,
+    import_opening_balances,
     invoice_age_days,
     invoice_from_quote,
     invoice_overdue_days,
@@ -107,6 +109,112 @@ async def sales_backfill(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse(
         f"/sales?backfill_created={result['created']}&backfill_skipped={result['skipped']}",
         status_code=303,
+    )
+
+
+async def _read_csv_upload(csv_file: UploadFile | None, csv_data: str) -> str:
+    if csv_file and csv_file.filename:
+        content = await csv_file.read()
+        for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+            try:
+                return content.decode(enc)
+            except UnicodeDecodeError:
+                continue
+        return content.decode("utf-8", errors="replace")
+    return csv_data or ""
+
+
+@router.get("/opening-balances", response_class=HTMLResponse)
+async def opening_balances_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    msg: str = "",
+    error: str = "",
+):
+    total, count = debtors_total(db)
+    return render(
+        request,
+        "sales/opening_balances.html",
+        {
+            "debtors_total": total,
+            "debtors_count": count,
+            "as_at": date.today().strftime("%d-%m-%Y"),
+            "msg": msg,
+            "error": error,
+            "result": request.query_params.get("result", ""),
+        },
+    )
+
+
+@router.post("/opening-balances/clear")
+async def opening_balances_clear(request: Request, db: Session = Depends(get_db)):
+    result = clear_debtors_ledger(db)
+    msg = (
+        f"Cleared {result['invoices_deleted']} invoices, "
+        f"{result['payments_deleted']} payments. "
+        f"Debtors now £{result['debtors_remaining']:,.2f}."
+    )
+    from urllib.parse import quote
+
+    return RedirectResponse(
+        f"/sales/opening-balances?msg={quote(msg)}",
+        status_code=303,
+    )
+
+
+@router.post("/opening-balances/import", response_class=HTMLResponse)
+async def opening_balances_import(
+    request: Request,
+    csv_file: UploadFile = File(None),
+    csv_data: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        text = await _read_csv_upload(csv_file, csv_data)
+    except Exception as exc:  # noqa: BLE001
+        total, count = debtors_total(db)
+        return render(
+            request,
+            "sales/opening_balances.html",
+            {
+                "debtors_total": total,
+                "debtors_count": count,
+                "as_at": date.today().strftime("%d-%m-%Y"),
+                "msg": "",
+                "error": str(exc),
+                "result": "",
+            },
+            status_code=400,
+        )
+    result = import_opening_balances(db, text, as_at=date.today())
+    total, count = debtors_total(db)
+    summary = (
+        f"Created {result.get('created', 0)} · "
+        f"updated {result.get('updated', 0)} · "
+        f"skipped {result.get('skipped', 0)} · "
+        f"gross £{result.get('total_gross', 0):,.2f} · "
+        f"debtors now £{total:,.2f} ({count} invoices). "
+        f"Date column: {result.get('date_column', '?')}"
+    )
+    if result.get("date_fallbacks"):
+        summary += (
+            f" · {result['date_fallbacks']} row(s) fell back to today "
+            f"(see issues — re-check Invoice Date format)"
+        )
+    err_block = ""
+    if result.get("errors"):
+        err_block = "\n".join(result["errors"][:40])
+    return render(
+        request,
+        "sales/opening_balances.html",
+        {
+            "debtors_total": total,
+            "debtors_count": count,
+            "as_at": date.today().strftime("%d-%m-%Y"),
+            "msg": summary,
+            "error": "",
+            "result": err_block or "(no row errors)",
+        },
     )
 
 

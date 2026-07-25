@@ -49,6 +49,7 @@ from app.routers import (
     cs,
     ch_oauth,
     tasks,
+    csv_exchange,
 )
 
 app = FastAPI(
@@ -149,6 +150,7 @@ app.include_router(notes.router)
 app.include_router(cs.router)
 app.include_router(ch_oauth.router)
 app.include_router(tasks.router)
+app.include_router(csv_exchange.router)
 app.include_router(settings.router)
 app.include_router(sales.router)
 

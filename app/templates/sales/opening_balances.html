@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Opening balances · Debtors · Accologise{% endblock %}
+{% block apple_title %}Debtors{% endblock %}
+{% block apple_touch_icon %}/static/icons/home/debtors.png?v=home1{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/sales">← Sales</a></p>
+    <h1>Debtors · opening balances</h1>
+    <p class="muted small">
+      Clear the fabricated import ledger, then load real outstanding invoices from CSV.
+      As at {{ as_at }}.
+    </p>
+  </div>
+</div>
+
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if result %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Result</h2>
+  <pre class="small" style="white-space:pre-wrap">{{ result }}</pre>
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem;border-left:4px solid #b91c1c">
+  <h2 style="margin-top:0">1 · Clear current debtors ledger</h2>
+  <p class="muted small">
+    Outstanding debtors now: <strong>£{{ '{:,.2f}'.format(debtors_total) }}</strong>
+    ({{ debtors_count }} invoices).
+    This removes <strong>all</strong> sales invoices, payments, allocations and chase actions
+    created from prior job imports. Clients and jobs are kept.
+  </p>
+  <form method="post" action="/sales/opening-balances/clear"
+        onsubmit="return confirm('Delete ALL sales invoices and payments? This cannot be undone.');">
+    <button class="btn btn-outline" type="submit" style="border-color:#b91c1c;color:#b91c1c">
+      Clear debtors ledger
+    </button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>2 · Import opening balances CSV</h2>
+  <p class="muted small">
+    Headers (first row):
+    <code>Client, Invoice Date, Invoice Number, Gross, VAT, Net</code>
+  </p>
+  <ul class="muted small">
+    <li><strong>Client</strong> — matched to company name (exact, then partial)</li>
+    <li><strong>Invoice Date</strong> — used for issue &amp; due (ageing). Prefer <code>dd/mm/yyyy</code> or <code>yyyy-mm-dd</code>. Re-import updates existing invoice numbers.</li>
+    <li><strong>Invoice Number</strong> — unique reference on the sales ledger</li>
+    <li><strong>Gross / VAT / Net</strong> — outstanding amounts (balance = Gross)</li>
+  </ul>
+  <p class="small muted">
+    If every date shows as today, the Invoice Date column was not parsed — check the header name
+    and date format, then re-upload (same invoice numbers will update).
+  </p>
+  <form class="stack" method="post" action="/sales/opening-balances/import" enctype="multipart/form-data">
+    <label for="csv_file">Upload CSV</label>
+    <input id="csv_file" type="file" name="csv_file" accept=".csv,.txt">
+    <label for="csv_data">Or paste CSV</label>
+    <textarea id="csv_data" name="csv_data" rows="10" placeholder="Client,Invoice Date,Invoice Number,Gross,VAT,Net
+Acme Ltd,15/03/2026,INV-0801,1200.00,200.00,1000.00"></textarea>
+    <div class="actions">
+      <button class="btn wc-touch" type="submit">Import opening balances</button>
+      <a class="btn btn-outline" href="/sales">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

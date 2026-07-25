@@ -1,10 +1,14 @@
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import Column, Date, Integer, String, Text, DateTime
+from sqlalchemy import Column, Date, Float, Integer, String, Text, DateTime
 from sqlalchemy.orm import relationship
 
 from app.database import Base
 from app.models.person import person_clients
+
+RETAINER_FREQUENCIES = ("Monthly", "Quarterly", "Annual")
+BILLING_MODELS = ("Per job", "Retainer")
 
 
 class Client(Base):
@@ -38,6 +42,11 @@ class Client(Base):
     xero_password = Column(String, nullable=True)
     ch_authentication_code = Column(String, nullable=True)  # companies / LLPs
     ch_personal_code = Column(String, nullable=True)  # individuals
+    # Billing: per-job fees vs fixed retainer
+    billing_model = Column(String, nullable=True, default="Per job")  # Per job | Retainer
+    retainer_amount = Column(Float, nullable=True)  # net fee per period
+    retainer_frequency = Column(String, nullable=True)  # Monthly | Quarterly | Annual
+    retainer_notes = Column(Text, nullable=True)  # what the retainer covers
     notes = Column(Text)
     source = Column(String, nullable=True, default="manual")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -62,3 +71,31 @@ class Client(Base):
             self.postcode,
         ]
         return ", ".join(p for p in parts if p)
+
+    def is_retainer(self) -> bool:
+        """True when billed on a fixed retainer (not pure per-job fees)."""
+        model = (self.billing_model or "").strip().lower()
+        if model in ("retainer", "fixed", "monthly"):
+            return True
+        return float(self.retainer_amount or 0) > 0
+
+    def retainer_monthly_net(self) -> float:
+        """Normalise retainer to a monthly net figure for dashboards."""
+        amt = float(self.retainer_amount or 0)
+        if amt <= 0:
+            return 0.0
+        freq = (self.retainer_frequency or "Monthly").strip().lower()
+        if freq.startswith("ann"):
+            return round(amt / 12.0, 2)
+        if freq.startswith("quart"):
+            return round(amt / 3.0, 2)
+        return round(amt, 2)
+
+    def retainer_label(self) -> str:
+        if not self.is_retainer():
+            return ""
+        amt = float(self.retainer_amount or 0)
+        freq = (self.retainer_frequency or "Monthly").strip() or "Monthly"
+        if amt <= 0:
+            return f"Retainer ({freq})"
+        return f"£{amt:,.0f} {freq.lower()}"

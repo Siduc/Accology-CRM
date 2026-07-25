@@ -69,17 +69,27 @@ class Job(Base):
         "Later",
         "Filed",
     )
+    HOLD_STATUSES = ("On hold",)
     CLOSED_STATUSES = ("Completed", "Cancelled")
+    # Not in WIP / active pipeline (held or finished)
+    INACTIVE_STATUSES = CLOSED_STATUSES + HOLD_STATUSES
 
     def is_closed(self) -> bool:
         return (self.status or "") in self.CLOSED_STATUSES
+
+    def is_on_hold(self) -> bool:
+        return (self.status or "") in self.HOLD_STATUSES
+
+    def is_active(self) -> bool:
+        """Open and not parked — counts toward WIP."""
+        return not self.is_closed() and not self.is_on_hold()
 
     def due_date(self):
         """Date used for overdue checks: statutory due, else target completion."""
         return self.statutory_due_date or self.target_completion
 
     def is_overdue(self, today: Optional[date] = None) -> bool:
-        if self.is_closed():
+        if self.is_closed() or self.is_on_hold():
             return False
         today = today or date.today()
         due = self.due_date()
@@ -88,18 +98,18 @@ class Job(Base):
     def display_status(self, today: Optional[date] = None) -> str:
         """
         Status shown in lists from WIP horizon:
-        Overdue and Imminent | Planning | Pre Planning | Later
+        Overdue | Imminent | Planning | Pre Planning | Later
         (workflow status in DB kept unless user edits).
+        On hold / closed show as stored.
         """
-        if self.is_closed():
+        if self.is_closed() or self.is_on_hold():
             return self.status or "—"
         today = today or date.today()
         try:
-            from app.services.working_capital import HORIZON_STATUS, job_horizon_key
+            from app.services.working_capital import wip_list_status
 
-            key = job_horizon_key(self, today) or "later"
-            return HORIZON_STATUS.get(key, self.status or "—")
+            return wip_list_status(self, today)
         except Exception:
             if self.is_overdue(today):
-                return "Overdue and Imminent"
+                return "Overdue"
             return self.status or "—"

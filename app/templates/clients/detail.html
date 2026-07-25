@@ -33,6 +33,9 @@
       <span class="badge badge-active">{{ cur }}</span>
       {% endif %}
       {% if asana_on %}<span class="badge badge-active">Asana</span>{% endif %}
+      {% if client.is_retainer() %}
+      <span class="badge badge-retainer" title="{{ client.retainer_notes or 'Retainer client' }}">{{ client.retainer_label() or 'Retainer' }}</span>
+      {% endif %}
       {% if latest_cs_pack %}
       <a href="/cs/{{ latest_cs_pack.id }}" class="badge badge-progress" title="Open CS review pack">CS pack · {{ latest_cs_pack.status }}</a>
       {% endif %}
@@ -360,6 +363,34 @@
         <a href="/dashboard">practice book</a> (Opening + New − Lost = Closing).
       </p>
 
+      <h3>Billing &amp; retainer</h3>
+      <dl class="dl-grid">
+        <dt>Billing model</dt>
+        <dd>
+          {% if client.is_retainer() %}
+          <span class="badge badge-retainer">Retainer</span>
+          {% else %}
+          {{ client.billing_model or 'Per job' }}
+          {% endif %}
+        </dd>
+        <dt>Retainer amount</dt>
+        <dd>
+          {% if client.retainer_amount %}
+          £{{ '%.2f'|format(client.retainer_amount) }}
+          {% if client.retainer_frequency %} · {{ client.retainer_frequency }}{% endif %}
+          {% if client.is_retainer() %}
+          <span class="muted small">(≈ £{{ '%.2f'|format(client.retainer_monthly_net()) }}/mo)</span>
+          {% endif %}
+          {% else %}—{% endif %}
+        </dd>
+        <dt>Covers</dt>
+        <dd>{{ client.retainer_notes or '—' }}</dd>
+      </dl>
+      <p class="small muted">
+        Retainer annual book is <strong>included in WIP</strong> (split across open jobs for
+        this client, or in Current if none). Per-job fee lines on jobs are not double-counted.
+      </p>
+
       <h3>Access &amp; codes</h3>
       <dl class="dl-grid">
         <dt>Government Gateway ID</dt><dd>{{ client.gov_gateway_username or '—' }}</dd>
@@ -494,6 +525,36 @@
             <input id="accounts_office_reference" name="accounts_office_reference" value="{{ client.accounts_office_reference or '' }}">
           </div>
         </div>
+
+        <h3>Billing &amp; retainer</h3>
+        <div class="form-grid">
+          <div>
+            <label for="billing_model">Billing model</label>
+            <select id="billing_model" name="billing_model">
+              <option value="Per job" {% if (client.billing_model or 'Per job') != 'Retainer' %}selected{% endif %}>Per job</option>
+              <option value="Retainer" {% if client.billing_model == 'Retainer' %}selected{% endif %}>Retainer</option>
+            </select>
+          </div>
+          <div>
+            <label for="retainer_amount">Retainer amount (£ net)</label>
+            <input id="retainer_amount" name="retainer_amount" type="text" inputmode="decimal"
+              value="{% if client.retainer_amount is not none %}{{ '%.2f'|format(client.retainer_amount) }}{% endif %}"
+              placeholder="e.g. 250.00">
+          </div>
+          <div>
+            <label for="retainer_frequency">Frequency</label>
+            <select id="retainer_frequency" name="retainer_frequency">
+              {% for f in ['Monthly', 'Quarterly', 'Annual'] %}
+              <option value="{{ f }}" {% if (client.retainer_frequency or 'Monthly') == f %}selected{% endif %}>{{ f }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="grid-column:1/-1">
+            <label for="retainer_notes">What the retainer covers</label>
+            <textarea id="retainer_notes" name="retainer_notes" rows="2" placeholder="e.g. Accounts, CS, bookkeeping, payroll support">{{ client.retainer_notes or '' }}</textarea>
+          </div>
+        </div>
+        <p class="small muted">Set model to Retainer (or enter an amount). Annualised retainer is built into WIP totals.</p>
 
         <h3>Access &amp; codes</h3>
         <div class="form-grid">

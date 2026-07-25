@@ -5,11 +5,21 @@
   <div>
     <p class="small muted"><a href="/dashboard#working-capital">← Working capital</a></p>
     <h1>Work in progress</h1>
-    <p class="muted small">{{ count }} open jobs · £{{ '{:,.2f}'.format(total) }} · as at {{ today.strftime('%d-%m-%Y') }}</p>
+    <p class="muted small">
+      {{ count }} open jobs · WIP £{{ '{:,.2f}'.format(total) }}
+      (jobs £{{ '{:,.0f}'.format(jobs_value|default(0)) }}
+      {% if (retainer_count|default(0)) > 0 %}
+      + retainers £{{ '{:,.0f}'.format(retainer_annual|default(0)) }}/yr
+      · {{ retainer_count }} clients · £{{ '{:,.0f}'.format(retainer_monthly|default(0)) }}/mo
+      {% endif %}
+      ) · as at {{ today.strftime('%d-%m-%Y') }}
+    </p>
   </div>
   <div class="actions">
     <a class="btn btn-sm" href="/tasks/new?next=/working-capital/wip">Add task</a>
     <a class="btn btn-sm btn-outline" href="/tasks">Task ledger</a>
+    <a class="btn btn-sm btn-outline" href="/export/wip">Export WIP CSV</a>
+    <a class="btn btn-sm btn-outline" href="/import/csv?dataset=wip">Reimport CSV</a>
     <a class="btn btn-sm btn-outline" href="/jobs/new">Add job</a>
   </div>
 </div>
@@ -29,8 +39,8 @@
     Tasks
   </a>
 </div>
-<p class="small muted wip-toggle-hint wip-hint-mobile">Toggle sections for a neater phone view. Fees stay on each tile.</p>
-<p class="small muted wip-toggle-hint wip-hint-desk">Toggle Accounts, CS, and Tasks. Click a horizon to filter the list below.</p>
+<p class="small muted wip-toggle-hint wip-hint-mobile">Toggle sections for a neater phone view. Tap a tile to open its list.</p>
+<p class="small muted wip-toggle-hint wip-hint-desk">Toggle Accounts, CS, and Tasks. Click a horizon tile to drill into the list (with filters).</p>
 
 {# ========== DESKTOP PROFESSIONAL VIEW ========== #}
 <div class="wip-desk">
@@ -93,42 +103,11 @@
       {% endfor %}
     </div>
 
-    <div class="wip-task-pane" style="margin-top:1rem">
-      <h3 class="wip-pro-subtitle">Task ledger</h3>
-      {% if task_rows %}
-      <div class="table-wrap">
-        <table class="data">
-          <thead>
-            <tr>
-              <th>Task</th>
-              <th>Client</th>
-              <th>Due</th>
-              <th class="num">Fee</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for t in task_rows[:25] %}
-            <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
-              <td><a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a></td>
-              <td class="small">{% if t.client %}{{ t.client.display_name() }}{% else %}<span class="muted">Standalone</span>{% endif %}</td>
-              <td>{{ t.due_on|uk_date }}</td>
-              <td class="num"><strong>£{{ '%.2f'|format(t.fee or 0) }}</strong></td>
-              <td>
-                <form method="post" action="/tasks/{{ t.id }}/complete" style="display:inline">
-                  <input type="hidden" name="next" value="/working-capital/wip?show={{ show_query }}">
-                  <button class="btn btn-sm btn-outline" type="submit">Done</button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      <p class="empty">No open tasks. <a href="/tasks/new">Add one</a>.</p>
-      {% endif %}
-    </div>
+    <p class="small muted" style="margin-top:0.75rem">
+      Click a task horizon tile to open the list ·
+      <a href="/tasks">Full task ledger</a> ·
+      <a href="/tasks/new?next=/working-capital/wip%3Fshow%3D{{ show_query }}">Add task</a>
+    </p>
   </section>
   {% endif %}
 </div>
@@ -206,64 +185,63 @@
       </a>
       {% endfor %}
     </div>
-
-    <div class="card wip-task-pane" style="margin-top:0.85rem">
-      <div class="page-header" style="margin-bottom:0.5rem">
-        <h3 style="margin:0">Task ledger</h3>
-        <a class="btn btn-sm" href="/tasks/new?next=/working-capital/wip%3Fshow%3D{{ show_query }}">Add task</a>
-      </div>
-      {% if task_rows %}
-      <div class="table-wrap">
-        <table class="data">
-          <thead>
-            <tr>
-              <th>Task</th>
-              <th>Client</th>
-              <th>Due</th>
-              <th class="num">Fee</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for t in task_rows[:25] %}
-            <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
-              <td><a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a></td>
-              <td class="small">{% if t.client %}{{ t.client.display_name() }}{% else %}<span class="muted">Standalone</span>{% endif %}</td>
-              <td>{{ t.due_on|uk_date }}</td>
-              <td class="num"><strong>£{{ '%.2f'|format(t.fee or 0) }}</strong></td>
-              <td>
-                <form method="post" action="/tasks/{{ t.id }}/complete" style="display:inline">
-                  <input type="hidden" name="next" value="/working-capital/wip?show={{ show_query }}">
-                  <button class="btn btn-sm btn-outline" type="submit">Done</button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      <p class="empty">No open tasks. <a href="/tasks/new">Add one</a>.</p>
-      {% endif %}
-    </div>
+    <p class="small muted" style="margin-top:0.55rem">
+      Tap a task tile for the list · <a href="/tasks">Full ledger</a>
+    </p>
   </section>
   {% endif %}
 </div>
 
+{% if show_list %}
 <div class="card" id="wip-list">
   <div class="page-header" style="margin-bottom:0.75rem">
     <div>
-      <h2 style="margin:0">
-        {% if filter_label %}{{ filter_label }}{% else %}Open list{% endif %}
-      </h2>
-      {% if filter_label %}
+      <h2 style="margin:0">{{ filter_label or 'Drill-down list' }}</h2>
       <p class="muted small" style="margin:0.35rem 0 0">
         {{ filter_count }} · £{{ '{:,.2f}'.format(filter_fee) }}
-        · <a href="/working-capital/wip?show={{ show_query }}">Clear filter</a>
+        · <a href="/working-capital/wip?show={{ show_query }}">Clear · back to tiles</a>
       </p>
-      {% endif %}
     </div>
   </div>
+
+  <form class="filters" method="get" action="/working-capital/wip" style="margin-bottom:0.85rem">
+    <input type="hidden" name="show" value="{{ show_query }}">
+    {% if filter_type %}<input type="hidden" name="type" value="{{ filter_type }}">{% endif %}
+    {% if filter_horizon %}<input type="hidden" name="horizon" value="{{ filter_horizon }}">{% endif %}
+    <div>
+      <label class="small muted">Status</label><br>
+      <select name="status" onchange="this.form.submit()">
+        <option value="">All in this tile</option>
+        {% for s in list_status_options %}
+        <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if filter_type != 'Tasks' and filter_clients %}
+    <div>
+      <label class="small muted">Client</label><br>
+      <select name="client_id" onchange="this.form.submit()">
+        <option value="">All clients</option>
+        {% for c in filter_clients %}
+        <option value="{{ c.id }}" {% if filter_client_id == c.id %}selected{% endif %}>{{ c.display_name() }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <noscript><button class="btn btn-sm" type="submit">Filter</button></noscript>
+  </form>
+
+  {# Quick status chips when in Overdue and Imminent tile #}
+  {% if filter_horizon == 'imminent' and filter_type != 'Tasks' %}
+  <div class="period-toggle" style="margin-bottom:0.85rem" role="group" aria-label="Overdue or imminent">
+    <a class="period-btn {% if not filter_status %}is-active{% endif %}"
+       href="/working-capital/wip?type={{ filter_type }}&horizon=imminent&show={{ show_query }}#wip-list">All</a>
+    <a class="period-btn {% if filter_status == 'Overdue' %}is-active{% endif %}"
+       href="/working-capital/wip?type={{ filter_type }}&horizon=imminent&status=Overdue&show={{ show_query }}#wip-list">Overdue</a>
+    <a class="period-btn {% if filter_status == 'Imminent' %}is-active{% endif %}"
+       href="/working-capital/wip?type={{ filter_type }}&horizon=imminent&status=Imminent&show={{ show_query }}#wip-list">Imminent</a>
+  </div>
+  {% endif %}
 
   {% if filter_type == 'Tasks' %}
     {% if task_rows %}
@@ -279,7 +257,13 @@
             <td class="small">{% if t.client %}{{ t.client.display_name() }}{% else %}Standalone{% endif %}</td>
             <td class="small">{% if t.job %}{{ t.job.type }}{% else %}—{% endif %}</td>
             <td>{{ t.due_on|uk_date }}</td>
-            <td><span class="badge {% if t.is_overdue() %}badge-overdue{% endif %}">{{ t.display_status() }}</span></td>
+            <td>
+              {% if t.is_overdue() %}
+              <span class="badge badge-overdue">{{ t.display_status() }}</span>
+              {% else %}
+              <span class="badge">{{ t.display_status() }}</span>
+              {% endif %}
+            </td>
             <td class="num"><strong>£{{ '%.2f'|format(t.fee or 0) }}</strong></td>
           </tr>
           {% endfor %}
@@ -287,7 +271,7 @@
       </table>
     </div>
     {% else %}
-    <p class="empty">No tasks in this time frame.</p>
+    <p class="empty">No tasks match these filters.</p>
     {% endif %}
   {% elif rows %}
   <div class="table-wrap">
@@ -311,26 +295,35 @@
             <a href="/jobs/{{ j.id }}" onclick="event.stopPropagation()">
               {% if j.client %}{{ j.client.display_name() }}{% else %}—{% endif %}
             </a>
+            {% if r.is_retainer %}<span class="badge badge-retainer" style="margin-left:0.25rem">Retainer</span>{% endif %}
           </td>
           <td class="small">{{ j.type or '—' }}</td>
           <td>{{ r.period_end_fmt }}</td>
           <td>{% if j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
           <td>{% if r.age_days > 0 %}<span class="badge badge-overdue">{{ r.age_days }}</span>{% else %}0{% endif %}</td>
           <td>
-            {% if j|job_overdue or (j|job_status) == 'Overdue and Imminent' %}
-            <span class="badge badge-overdue">{{ j|job_status }}</span>
+            {% if r.list_status == 'Overdue' %}
+            <span class="badge badge-overdue">Overdue</span>
+            {% elif r.list_status == 'Imminent' %}
+            <span class="badge badge-progress">Imminent</span>
             {% else %}
-            <span class="badge">{{ j|job_status }}</span>
+            <span class="badge">{{ r.list_status }}</span>
             {% endif %}
           </td>
-          <td class="num"><strong>£{{ '%.2f'|format(r.amount) }}</strong></td>
+          <td class="num">
+            <strong>£{{ '%.2f'|format(r.amount) }}</strong>
+            {% if r.is_retainer %}
+            <div class="muted small">retainer share</div>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <p class="empty">{% if filter_label %}No jobs in this time frame.{% else %}No open WIP in the selected sections.{% endif %}</p>
+  <p class="empty">No jobs match these filters.</p>
   {% endif %}
 </div>
+{% endif %}
 {% endblock %}

@@ -20,7 +20,7 @@ class PracticeTask(Base):
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=True, index=True)
     job_id = Column(Integer, ForeignKey("jobs.id"), nullable=True, index=True)
     fee = Column(Float, default=0.0)
-    # Planned | In Progress | Overdue and Imminent | Planning | Pre Planning | Completed | Cancelled
+    # Planned | In Progress | On hold | Development | … | Completed | Cancelled
     status = Column(String, default="Planned", index=True)
     due_on = Column(Date, nullable=True, index=True)
     period_end = Column(Date, nullable=True)
@@ -32,21 +32,50 @@ class PracticeTask(Base):
     job = relationship("Job", foreign_keys=[job_id])
 
     CLOSED = ("Completed", "Cancelled")
+    HOLD = ("On hold",)
+    DEVELOPMENT = ("Development",)
+    # Not practice WIP (parked thinking / finished)
+    INACTIVE = CLOSED + HOLD + DEVELOPMENT
 
     def is_closed(self) -> bool:
         return (self.status or "") in self.CLOSED
 
+    def is_on_hold(self) -> bool:
+        return (self.status or "") in self.HOLD
+
+    def is_development(self) -> bool:
+        return (self.status or "") in self.DEVELOPMENT
+
+    def is_active(self) -> bool:
+        """Open practice work — counts toward WIP task tiles."""
+        return (
+            not self.is_closed()
+            and not self.is_on_hold()
+            and not self.is_development()
+        )
+
     def is_overdue(self, today: Optional[date] = None) -> bool:
-        if self.is_closed():
+        if self.is_closed() or self.is_on_hold() or self.is_development():
             return False
         today = today or date.today()
         return bool(self.due_on and self.due_on < today)
 
     def display_status(self, today: Optional[date] = None) -> str:
-        if self.is_overdue(today) and (self.status or "") not in (
-            "Overdue and Imminent",
-            "Completed",
-            "Cancelled",
-        ):
-            return "Overdue and Imminent"
-        return self.status or "Planned"
+        if self.is_on_hold() or self.is_closed() or self.is_development():
+            return self.status or "Planned"
+        today = today or date.today()
+        if self.is_overdue(today):
+            return "Overdue"
+        # Horizon-style label for due this month / later
+        try:
+            from app.services.working_capital import (
+                HORIZON_STATUS,
+                job_horizon_key_for_due,
+            )
+
+            key = job_horizon_key_for_due(self.due_on, today)
+            if key == "imminent":
+                return "Imminent"
+            return HORIZON_STATUS.get(key, self.status or "Planned")
+        except Exception:
+            return self.status or "Planned"

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+import re
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import func
@@ -687,6 +688,438 @@ Yours faithfully,
         )
 
     return buf.getvalue()
+
+
+def clear_debtors_ledger(db: Session) -> dict:
+    """
+    Wipe the sales debtors ledger (invoices, lines, payments, allocations, chase)
+    so opening balances can be imported cleanly.
+
+    Does not delete clients, jobs, or quotes.
+    """
+    deleted_chase = db.query(DebtChaseAction).delete(synchronize_session=False)
+    deleted_alloc = db.query(PaymentAllocation).delete(synchronize_session=False)
+    deleted_pay = db.query(Payment).delete(synchronize_session=False)
+    deleted_lines = db.query(InvoiceLine).delete(synchronize_session=False)
+    deleted_inv = db.query(Invoice).delete(synchronize_session=False)
+    db.commit()
+    total, count = debtors_total(db)
+    return {
+        "invoices_deleted": deleted_inv,
+        "lines_deleted": deleted_lines,
+        "allocations_deleted": deleted_alloc,
+        "chase_deleted": deleted_chase,
+        "payments_deleted": deleted_pay,
+        "debtors_remaining": total,
+        "debtors_count": count,
+    }
+
+
+def _norm_client_name(name: str) -> str:
+    """Collapse whitespace / punctuation for fuzzy company matching."""
+    s = (name or "").replace("\xa0", " ").strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"\bltd\.?\b", "limited", s)
+    s = re.sub(r"\bplc\.?\b", "plc", s)
+    s = re.sub(r"[^\w\s&]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _match_client_by_name(db: Session, name: str) -> Optional[Client]:
+    raw = (name or "").strip()
+    if not raw:
+        return None
+    want = _norm_client_name(raw)
+    if not want:
+        return None
+
+    # Exact (case-insensitive) on stored name
+    c = (
+        db.query(Client)
+        .filter(func.lower(Client.company_name) == raw.lower())
+        .first()
+    )
+    if c:
+        return c
+
+    # SQL contains (fails on double-space mismatches — kept as first pass)
+    c = (
+        db.query(Client)
+        .filter(Client.company_name.ilike(f"%{raw}%"))
+        .order_by(Client.id.asc())
+        .first()
+    )
+    if c:
+        return c
+
+    # Company number
+    from app.services.company_numbers import normalize_company_number
+
+    cn = normalize_company_number(raw)
+    if cn:
+        c = db.query(Client).filter(Client.company_number == cn).first()
+        if c:
+            return c
+
+    # Fuzzy: seed candidates by first significant word, compare normalised names
+    tokens = [t for t in want.split() if t not in {"the", "a", "an", "and", "&"}]
+    seed = tokens[0] if tokens else want[:6]
+    if len(seed) < 2:
+        return None
+    candidates = (
+        db.query(Client)
+        .filter(Client.company_name.ilike(f"%{seed}%"))
+        .order_by(Client.id.asc())
+        .limit(80)
+        .all()
+    )
+    # Exact normalised
+    for c in candidates:
+        if _norm_client_name(c.company_name or "") == want:
+            return c
+    # Either name contains the other (normalised)
+    for c in candidates:
+        cn = _norm_client_name(c.company_name or "")
+        if not cn:
+            continue
+        if want in cn or cn in want:
+            return c
+    # Token overlap (at least 2 shared significant tokens, or all of shorter name)
+    want_set = set(tokens)
+    best = None
+    best_score = 0
+    for c in candidates:
+        cn_tokens = [
+            t
+            for t in _norm_client_name(c.company_name or "").split()
+            if t not in {"the", "a", "an", "and", "&"}
+        ]
+        if not cn_tokens:
+            continue
+        overlap = len(want_set & set(cn_tokens))
+        need = min(2, len(want_set), len(cn_tokens))
+        if overlap >= need and overlap > best_score:
+            best_score = overlap
+            best = c
+    return best
+
+
+def _parse_money_cell(value) -> float:
+    if value is None:
+        return 0.0
+    s = str(value).strip().replace("£", "").replace(",", "")
+    if not s:
+        return 0.0
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+def _parse_date_cell(value) -> Optional[date]:
+    """Parse CSV/Excel date cells (UK-first). Handles time suffixes and serials."""
+    if value is None:
+        return None
+    # Excel / openpyxl may pass date/datetime already
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    s = str(value).strip().replace("\xa0", " ")
+    if not s:
+        return None
+    # Strip time portion: "15/03/2026 00:00:00" or "2026-03-15T00:00:00"
+    if "T" in s:
+        s = s.split("T", 1)[0].strip()
+    elif " " in s and re.search(r"\d{1,2}:\d{2}", s):
+        s = s.split(" ", 1)[0].strip()
+
+    # Excel serial number (days since 1899-12-30)
+    if re.fullmatch(r"\d+(\.\d+)?", s):
+        try:
+            serial = float(s)
+            if 20000 < serial < 80000:  # ~1954–2119
+                return (datetime(1899, 12, 30) + timedelta(days=int(serial))).date()
+        except ValueError:
+            pass
+
+    for fmt in (
+        "%Y-%m-%d",
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+        "%d.%m.%Y",
+        "%d/%m/%y",
+        "%d-%m-%y",
+        "%d.%m.%y",
+        "%m/%d/%Y",
+        "%d %b %Y",
+        "%d-%b-%Y",
+        "%d %b %y",
+        "%d-%b-%y",  # e.g. 08-Jan-26 from Excel export
+        "%d %B %Y",
+        "%d-%B-%Y",
+        "%d %B %y",
+        "%Y/%m/%d",
+    ):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+
+    # Flexible UK d/m/y with optional leading zeros
+    m = re.fullmatch(r"(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})", s)
+    if m:
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if y < 100:
+            y += 2000 if y < 70 else 1900
+        try:
+            return date(y, mo, d)
+        except ValueError:
+            # try US m/d/y if day > 12 was actually month
+            try:
+                return date(y, d, mo)
+            except ValueError:
+                pass
+
+    if len(s) >= 10 and s[4] == "-":
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    return None
+
+
+def import_opening_balances(
+    db: Session,
+    text: str,
+    *,
+    as_at: Optional[date] = None,
+) -> dict:
+    """
+    Import debtors opening balances from CSV.
+
+    Expected headers (flexible):
+      Client, Invoice Date, Invoice Number, Gross, VAT, Net
+
+    Creates outstanding invoices (source=opening_balance). Uses Invoice Date for
+    issue/due (ageing). Notes mark import as-at date (default today).
+    """
+    import csv
+    import io
+
+    as_at = as_at or date.today()
+    text = (text or "").lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    if not text.strip():
+        return {
+            "created": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": ["No data"],
+            "total_gross": 0.0,
+        }
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        return {
+            "created": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": ["No header row"],
+            "total_gross": 0.0,
+        }
+
+    def norm(h: str) -> str:
+        h = (h or "").replace("\xa0", " ").replace("\ufeff", "").strip().lower()
+        return re.sub(r"[^a-z0-9]+", "_", h).strip("_")
+
+    field_map = {norm(h): h for h in reader.fieldnames if h is not None}
+
+    def col(*aliases: str) -> Optional[str]:
+        for a in aliases:
+            if a in field_map:
+                return field_map[a]
+        return None
+
+    c_client = col("client", "client_name", "company", "company_name", "name")
+    c_date = col(
+        "invoice_date",
+        "date",
+        "issue_date",
+        "inv_date",
+        "invoice_dt",
+        "dated",
+        "inv_dated",
+    )
+    c_num = col(
+        "invoice_number",
+        "invoice_no",
+        "number",
+        "inv_no",
+        "invoice",
+        "inv_number",
+        "invoice_ref",
+    )
+    c_gross = col("gross", "total", "amount", "gross_amount")
+    c_vat = col("vat", "vat_amount", "vat_total")
+    c_net = col("net", "net_amount", "subtotal")
+
+    if not c_client:
+        return {
+            "created": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": [
+                "Missing Client column. Found headers: "
+                + ", ".join(reader.fieldnames or [])
+            ],
+            "total_gross": 0.0,
+        }
+
+    created = 0
+    updated = 0
+    skipped = 0
+    errors: List[str] = []
+    total_gross = 0.0
+    date_fallbacks = 0
+
+    for idx, row in enumerate(reader, start=2):
+        client_name = (row.get(c_client) or "").strip() if c_client else ""
+        if not client_name:
+            skipped += 1
+            continue
+
+        client = _match_client_by_name(db, client_name)
+        if not client:
+            skipped += 1
+            errors.append(f"Row {idx}: client not found — {client_name}")
+            continue
+
+        inv_num = (row.get(c_num) or "").strip() if c_num else ""
+        if not inv_num:
+            inv_num = f"OB-{as_at.strftime('%Y%m%d')}-{client.id}-{idx}"
+
+        raw_date = row.get(c_date) if c_date else None
+        issue = _parse_date_cell(raw_date)
+        if issue is None:
+            issue = as_at
+            date_fallbacks += 1
+            if raw_date is not None and str(raw_date).strip():
+                errors.append(
+                    f"Row {idx}: could not parse Invoice Date "
+                    f"{raw_date!r} — used {as_at.isoformat()}"
+                )
+            elif not c_date and idx == 2:
+                errors.append(
+                    "No Invoice Date column found — using import date for all rows. "
+                    "Headers: " + ", ".join(reader.fieldnames or [])
+                )
+
+        net = _parse_money_cell(row.get(c_net) if c_net else None)
+        vat = _parse_money_cell(row.get(c_vat) if c_vat else None)
+        gross = _parse_money_cell(row.get(c_gross) if c_gross else None)
+        if gross <= 0 and net > 0:
+            gross = round(net + vat, 2)
+        if net <= 0 and gross > 0:
+            net = round(gross - vat, 2) if vat else gross
+        if gross <= 0:
+            skipped += 1
+            errors.append(f"Row {idx}: no Gross/Net amount for {client_name}")
+            continue
+
+        vat_rate = 0.0
+        if net > 0 and vat > 0:
+            vat_rate = round(vat / net, 4)
+
+        existing = db.query(Invoice).filter(Invoice.number == inv_num).first()
+        if existing:
+            # Update opening-balance rows (e.g. reimport after date fix)
+            existing.client_id = client.id
+            existing.issue_date = issue
+            existing.due_date = issue
+            existing.subtotal = round(net, 2)
+            existing.vat_total = round(vat, 2)
+            existing.total = round(gross, 2)
+            existing.amount_paid = 0.0
+            existing.balance = round(gross, 2)
+            existing.status = "sent"
+            existing.source = "opening_balance"
+            existing.notes = (
+                f"Opening balance import as at {as_at.isoformat()} · "
+                f"invoice date {issue.isoformat()}"
+            )
+            if existing.lines:
+                existing.lines[0].description = f"Opening balance · {inv_num}"
+                existing.lines[0].unit_price = net
+                existing.lines[0].vat_rate = vat_rate
+                existing.lines[0].line_total = gross
+            else:
+                db.add(
+                    InvoiceLine(
+                        invoice_id=existing.id,
+                        description=f"Opening balance · {inv_num}",
+                        qty=1,
+                        unit_price=net,
+                        vat_rate=vat_rate,
+                        line_total=gross,
+                    )
+                )
+            db.commit()
+            updated += 1
+            total_gross += gross
+            continue
+
+        create_invoice(
+            db,
+            client_id=client.id,
+            issue_date=issue,
+            due_date=issue,
+            source="opening_balance",
+            status="sent",
+            number=inv_num,
+            import_key=f"ob-{inv_num}",
+            notes=(
+                f"Opening balance import as at {as_at.isoformat()} · "
+                f"invoice date {issue.isoformat()}"
+            ),
+            lines=[
+                {
+                    "description": f"Opening balance · {inv_num}",
+                    "qty": 1,
+                    "unit_price": net,
+                    "vat_rate": vat_rate,
+                }
+            ],
+        )
+        # Force amounts + dates (create_invoice commits; re-load and pin dates)
+        inv = db.query(Invoice).filter(Invoice.number == inv_num).first()
+        if inv:
+            inv.issue_date = issue
+            inv.due_date = issue
+            inv.subtotal = round(net, 2)
+            inv.vat_total = round(vat, 2)
+            inv.total = round(gross, 2)
+            inv.amount_paid = 0.0
+            inv.balance = round(gross, 2)
+            inv.status = "sent"
+            if inv.lines:
+                inv.lines[0].unit_price = net
+                inv.lines[0].vat_rate = vat_rate
+                inv.lines[0].line_total = gross
+            db.commit()
+        created += 1
+        total_gross += gross
+
+    return {
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors[:60],
+        "total_gross": round(total_gross, 2),
+        "as_at": as_at.isoformat(),
+        "date_fallbacks": date_fallbacks,
+        "date_column": c_date or "(not found)",
+    }
 
 
 def backfill_invoices_from_jobs(db: Session) -> dict:

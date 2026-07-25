@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}CSV export / reimport · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/import">← Import hub</a></p>
+    <h1>CSV export &amp; reimport</h1>
+    <p class="muted small">
+      Download a list, edit in Excel, reimport to <strong>update existing rows</strong>
+      (match by <code>id</code>) or <strong>create new</strong> records where keys allow.
+    </p>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
+{% endif %}
+
+{% if result %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Last reimport</h2>
+  <p>
+    Updated <strong>{{ result.updated }}</strong> ·
+    Created <strong>{{ result.created }}</strong> ·
+    Skipped <strong>{{ result.skipped }}</strong>
+  </p>
+  {% if result.messages %}
+  <ul class="small muted">
+    {% for m in result.messages %}<li>{{ m }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if result.errors %}
+  <h3>Issues (first 40)</h3>
+  <ul class="small">
+    {% for e in result.errors[:40] %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>1 · Export</h2>
+  <p class="muted small">Keep the header row. Prefer editing fee, status, dates, contact fields — leave <code>id</code> intact to update.</p>
+  <div class="actions" style="flex-wrap:wrap">
+    {% for key, meta in datasets.items() %}
+    <a class="btn {% if key == dataset %}{% else %}btn-outline{% endif %}" href="/export/{{ key }}">
+      {{ meta.label }}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>2 · Reimport</h2>
+  <form class="stack" method="post" action="/import/csv" enctype="multipart/form-data">
+    <label for="dataset">Dataset</label>
+    <select id="dataset" name="dataset">
+      {% for key, meta in datasets.items() %}
+      <option value="{{ key }}" {% if key == dataset %}selected{% endif %}>{{ meta.label }}</option>
+      {% endfor %}
+    </select>
+    <p class="small muted" id="dataset-help">
+      {% if datasets[dataset] %}{{ datasets[dataset].help }}{% endif %}
+    </p>
+
+    <label for="csv_file">Upload CSV / Excel (.xlsx)</label>
+    <input id="csv_file" type="file" name="csv_file" accept=".csv,.txt,.xlsx,.xlsm">
+
+    <label for="csv_data">Or paste CSV</label>
+    <textarea id="csv_data" name="csv_data" rows="8" placeholder="id,company_name,..."></textarea>
+
+    <div class="actions">
+      <button class="btn wc-touch" type="submit">Reimport</button>
+      <a class="btn btn-outline" href="/import">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>How matching works</h2>
+  <ul class="muted small">
+    <li><strong>Clients</strong> — by <code>id</code>, else <code>company_number</code>; else create (needs name or number).</li>
+    <li><strong>WIP / Jobs</strong> — by job <code>id</code> (update fee, status, dates, invoice ref…); create needs <code>client_id</code> or <code>company_number</code>.</li>
+    <li><strong>Tasks</strong> — by task <code>id</code>; create needs <code>title</code>.</li>
+    <li><strong>People</strong> — by person <code>id</code>; <code>company_numbers</code> (semicolon-separated) links clients additively.</li>
+  </ul>
+  <p class="small muted">
+    Blank cells usually leave existing values unchanged (safe for partial edits).
+    Do not delete the header row. Passwords / software secrets are not in these exports.
+  </p>
+</div>
+{% endblock %}

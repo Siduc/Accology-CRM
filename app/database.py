@@ -63,17 +63,16 @@ def init_db():
 
 
 def _seed_sales_ledger():
-    """Seed Services catalogue; backfill invoices from jobs once."""
-    from app.services.sales_ledger import backfill_invoices_from_jobs, seed_services
+    """Seed Services catalogue only — do not auto-backfill job invoices.
+
+    Debtors are loaded via Sales → Opening balances CSV (or manual invoices).
+    Job backfill remains available as a manual action on Sales.
+    """
+    from app.services.sales_ledger import seed_services
 
     db = SessionLocal()
     try:
         seed_services(db)
-        # Only auto-backfill if sales ledger is empty
-        from app.models.sales import Invoice
-
-        if db.query(Invoice).count() == 0:
-            backfill_invoices_from_jobs(db)
     except Exception:
         db.rollback()
     finally:
@@ -119,6 +118,10 @@ def _add_missing_columns():
             ("ch_personal_code", "VARCHAR"),
             ("engagement_date", "DATE"),
             ("disengagement_date", "DATE"),
+            ("billing_model", "VARCHAR"),
+            ("retainer_amount", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+            ("retainer_frequency", "VARCHAR"),
+            ("retainer_notes", "TEXT" if not IS_SQLITE else "TEXT"),
         ],
         "people": [
             ("client_id", "INTEGER"),

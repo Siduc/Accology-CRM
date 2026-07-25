@@ -11,6 +11,8 @@
       {% endif %}
       {% if job|job_overdue %}
       <span class="badge badge-overdue">{{ job|job_status }}</span>
+      {% elif (job.status or '') == 'On hold' %}
+      <span class="badge badge-hold">On hold</span>
       {% else %}
       <span class="badge">{{ job|job_status }}</span>
       {% endif %}
@@ -68,6 +70,9 @@
       {% if job.status and job.status != 'Overdue' %}
       <span class="muted small">(workflow: {{ job.status }})</span>
       {% endif %}
+      {% elif (job.status or '') == 'On hold' %}
+      <span class="badge badge-hold">On hold</span>
+      <span class="muted small">(parked — not in WIP)</span>
       {% else %}
       <span class="badge">{{ job|job_status }}</span>
       {% endif %}

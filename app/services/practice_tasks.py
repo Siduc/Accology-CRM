@@ -13,6 +13,8 @@ from app.models.practice_task import PracticeTask
 TASK_STATUSES = [
     "Planned",
     "In Progress",
+    "On hold",
+    "Development",
     "Overdue and Imminent",
     "Planning",
     "Pre Planning",
@@ -20,12 +22,16 @@ TASK_STATUSES = [
     "Cancelled",
 ]
 
+# WIP / active pipeline — exclude finished, parked, and development thinking
+_TASK_INACTIVE = ("Completed", "Cancelled", "On hold", "Development")
+
 
 def open_tasks(db: Session) -> List[PracticeTask]:
+    """Active open tasks (not completed, cancelled, or on hold) for WIP."""
     return (
         db.query(PracticeTask)
         .options(joinedload(PracticeTask.client), joinedload(PracticeTask.job))
-        .filter(PracticeTask.status.notin_(["Completed", "Cancelled"]))
+        .filter(PracticeTask.status.notin_(list(_TASK_INACTIVE)))
         .order_by(PracticeTask.due_on.asc(), PracticeTask.id.desc())
         .all()
     )
@@ -37,8 +43,14 @@ def list_tasks(
     status: str = "",
     client_id: Optional[int] = None,
     include_closed: bool = False,
+    include_hold: bool = True,
     limit: int = 200,
 ) -> List[PracticeTask]:
+    """
+    Task ledger query.
+    Default open list: everything except Completed/Cancelled (On hold included).
+    WIP uses open_tasks() which excludes On hold.
+    """
     q = db.query(PracticeTask).options(
         joinedload(PracticeTask.client), joinedload(PracticeTask.job)
     )
@@ -46,6 +58,8 @@ def list_tasks(
         q = q.filter(PracticeTask.status == status)
     elif not include_closed:
         q = q.filter(PracticeTask.status.notin_(["Completed", "Cancelled"]))
+        if not include_hold:
+            q = q.filter(PracticeTask.status != "On hold")
     if client_id:
         q = q.filter(PracticeTask.client_id == client_id)
     return (
@@ -60,7 +74,7 @@ def task_horizon_key(task: PracticeTask, today: Optional[date] = None) -> str:
     from app.services.working_capital import job_horizon_key_for_due
 
     today = today or date.today()
-    if task.is_closed():
+    if task.is_closed() or task.is_on_hold() or task.is_development():
         return "later"
     return job_horizon_key_for_due(task.due_on, today)
 

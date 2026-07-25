@@ -11,6 +11,8 @@
   <div class="actions">
     <a class="btn btn-sm" href="/jobs/new">Add Job</a>
     <a class="btn btn-sm btn-secondary" href="/jobs/completion">Completion / invoice</a>
+    <a class="btn btn-sm btn-outline" href="/export/jobs{% if status %}?status={{ status }}{% endif %}">Export CSV</a>
+    <a class="btn btn-sm btn-outline" href="/import/csv?dataset=jobs">Reimport CSV</a>
     <a class="btn btn-sm btn-outline" href="/companies-house/jobs">From Companies House</a>
     <a class="btn btn-sm btn-outline" href="/services/fees">Service fees</a>
   </div>
@@ -99,6 +101,8 @@
           <td>
             {% if j|job_overdue %}
             <span class="badge badge-overdue">{{ j|job_status }}</span>
+            {% elif (j.status or '') == 'On hold' %}
+            <span class="badge badge-hold">On hold</span>
             {% else %}
             <span class="badge">{{ j|job_status }}</span>
             {% endif %}

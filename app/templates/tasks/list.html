@@ -12,6 +12,8 @@
   </div>
   <div class="actions">
     <a class="btn wc-touch" href="/tasks/new">Add task</a>
+    <a class="btn btn-outline wc-touch" href="/export/tasks{% if status %}?status={{ status }}{% endif %}">Export CSV</a>
+    <a class="btn btn-outline wc-touch" href="/import/csv?dataset=tasks">Reimport CSV</a>
     <a class="btn btn-outline wc-touch" href="/working-capital/wip?show=tasks">WIP · tasks</a>
   </div>
 </div>
@@ -20,7 +22,7 @@
   <div>
     <label class="small muted">Status</label><br>
     <select name="status">
-      <option value="">Open</option>
+      <option value="" {% if not status %}selected{% endif %}>Open (excl. completed/cancelled)</option>
       {% for s in statuses %}
       <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
       {% endfor %}
@@ -37,6 +39,15 @@
   </div>
   <button class="btn btn-sm" type="submit">Filter</button>
 </form>
+
+<div class="period-toggle" role="group" aria-label="Quick status" style="margin-bottom:1rem">
+  <a class="period-btn {% if not status %}is-active{% endif %}" href="/tasks">Open</a>
+  <a class="period-btn {% if status == 'Development' %}is-active{% endif %}" href="/tasks?status=Development">Development</a>
+  <a class="period-btn {% if status == 'On hold' %}is-active{% endif %}" href="/tasks?status=On+hold">On hold</a>
+  <a class="period-btn {% if status == 'In Progress' %}is-active{% endif %}" href="/tasks?status=In+Progress">In Progress</a>
+  <a class="period-btn {% if status == 'Planned' %}is-active{% endif %}" href="/tasks?status=Planned">Planned</a>
+  <a class="period-btn {% if status == 'Completed' %}is-active{% endif %}" href="/tasks?status=Completed">Completed</a>
+</div>
 
 <div class="card">
   {% if tasks %}
@@ -72,6 +83,10 @@
           <td>
             {% if t.is_overdue() %}
             <span class="badge badge-overdue">{{ t.display_status() }}</span>
+            {% elif t.is_development() %}
+            <span class="badge badge-development">Development</span>
+            {% elif t.is_on_hold() %}
+            <span class="badge badge-hold">On hold</span>
             {% else %}
             <span class="badge">{{ t.display_status() }}</span>
             {% endif %}

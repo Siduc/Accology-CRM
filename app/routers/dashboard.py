@@ -380,7 +380,7 @@ async def dashboard(
     open_jobs = (
         db.query(Job)
         .options(joinedload(Job.client))
-        .filter(Job.status.notin_(["Completed", "Cancelled"]))
+        .filter(Job.status.notin_(["Completed", "Cancelled", "On hold"]))
         .all()
     )
     live_jobs = [
@@ -457,6 +457,13 @@ async def dashboard(
             "wc_wip_value": wc.wip.value,
             "wc_wip_count": wc.wip.count,
             "wc_wip_ageing": wc.wip.ageing,
+            "wc_retainer_count": getattr(wc.wip, "retainer_count", 0) or 0,
+            "wc_retainer_monthly": getattr(wc.wip, "retainer_monthly", 0) or 0,
+            "wc_retainer_annual": getattr(wc.wip, "retainer_annual", 0) or 0,
+            "wc_retainer_job_count": getattr(wc.wip, "retainer_job_count", 0) or 0,
+            "wc_wip_jobs_value": getattr(wc.wip, "jobs_value", 0) or 0,
+            "wc_wip_tasks_value": getattr(wc.wip, "tasks_value", 0) or 0,
+            "wc_wip_tasks_count": getattr(wc.wip, "tasks_count", 0) or 0,
             "wc_debtors_total": wc.debtors.total,
             "wc_debtors_count": wc.debtors.count,
             "wc_debtors_ageing": wc.debtors.ageing,

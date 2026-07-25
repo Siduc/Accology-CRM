@@ -10,7 +10,9 @@
   </div>
   <div class="actions">
     <a class="btn btn-sm" href="/clients/new">Add Client</a>
-    <a class="btn btn-sm btn-outline" href="/import-clients">Import</a>
+    <a class="btn btn-sm btn-outline" href="/export/clients{% if status %}?status={{ status }}{% endif %}">Export CSV</a>
+    <a class="btn btn-sm btn-outline" href="/import/csv?dataset=clients">Reimport CSV</a>
+    <a class="btn btn-sm btn-outline" href="/import-clients">Import (legacy)</a>
   </div>
 </div>
 

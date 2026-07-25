@@ -373,6 +373,10 @@ async def update_client_details(
     ch_personal_code: str = Form(""),
     engagement_date: str = Form(""),
     disengagement_date: str = Form(""),
+    billing_model: str = Form("Per job"),
+    retainer_amount: str = Form(""),
+    retainer_frequency: str = Form("Monthly"),
+    retainer_notes: str = Form(""),
     notes: str = Form(""),
     primary_person_id: str = Form(""),
     db: Session = Depends(get_db),
@@ -417,6 +421,29 @@ async def update_client_details(
     client.accounts_software_password = accounts_software_password or None
     client.ch_authentication_code = ch_authentication_code or None
     client.ch_personal_code = ch_personal_code or None
+    model = (billing_model or "Per job").strip() or "Per job"
+    if model not in ("Per job", "Retainer"):
+        model = "Per job"
+    client.billing_model = model
+    try:
+        ra = float(
+            (retainer_amount or "")
+            .replace("£", "")
+            .replace(",", "")
+            .strip()
+            or 0
+        )
+    except ValueError:
+        ra = 0.0
+    client.retainer_amount = ra if ra > 0 else None
+    freq = (retainer_frequency or "Monthly").strip() or "Monthly"
+    if freq not in ("Monthly", "Quarterly", "Annual"):
+        freq = "Monthly"
+    client.retainer_frequency = freq if client.retainer_amount or model == "Retainer" else None
+    client.retainer_notes = (retainer_notes or "").strip() or None
+    if model == "Retainer" and not client.retainer_amount:
+        # still mark as retainer even if amount to fill later
+        client.billing_model = "Retainer"
     client.notes = notes or None
     # Completing disengagement → lost (practice book leave date)
     if dis and (client.overall_status or "") not in ("Prospect", "Inactive"):

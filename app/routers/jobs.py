@@ -313,7 +313,8 @@ async def create_job(
     status_val = status or "Planned"
     if status_val == "Completed" and not act_c:
         act_c = date.today()
-    if act_c and status_val not in ("Completed", "Cancelled"):
+    # Filling actual completion implies done — not when deliberately parked
+    if act_c and status_val not in ("Completed", "Cancelled", "On hold"):
         status_val = "Completed"
 
     job_title = title or f"{type}" + (f" — {pe.isoformat()}" if pe else "")
@@ -441,7 +442,7 @@ async def update_job(
     # Completing: status ↔ actual_completion stay in sync
     if status == "Completed" and not job.actual_completion:
         job.actual_completion = date.today()
-    if job.actual_completion and status not in ("Completed", "Cancelled"):
+    if job.actual_completion and status not in ("Completed", "Cancelled", "On hold"):
         # Date filled = treated as complete for invoicing control
         status = "Completed"
         job.status = "Completed"

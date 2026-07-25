@@ -33,7 +33,24 @@
         <span class="wc-box-link">Open →</span>
       </div>
       <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}</div>
-      <div class="wc-box-meta">{{ wc_wip_count|default(0) }} open jobs</div>
+      <div class="wc-box-meta">
+        {{ wc_wip_count|default(0) }} jobs
+        {% if (wc_wip_tasks_count|default(0)) > 0 %}
+        · {{ wc_wip_tasks_count }} tasks
+        {% endif %}
+        · jobs + retainers + tasks
+      </div>
+      <div class="wc-box-meta small" style="margin-top:0.25rem">
+        Jobs £{{ '{:,.0f}'.format(wc_wip_jobs_value|default(0)) }}
+        {% if (wc_retainer_count|default(0)) > 0 %}
+        + <span class="badge badge-retainer">Retainers</span>
+        £{{ '{:,.0f}'.format(wc_retainer_annual|default(0)) }}/yr
+        ({{ wc_retainer_count }} · £{{ '{:,.0f}'.format(wc_retainer_monthly|default(0)) }}/mo)
+        {% endif %}
+        {% if (wc_wip_tasks_value|default(0)) > 0 or (wc_wip_tasks_count|default(0)) > 0 %}
+        + tasks £{{ '{:,.0f}'.format(wc_wip_tasks_value|default(0)) }}
+        {% endif %}
+      </div>
       <div class="wc-ageing">
         {% for b in wc_wip_ageing|default([]) %}
         <div class="wc-age-row">
@@ -230,8 +247,16 @@
       <a class="live-tile tile-wip" href="/working-capital/wip">
         <span class="live-kicker">1 · WIP</span>
         <span class="live-value">£{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}</span>
-        <span class="live-sub">{{ wc_wip_count|default(0) }} jobs</span>
+        <span class="live-sub">
+          {{ wc_wip_count|default(0) }} jobs
+          {% if (wc_wip_tasks_count|default(0)) > 0 %} · {{ wc_wip_tasks_count }} tasks{% endif %}
+        </span>
         <span class="live-age">
+          <span>
+            Jobs £{{ '{:,.0f}'.format(wc_wip_jobs_value|default(0)) }}
+            {% if (wc_retainer_count|default(0)) > 0 %}+ ret £{{ '{:,.0f}'.format(wc_retainer_annual|default(0)) }}{% endif %}
+            {% if (wc_wip_tasks_value|default(0)) > 0 %}+ tasks £{{ '{:,.0f}'.format(wc_wip_tasks_value|default(0)) }}{% endif %}
+          </span>
           {% for b in wc_wip_ageing|default([]) if b.count %}
           <span>{{ b.label }} {{ b.count }}</span>
           {% endfor %}

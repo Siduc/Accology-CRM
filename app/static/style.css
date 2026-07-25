@@ -683,6 +683,9 @@ form.stack textarea { min-height: 100px; max-width: 100%; }
 .badge-overdue, .badge-cancelled { background: #fee2e2; color: #b91c1c; }
 .badge-completed { background: #dcfce7; color: #15803d; }
 .badge-progress { background: #fef3c7; color: #b45309; }
+.badge-hold, .badge-on-hold { background: #e2e8f0; color: #475569; }
+.badge-development { background: #ede9fe; color: #6d28d9; }
+.badge-retainer { background: #dbeafe; color: #1d4ed8; font-weight: 700; }
 
 .filters {
   display: flex;

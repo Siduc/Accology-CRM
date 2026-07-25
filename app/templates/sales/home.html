@@ -12,6 +12,7 @@
   <div class="actions">
     <a class="btn" href="/sales/invoices/new">Raise invoice</a>
     <a class="btn btn-secondary" href="/sales/payments/new">Record payment</a>
+    <a class="btn btn-outline" href="/sales/opening-balances">Opening balances</a>
     <a class="btn btn-outline" href="/sales/quotes/new">New quote</a>
   </div>
 </div>
@@ -89,11 +90,24 @@
     </div>
   </div>
   <div class="card">
-    <h2>Import history</h2>
-    <p class="muted small">Create sales invoices from existing job fees / invoice references (safe to re-run).</p>
-    <form method="post" action="/sales/backfill">
-      <button class="btn wc-touch" type="submit">Backfill from jobs</button>
-    </form>
+    <h2>Opening balances</h2>
+    <p class="muted small">
+      Clear the old job-import debtors book and load real outstanding invoices from CSV
+      (Client, Invoice Date, Invoice Number, Gross, VAT, Net).
+    </p>
+    <a class="btn wc-touch" href="/sales/opening-balances">Clear &amp; import opening balances</a>
   </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Advanced · backfill from jobs</h2>
+  <p class="muted small">
+    Optional. Rebuilds invoices from job fee / invoice reference fields.
+    Prefer opening balances for a clean debtors book.
+  </p>
+  <form method="post" action="/sales/backfill"
+        onsubmit="return confirm('Backfill invoices from jobs? Prefer opening balances if you have a CSV.');">
+    <button class="btn btn-outline wc-touch" type="submit">Backfill from jobs</button>
+  </form>
 </div>
 {% endblock %}
