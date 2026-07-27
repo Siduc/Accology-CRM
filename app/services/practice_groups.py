@@ -89,8 +89,56 @@ def ensure_seeded(db: Session) -> int:
     return created
 
 
+def repair_empty_group_memberships(db: Session) -> int:
+    """
+    If the board has groups but zero memberships (e.g. after a bad prune),
+    re-attach clients whose company_name matches the group name.
+    Does not invent multi-client groupings — only name matches.
+    """
+    n_members = int(db.query(func.count(PracticeGroupMember.id)).scalar() or 0)
+    n_groups = int(db.query(func.count(PracticeGroup.id)).scalar() or 0)
+    if n_groups == 0 or n_members > 0:
+        return 0
+    restored = 0
+    groups = db.query(PracticeGroup).all()
+    for g in groups:
+        name = (g.name or "").strip()
+        if not name:
+            continue
+        client = (
+            db.query(Client)
+            .filter(func.lower(Client.company_name) == name.lower())
+            .first()
+        )
+        if not client:
+            # tolerate double-space / trailing space drift
+            client = (
+                db.query(Client)
+                .filter(Client.company_name.ilike(name.replace("  ", " %")))
+                .first()
+            )
+        if not client:
+            continue
+        if (
+            db.query(PracticeGroupMember)
+            .filter(PracticeGroupMember.client_id == client.id)
+            .first()
+        ):
+            continue
+        db.add(
+            PracticeGroupMember(
+                group_id=g.id, client_id=client.id, sort_order=0
+            )
+        )
+        restored += 1
+    if restored:
+        db.commit()
+    return restored
+
+
 def count_practice_groups(db: Session) -> int:
     ensure_seeded(db)
+    repair_empty_group_memberships(db)
     return int(db.query(func.count(PracticeGroup.id)).scalar() or 0)
 
 
@@ -267,6 +315,7 @@ def list_board(
     db: Session, *, q: Optional[str] = None
 ) -> tuple[List[BoardGroup], List[BoardClient]]:
     ensure_seeded(db)
+    repair_empty_group_memberships(db)
     prune_ineligible_members(db)
     groups = (
         db.query(PracticeGroup)

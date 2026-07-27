@@ -539,17 +539,772 @@ HORIZON_STATUS = {
 
 
 def wip_list_status(job: Job, today: Optional[date] = None) -> str:
-    """List status: Overdue | Imminent | Planning | Pre Planning | Later."""
+    """List status: Today | Overdue | Imminent | Planning | Pre Planning | Later."""
     today = today or date.today()
     if getattr(job, "is_closed", lambda: False)():
         return job.status or "—"
     if getattr(job, "is_on_hold", lambda: False)():
         return "On hold"
+    if (job.status or "").strip().lower() == "today":
+        return "Today"
     due = _job_due_for_horizon(job)
     if due and due < today:
         return "Overdue"
     key = job_horizon_key_for_due(due, today)
     return HORIZON_STATUS.get(key, "Later")
+
+
+def _month_start(d: date) -> date:
+    return date(d.year, d.month, 1)
+
+
+def _add_calendar_months(d: date, months: int) -> date:
+    """First day of month shifted by *months*."""
+    return _month_start(_add_months(d, months))
+
+
+def _month_label(d: date) -> str:
+    return d.strftime("%B %Y")
+
+
+def wip_calendar_band_meta(today: Optional[date] = None) -> Dict[str, dict]:
+    """
+    Calendar WIP bands:
+      today — overdue, due this month (imminent), or status Today
+      m1 — next calendar month (e.g. August if today is in July)
+      m2 — month after that
+      m3 — month after that
+      later — everything else / undated
+    """
+    today = today or date.today()
+    this_m = _month_start(today)
+    m1 = _add_calendar_months(today, 1)
+    m2 = _add_calendar_months(today, 2)
+    m3 = _add_calendar_months(today, 3)
+    m4 = _add_calendar_months(today, 4)
+    return {
+        "today": {
+            "key": "today",
+            "label": "Today",
+            "detail": "Overdue · imminent · status Today",
+            "from_date": None,
+            "to_date": _end_of_month(today),
+        },
+        "m1": {
+            "key": "m1",
+            "label": _month_label(m1),
+            "detail": f"Deadlines in {_month_label(m1)}",
+            "from_date": m1,
+            "to_date": _end_of_month(m1),
+        },
+        "m2": {
+            "key": "m2",
+            "label": _month_label(m2),
+            "detail": f"Deadlines in {_month_label(m2)}",
+            "from_date": m2,
+            "to_date": _end_of_month(m2),
+        },
+        "m3": {
+            "key": "m3",
+            "label": _month_label(m3),
+            "detail": f"Deadlines in {_month_label(m3)}",
+            "from_date": m3,
+            "to_date": _end_of_month(m3),
+        },
+        "later": {
+            "key": "later",
+            "label": "Everything else",
+            "detail": f"From {_month_label(m4)} · undated",
+            "from_date": m4,
+            "to_date": None,
+        },
+        "_bounds": {
+            "this_month": this_m,
+            "m1": m1,
+            "m2": m2,
+            "m3": m3,
+            "m4": m4,
+        },
+    }
+
+
+def job_wip_band(job: Job, today: Optional[date] = None) -> str:
+    """
+    Mutually exclusive calendar band:
+      today | m1 | m2 | m3 | later
+    Today = status Today OR overdue OR due on/before end of current month.
+    """
+    today = today or date.today()
+    if getattr(job, "is_closed", lambda: False)() or getattr(
+        job, "is_on_hold", lambda: False
+    )():
+        return "later"
+    if (job.status or "").strip().lower() == "today":
+        return "today"
+    due = _job_due_for_horizon(job)
+    if due is None:
+        return "later"
+    if due < today:
+        return "today"
+    eom = _end_of_month(today)
+    if due <= eom:
+        return "today"
+    m1 = _add_calendar_months(today, 1)
+    m2 = _add_calendar_months(today, 2)
+    m3 = _add_calendar_months(today, 3)
+    m4 = _add_calendar_months(today, 4)
+    if m1 <= due <= _end_of_month(m1):
+        return "m1"
+    if m2 <= due <= _end_of_month(m2):
+        return "m2"
+    if m3 <= due <= _end_of_month(m3):
+        return "m3"
+    if due >= m4:
+        return "later"
+    return "later"
+
+
+def job_type_bucket(job: Job) -> str:
+    """Accounts | Confirmation Statement | Other."""
+    t = (job.type or "").strip()
+    if _match_job_type(t, "Accounts"):
+        return "Accounts"
+    if _match_job_type(t, "Confirmation Statement"):
+        return "Confirmation Statement"
+    return "Other"
+
+
+def compute_wip_age_home(db: Session, today: Optional[date] = None) -> dict:
+    """
+    WIP home: Today (full) · m1 | m2 · m3 | later (2×2) · Total.
+    """
+    today = today or date.today()
+    meta = wip_calendar_band_meta(today)
+    jobs = wip_jobs(db)
+    book = retainer_book(db)
+    monthly_by = book.get("monthly_by_client") or {}
+    open_counts: Dict[int, int] = {}
+    for j in jobs:
+        if _client_is_retainer(j.client) and j.client_id:
+            open_counts[j.client_id] = open_counts.get(j.client_id, 0) + 1
+
+    bands = {}
+    for key in ("today", "m1", "m2", "m3", "later"):
+        m = meta[key]
+        bands[key] = {
+            "key": key,
+            "label": m["label"],
+            "detail": m["detail"],
+            "count": 0,
+            "amount": 0.0,
+        }
+    for j in jobs:
+        band = job_wip_band(j, today)
+        if band not in bands:
+            band = "later"
+        amt = wip_amount_for_job(
+            j, open_counts=open_counts, monthly_by_client=monthly_by
+        )
+        bands[band]["count"] += 1
+        bands[band]["amount"] += amt
+    for b in bands.values():
+        b["amount"] = round(b["amount"], 2)
+
+    return {
+        "today": bands["today"],
+        "mid": [bands["m1"], bands["m2"], bands["m3"], bands["later"]],
+        "bands": bands,
+        "meta": meta,
+    }
+
+
+def _pe_year_bucket_key(pe: Optional[date]) -> str:
+    if pe is None:
+        return "pe_2024_prior"
+    if pe.year >= 2027:
+        return "pe_2027"
+    if pe.year == 2026:
+        return "pe_2026"
+    if pe.year == 2025:
+        return "pe_2025"
+    return "pe_2024_prior"
+
+
+def _job_fee(job: Job) -> float:
+    fee = float(job.fee or 0)
+    if fee <= 0 and job.gross_amount:
+        fee = float(job.gross_amount or 0)
+    return fee
+
+
+def _job_is_open(job: Job) -> bool:
+    st = (job.status or "").strip()
+    return st not in {"Completed", "Cancelled", "On hold", "Filed"}
+
+
+def _job_is_completed(job: Job) -> bool:
+    st = (job.status or "").strip()
+    return st in {"Completed", "Filed"}
+
+
+def job_service_kind(job: Job) -> str:
+    """accounts | cs | vat | other — for PE-year 1-2-2-1 drill."""
+    t = (job.type or "").strip().lower()
+    if t == "accounts" or t.startswith("accounts "):
+        return "accounts"
+    if "confirmation" in t:
+        return "cs"
+    if "vat" in t:
+        return "vat"
+    return "other"
+
+
+def retainer_calendar_year_split(
+    db: Session, year: int, today: Optional[date] = None
+) -> dict:
+    """
+    Split active retainer book across calendar months of *year*.
+
+    A month is **completed** once its start date has been reached
+    (today >= 1st of month); otherwise it is **outstanding**.
+    """
+    today = today or date.today()
+    book = retainer_book(db)
+    monthly_by: Dict[int, float] = book.get("monthly_by_client") or {}
+    completed_amt = 0.0
+    outstanding_amt = 0.0
+    completed_months = 0
+    outstanding_months = 0
+    for _cid, monthly in monthly_by.items():
+        m = float(monthly or 0)
+        if m <= 0:
+            continue
+        for month in range(1, 13):
+            start = date(year, month, 1)
+            if today >= start:
+                completed_amt += m
+                completed_months += 1
+            else:
+                outstanding_amt += m
+                outstanding_months += 1
+    return {
+        "completed_amount": round(completed_amt, 2),
+        "outstanding_amount": round(outstanding_amt, 2),
+        "completed_months": completed_months,
+        "outstanding_months": outstanding_months,
+        "annual": round(completed_amt + outstanding_amt, 2),
+        "client_count": int(book.get("count") or 0),
+        "monthly_total": float(book.get("monthly") or 0),
+    }
+
+
+def _pe_year_calendar(pe_key: str) -> Optional[int]:
+    """Map pe_* key to a calendar year for retainer month splits (None = prior)."""
+    return {
+        "pe_2027": 2027,
+        "pe_2026": 2026,
+        "pe_2025": 2025,
+    }.get(pe_key)
+
+
+def _pe_display_year(pe_key: str) -> str:
+    return {
+        "pe_2027": "2027",
+        "pe_2026": "2026",
+        "pe_2025": "2025",
+        "pe_2024_prior": "2024 & earlier",
+    }.get(pe_key, pe_key)
+
+
+def _clients_with_2026_accounts(jobs: Sequence[Job]) -> set:
+    out = set()
+    for j in jobs:
+        pe = _as_date(j.period_end)
+        if pe and pe.year == 2026 and job_service_kind(j) == "accounts":
+            if j.client_id:
+                out.add(int(j.client_id))
+    return out
+
+
+def _converted_without_2026_accounts(
+    db: Session,
+    clients_2026_accounts: set,
+    open_client_ids: set,
+) -> Tuple[float, int]:
+    """
+    Converted prospects → clients who never had PE 2026 Accounts, and who are
+    not already in open WIP (so their fee is not already in the ledger).
+    """
+    extra_amt = 0.0
+    extra_n = 0
+    try:
+        from app.models.prospecting import Prospect
+
+        rows = (
+            db.query(Prospect)
+            .filter(
+                (Prospect.converted_at.isnot(None))
+                | (Prospect.pipeline_status == "won")
+            )
+            .all()
+        )
+        for p in rows:
+            cid = int(p.client_id) if p.client_id else None
+            if not cid:
+                continue
+            if cid in clients_2026_accounts:
+                continue
+            if cid in open_client_ids:
+                continue
+            val = float(p.estimated_value or 0)
+            if val <= 0:
+                continue
+            extra_amt += val
+            extra_n += 1
+    except Exception:
+        pass
+    return round(extra_amt, 2), extra_n
+
+
+def _pe_job_fee(job: Job) -> float:
+    """Fee for PE book tiles — retainer clients are valued via monthly splits."""
+    if _client_is_retainer(job.client):
+        return 0.0
+    return _job_fee(job)
+
+
+def compute_wip_book(db: Session, today: Optional[date] = None) -> dict:
+    """
+    WIP book (main WIP desk only).
+
+    2027 = live Total WIP ledger (jobs + retainers + tasks) count & value,
+           plus converted clients with no PE 2026 Accounts who are not already
+           in open WIP.
+
+    Earlier PE years = non-retainer job fees for that PE
+           + retainer calendar months for that year
+             (completed once month start reached; else outstanding).
+    """
+    today = today or date.today()
+    from app.models import Job
+
+    snap = compute_wip(db, today)
+    all_jobs = (
+        db.query(Job)
+        .options(joinedload(Job.client))
+        .filter(Job.status.notin_(["Cancelled"]))
+        .all()
+    )
+
+    def empty_bucket(key: str, label: str, href: str, unit: str = "jobs") -> dict:
+        return {
+            "key": key,
+            "label": label,
+            "href": href,
+            "count": 0,
+            "amount": 0.0,
+            "expected": 0.0,
+            "unit": unit,
+        }
+
+    buckets = {
+        "prospects": empty_bucket(
+            "prospects", "Prospects", "/prospecting", unit="leads"
+        ),
+        "pe_2027": empty_bucket(
+            "pe_2027", "2027 period end", "/working-capital/wip?pe_year=2027"
+        ),
+        "pe_2026": empty_bucket(
+            "pe_2026", "2026 period end", "/working-capital/wip?pe_year=2026"
+        ),
+        "pe_2025": empty_bucket(
+            "pe_2025", "2025 period end", "/working-capital/wip?pe_year=2025"
+        ),
+        "pe_2024_prior": empty_bucket(
+            "pe_2024_prior",
+            "2024 & earlier",
+            "/working-capital/wip?pe_year=2024prior",
+        ),
+    }
+
+    try:
+        from app.services.prospecting import hub_stats
+
+        hs = hub_stats(db)
+        p_count = int(hs.get("open_count") or 0)
+        p_amount = float(hs.get("open_value") or 0)
+        buckets["prospects"]["count"] = p_count
+        buckets["prospects"]["amount"] = round(p_amount, 2)
+        buckets["prospects"]["expected"] = round(p_amount, 2)
+    except Exception:
+        pass
+
+    by_key: Dict[str, List[Job]] = {
+        "pe_2027": [],
+        "pe_2026": [],
+        "pe_2025": [],
+        "pe_2024_prior": [],
+    }
+    for j in all_jobs:
+        by_key[_pe_year_bucket_key(_as_date(j.period_end))].append(j)
+
+    clients_2026_accounts = _clients_with_2026_accounts(all_jobs)
+    open_client_ids = {int(j.client_id) for j in snap.jobs if j.client_id}
+
+    # --- Historical PE years: job fees + retainer month split for that year ---
+    for key in ("pe_2026", "pe_2025", "pe_2024_prior"):
+        for j in by_key[key]:
+            fee = _pe_job_fee(j)
+            buckets[key]["expected"] += fee
+            if _job_is_open(j):
+                buckets[key]["amount"] += fee
+                buckets[key]["count"] += 1
+
+        cal = _pe_year_calendar(key)
+        if cal is not None:
+            split = retainer_calendar_year_split(db, cal, today)
+            buckets[key]["expected"] += float(split["annual"])
+            buckets[key]["amount"] += float(split["outstanding_amount"])
+            # Retainers affect £ value only; job count stays open jobs
+    # --- 2027 = Total WIP ledger + converted without 2026 Accounts (not in WIP) ---
+    extra_amt, extra_n = _converted_without_2026_accounts(
+        db, clients_2026_accounts, open_client_ids
+    )
+    buckets["pe_2027"]["amount"] = float(snap.value) + extra_amt
+    buckets["pe_2027"]["expected"] = float(snap.value) + extra_amt
+    buckets["pe_2027"]["count"] = int(snap.count) + extra_n
+
+    for b in buckets.values():
+        b["amount"] = round(float(b["amount"]), 2)
+        b["expected"] = round(float(b["expected"]), 2)
+        exp = float(b["expected"])
+        rem = float(b["amount"])
+        if exp > 0:
+            b["pct"] = round(min(100.0, 100.0 * rem / exp), 1)
+        elif rem > 0:
+            b["pct"] = 100.0
+        else:
+            b["pct"] = 0.0
+        b["pct_bar"] = min(100.0, max(0.0, float(b["pct"])))
+
+    order = ["prospects", "pe_2027", "pe_2026", "pe_2025", "pe_2024_prior"]
+    rem_total = sum(float(buckets[k]["amount"]) for k in order)
+    exp_total = sum(float(buckets[k]["expected"]) for k in order)
+    return {
+        "tiles": [buckets[k] for k in order],
+        "total_value": round(rem_total, 2),
+        "total_expected": round(exp_total, 2),
+        "total_count": sum(int(buckets[k]["count"]) for k in order),
+    }
+
+
+def compute_pe_year_layout(
+    db: Session, pe_key: str, today: Optional[date] = None
+) -> dict:
+    """
+    1–2–2–1 layout for a period-end year drill:
+      top wide: Jobs completed (year shown prominently)
+      2×2: Accounts / Confirmation statements / VAT / Others (outstanding)
+      bottom wide: Jobs for the year
+
+    Values include retainers: each calendar month is completed once its start
+    has been reached, otherwise outstanding (added to Accounts outstanding).
+
+    2027 drill mirrors the live Total WIP ledger (all open jobs + retainers).
+    """
+    today = today or date.today()
+    from app.models import Job
+
+    all_jobs = (
+        db.query(Job)
+        .options(joinedload(Job.client))
+        .filter(Job.status.notin_(["Cancelled"]))
+        .all()
+    )
+
+    pe_q = {
+        "pe_2027": "2027",
+        "pe_2026": "2026",
+        "pe_2025": "2025",
+        "pe_2024_prior": "2024prior",
+    }.get(pe_key, pe_key)
+
+    year_label = _pe_display_year(pe_key)
+    labels = {
+        "pe_2027": "2027 period end",
+        "pe_2026": "2026 period end",
+        "pe_2025": "2025 period end",
+        "pe_2024_prior": "2024 & earlier",
+    }
+    cal = _pe_year_calendar(pe_key)
+
+    # Retainer month split for this calendar year (if any)
+    ret_completed_amt = 0.0
+    ret_outstanding_amt = 0.0
+    ret_completed_months = 0
+    ret_outstanding_months = 0
+    if cal is not None:
+        split = retainer_calendar_year_split(db, cal, today)
+        ret_completed_amt = float(split["completed_amount"])
+        ret_outstanding_amt = float(split["outstanding_amount"])
+        ret_completed_months = int(split["completed_months"])
+        ret_outstanding_months = int(split["outstanding_months"])
+
+    if pe_key == "pe_2027":
+        # 2027 = full open WIP ledger (plus converted not already in WIP)
+        snap = compute_wip(db, today)
+        clients_2026_accounts = _clients_with_2026_accounts(all_jobs)
+        open_client_ids = {int(j.client_id) for j in snap.jobs if j.client_id}
+        extra_amt, extra_n = _converted_without_2026_accounts(
+            db, clients_2026_accounts, open_client_ids
+        )
+
+        # Completed PE-2027 jobs (rare early) + earned retainer months in 2027
+        pe2027_jobs = [j for j in all_jobs if job_period_end_bucket(j) == "pe_2027"]
+        completed_jobs = [j for j in pe2027_jobs if _job_is_completed(j)]
+        completed_amt = sum(_pe_job_fee(j) for j in completed_jobs) + ret_completed_amt
+        completed_count = len(completed_jobs)
+
+        # Outstanding: open WIP by service (non-retainer fees; retainer months → accounts)
+        book = retainer_book(db)
+        monthly_by = book.get("monthly_by_client") or {}
+        open_counts: Dict[int, int] = {}
+        for j in snap.jobs:
+            if _client_is_retainer(j.client) and j.client_id:
+                open_counts[j.client_id] = open_counts.get(j.client_id, 0) + 1
+
+        by_kind: Dict[str, List[Job]] = {
+            "accounts": [],
+            "cs": [],
+            "vat": [],
+            "other": [],
+        }
+        kind_amt = {k: 0.0 for k in by_kind}
+        for j in snap.jobs:
+            kind = job_service_kind(j)
+            by_kind[kind].append(j)
+            if _client_is_retainer(j.client):
+                continue  # valued via retainer months
+            kind_amt[kind] += float(j.fee or 0)
+
+        # Outstanding retainer months sit under Accounts (fixed-fee cover)
+        kind_amt["accounts"] += ret_outstanding_amt
+
+        year_amt = float(snap.value) + extra_amt
+        year_count = int(snap.count) + extra_n
+
+        def pack_amt(
+            key: str, label: str, count: int, amount: float, href: str
+        ) -> dict:
+            return {
+                "key": key,
+                "label": label,
+                "count": count,
+                "amount": round(amount, 2),
+                "href": href,
+            }
+
+        base_list = f"/working-capital/wip?pe_year={pe_q}"
+        return {
+            "pe_key": pe_key,
+            "pe_q": pe_q,
+            "label": labels.get(pe_key, pe_key),
+            "year_label": year_label,
+            "year_num": cal,
+            "retainer_completed_months": ret_completed_months,
+            "retainer_outstanding_months": ret_outstanding_months,
+            "retainer_completed_amount": ret_completed_amt,
+            "retainer_outstanding_amount": ret_outstanding_amt,
+            "completed": pack_amt(
+                "completed",
+                "Jobs completed",
+                completed_count,
+                completed_amt,
+                f"{base_list}&pe_slice=completed#wip-list",
+            ),
+            "mid": [
+                pack_amt(
+                    "accounts",
+                    "Accounts outstanding",
+                    len(by_kind["accounts"]),
+                    kind_amt["accounts"],
+                    f"{base_list}&pe_slice=accounts#wip-list",
+                ),
+                pack_amt(
+                    "cs",
+                    "Confirmation statements outstanding",
+                    len(by_kind["cs"]),
+                    kind_amt["cs"],
+                    f"{base_list}&pe_slice=cs#wip-list",
+                ),
+                pack_amt(
+                    "vat",
+                    "VAT outstanding",
+                    len(by_kind["vat"]),
+                    kind_amt["vat"],
+                    f"{base_list}&pe_slice=vat#wip-list",
+                ),
+                pack_amt(
+                    "other",
+                    "Other outstanding",
+                    len(by_kind["other"]),
+                    kind_amt["other"],
+                    f"{base_list}&pe_slice=other#wip-list",
+                ),
+            ],
+            "year_total": pack_amt(
+                "year",
+                "Jobs for the year",
+                year_count,
+                year_amt,
+                f"{base_list}&pe_slice=year#wip-list",
+            ),
+        }
+
+    # --- 2026 / 2025 / 2024 prior: jobs with that PE + retainer months ---
+    year_jobs = [j for j in all_jobs if job_period_end_bucket(j) == pe_key]
+    completed_jobs = [j for j in year_jobs if _job_is_completed(j)]
+    outstanding = [j for j in year_jobs if _job_is_open(j)]
+
+    completed_amt = sum(_pe_job_fee(j) for j in completed_jobs) + ret_completed_amt
+    completed_count = len(completed_jobs)
+
+    by_kind_jobs: Dict[str, List[Job]] = {
+        "accounts": [],
+        "cs": [],
+        "vat": [],
+        "other": [],
+    }
+    kind_amt = {k: 0.0 for k in by_kind_jobs}
+    for j in outstanding:
+        kind = job_service_kind(j)
+        by_kind_jobs[kind].append(j)
+        kind_amt[kind] += _pe_job_fee(j)
+
+    kind_amt["accounts"] += ret_outstanding_amt
+
+    year_job_fees = sum(_pe_job_fee(j) for j in year_jobs)
+    year_amt = year_job_fees + ret_completed_amt + ret_outstanding_amt
+    year_count = len(year_jobs)
+
+    def pack_amt(key: str, label: str, count: int, amount: float, href: str) -> dict:
+        return {
+            "key": key,
+            "label": label,
+            "count": count,
+            "amount": round(amount, 2),
+            "href": href,
+        }
+
+    base_list = f"/working-capital/wip?pe_year={pe_q}"
+    return {
+        "pe_key": pe_key,
+        "pe_q": pe_q,
+        "label": labels.get(pe_key, pe_key),
+        "year_label": year_label,
+        "year_num": cal,
+        "retainer_completed_months": ret_completed_months,
+        "retainer_outstanding_months": ret_outstanding_months,
+        "retainer_completed_amount": ret_completed_amt,
+        "retainer_outstanding_amount": ret_outstanding_amt,
+        "completed": pack_amt(
+            "completed",
+            "Jobs completed",
+            completed_count,
+            completed_amt,
+            f"{base_list}&pe_slice=completed#wip-list",
+        ),
+        "mid": [
+            pack_amt(
+                "accounts",
+                "Accounts outstanding",
+                len(by_kind_jobs["accounts"]),
+                kind_amt["accounts"],
+                f"{base_list}&pe_slice=accounts#wip-list",
+            ),
+            pack_amt(
+                "cs",
+                "Confirmation statements outstanding",
+                len(by_kind_jobs["cs"]),
+                kind_amt["cs"],
+                f"{base_list}&pe_slice=cs#wip-list",
+            ),
+            pack_amt(
+                "vat",
+                "VAT outstanding",
+                len(by_kind_jobs["vat"]),
+                kind_amt["vat"],
+                f"{base_list}&pe_slice=vat#wip-list",
+            ),
+            pack_amt(
+                "other",
+                "Other outstanding",
+                len(by_kind_jobs["other"]),
+                kind_amt["other"],
+                f"{base_list}&pe_slice=other#wip-list",
+            ),
+        ],
+        "year_total": pack_amt(
+            "year",
+            "Jobs for the year",
+            year_count,
+            year_amt,
+            f"{base_list}&pe_slice=year#wip-list",
+        ),
+    }
+
+
+def job_period_end_bucket(job: Job) -> str:
+    """Map open job to WIP-book period key."""
+    pe = _as_date(job.period_end)
+    if pe is None:
+        return "pe_2024_prior"
+    if pe.year >= 2027:
+        return "pe_2027"
+    if pe.year == 2026:
+        return "pe_2026"
+    if pe.year == 2025:
+        return "pe_2025"
+    return "pe_2024_prior"
+
+
+def compute_wip_type_totals_for_band(
+    db: Session, band: str, today: Optional[date] = None
+) -> List[dict]:
+    """Per job-type totals within one age band (for drill-down tiles)."""
+    today = today or date.today()
+    jobs = wip_jobs(db)
+    book = retainer_book(db)
+    monthly_by = book.get("monthly_by_client") or {}
+    open_counts: Dict[int, int] = {}
+    for j in jobs:
+        if _client_is_retainer(j.client) and j.client_id:
+            open_counts[j.client_id] = open_counts.get(j.client_id, 0) + 1
+
+    buckets = {
+        "Accounts": {"key": "Accounts", "label": "Accounts", "count": 0, "amount": 0.0},
+        "Confirmation Statement": {
+            "key": "Confirmation Statement",
+            "label": "Confirmation statements",
+            "count": 0,
+            "amount": 0.0,
+        },
+        "Other": {"key": "Other", "label": "Other jobs", "count": 0, "amount": 0.0},
+    }
+    for j in jobs:
+        if job_wip_band(j, today) != band:
+            continue
+        tb = job_type_bucket(j)
+        amt = wip_amount_for_job(
+            j, open_counts=open_counts, monthly_by_client=monthly_by
+        )
+        buckets[tb]["count"] += 1
+        buckets[tb]["amount"] += amt
+    out = []
+    for b in buckets.values():
+        b["amount"] = round(b["amount"], 2)
+        out.append(b)
+    return out
 
 
 def compute_wip_type_horizons(

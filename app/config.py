@@ -285,6 +285,48 @@ def ch_oauth_configured() -> bool:
     )
 
 
+# Microsoft Graph / OneDrive (delegated OAuth for practice OneDrive)
+MS_GRAPH_CLIENT_ID = _env("MS_GRAPH_CLIENT_ID")
+MS_GRAPH_CLIENT_SECRET = _env("MS_GRAPH_CLIENT_SECRET")
+MS_GRAPH_TENANT_ID = _env("MS_GRAPH_TENANT_ID", "common") or "common"
+MS_GRAPH_REDIRECT_URI = _env(
+    "MS_GRAPH_REDIRECT_URI",
+    "http://127.0.0.1:8000/oauth/microsoft/callback",
+)
+MS_GRAPH_SCOPES = (
+    _env(
+        "MS_GRAPH_SCOPES",
+        "offline_access User.Read Files.ReadWrite",
+    )
+    or "offline_access User.Read Files.ReadWrite"
+)
+_MS_TENANT = (MS_GRAPH_TENANT_ID or "common").strip()
+MS_GRAPH_AUTHORISE_URL = _env(
+    "MS_GRAPH_AUTHORISE_URL",
+    f"https://login.microsoftonline.com/{_MS_TENANT}/oauth2/v2.0/authorize",
+) or f"https://login.microsoftonline.com/{_MS_TENANT}/oauth2/v2.0/authorize"
+MS_GRAPH_TOKEN_URL = _env(
+    "MS_GRAPH_TOKEN_URL",
+    f"https://login.microsoftonline.com/{_MS_TENANT}/oauth2/v2.0/token",
+) or f"https://login.microsoftonline.com/{_MS_TENANT}/oauth2/v2.0/token"
+GRAPH_API_BASE = (
+    _env("GRAPH_API_BASE", "https://graph.microsoft.com/v1.0")
+    or "https://graph.microsoft.com/v1.0"
+)
+MS_GRAPH_MAX_UPLOAD_MB = int(_env("MS_GRAPH_MAX_UPLOAD_MB", "25") or "25")
+MS_GRAPH_ENABLED = _env_bool_early("MS_GRAPH_ENABLED", True) and bool(
+    (MS_GRAPH_CLIENT_ID or "").strip() and (MS_GRAPH_CLIENT_SECRET or "").strip()
+)
+
+
+def ms_graph_configured() -> bool:
+    return bool(
+        (MS_GRAPH_CLIENT_ID or "").strip()
+        and (MS_GRAPH_CLIENT_SECRET or "").strip()
+        and (MS_GRAPH_REDIRECT_URI or "").strip()
+    )
+
+
 # Asana (PAT — single user “me”)
 ASANA_ACCESS_TOKEN = _env("ASANA_ACCESS_TOKEN")
 ASANA_WORKSPACE_GID = _env("ASANA_WORKSPACE_GID")

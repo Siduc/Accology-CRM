@@ -12,11 +12,14 @@
   </div>
   <div class="actions">
     <a class="btn wc-touch" href="/tasks/new">Add task</a>
+    <a class="btn btn-secondary wc-touch" href="/tasks/import">Import from Outlook</a>
     <a class="btn btn-outline wc-touch" href="/export/tasks{% if status %}?status={{ status }}{% endif %}">Export CSV</a>
     <a class="btn btn-outline wc-touch" href="/import/csv?dataset=tasks">Reimport CSV</a>
-    <a class="btn btn-outline wc-touch" href="/working-capital/wip?show=tasks">WIP · tasks</a>
   </div>
 </div>
+
+{% if import_msg %}<div class="chase-banner chase-banner-info">{{ import_msg }}</div>{% endif %}
+{% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
 
 <form class="filters" method="get" action="/tasks">
   <div>
@@ -25,6 +28,15 @@
       <option value="" {% if not status %}selected{% endif %}>Open (excl. completed/cancelled)</option>
       {% for s in statuses %}
       <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="small muted">Priority</label><br>
+    <select name="priority">
+      <option value="">All</option>
+      {% for p in priorities %}
+      <option value="{{ p }}" {% if priority == p %}selected{% endif %}>{{ p }}</option>
       {% endfor %}
     </select>
   </div>
@@ -56,6 +68,7 @@
       <thead>
         <tr>
           <th>Task</th>
+          <th>Priority</th>
           <th>Client</th>
           <th>Job</th>
           <th>Due</th>
@@ -70,36 +83,46 @@
           <td>
             <a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a>
             {% if t.description %}<div class="small muted">{{ t.description[:80] }}{% if t.description|length > 80 %}…{% endif %}</div>{% endif %}
+            {% if t.import_source %}<div class="small muted">via {{ t.import_source }}{% if t.source_email_date %} · email {{ t.source_email_date }}{% endif %}</div>{% endif %}
+          </td>
+          <td>
+            {% set p = t.display_priority() %}
+            <span class="badge priority-{{ p|lower }}">{{ p }}</span>
           </td>
           <td class="small">
             {% if t.client %}<a href="/clients/{{ t.client_id }}">{{ t.client.display_name() }}</a>
             {% else %}<span class="muted">Standalone</span>{% endif %}
           </td>
           <td class="small">
-            {% if t.job %}<a href="/jobs/{{ t.job_id }}">{{ t.job.type or t.job_id }}</a>
+            {% if t.job %}<a href="/jobs/{{ t.job_id }}">JOB-{{ t.job_id }}</a>
             {% else %}—{% endif %}
           </td>
-          <td>{{ t.due_on|uk_date }}</td>
+          <td class="small">
+            {% if t.due_on %}
+              {% if t.is_overdue() %}<span class="badge badge-overdue">{{ t.due_on }}</span>
+              {% else %}{{ t.due_on }}{% endif %}
+            {% else %}—{% endif %}
+          </td>
           <td>
             {% if t.is_overdue() %}
             <span class="badge badge-overdue">{{ t.display_status() }}</span>
             {% elif t.is_development() %}
-            <span class="badge badge-development">Development</span>
+            <span class="badge badge-development">{{ t.status }}</span>
             {% elif t.is_on_hold() %}
-            <span class="badge badge-hold">On hold</span>
+            <span class="badge badge-hold">{{ t.status }}</span>
             {% else %}
             <span class="badge">{{ t.display_status() }}</span>
             {% endif %}
           </td>
-          <td class="num"><strong>£{{ '%.2f'|format(t.fee or 0) }}</strong></td>
-          <td class="actions-cell">
-            <a class="btn btn-sm btn-outline" href="/tasks/{{ t.id }}/edit">Edit</a>
+          <td class="num">£{{ '%.2f'|format(t.fee or 0) }}</td>
+          <td class="actions">
             {% if not t.is_closed() %}
             <form method="post" action="/tasks/{{ t.id }}/complete" style="display:inline">
-              <input type="hidden" name="next" value="/tasks">
-              <button class="btn btn-sm" type="submit">Done</button>
+              <input type="hidden" name="next" value="/tasks{% if status %}?status={{ status }}{% endif %}">
+              <button class="btn btn-sm btn-outline" type="submit">Done</button>
             </form>
             {% endif %}
+            <a class="btn btn-sm btn-outline" href="/tasks/{{ t.id }}/edit">Edit</a>
           </td>
         </tr>
         {% endfor %}
@@ -107,7 +130,10 @@
     </table>
   </div>
   {% else %}
-  <p class="empty">No tasks yet. <a href="/tasks/new">Add a task</a>.</p>
+  <p class="empty">No tasks in this filter.
+    <a href="/tasks/new">Add a task</a> or
+    <a href="/tasks/import">import from Outlook</a>.
+  </p>
   {% endif %}
 </div>
 {% endblock %}

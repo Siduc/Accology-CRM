@@ -292,6 +292,48 @@
   </div>
 
   <div class="card settings-card">
+    <h3>Microsoft OneDrive · Documents</h3>
+    <p class="muted small">
+      Practice documents are stored in your OneDrive via Microsoft Graph
+      (<code>Accologise Documents / Clients / …</code> and <code>Jobs / …</code>).
+    </p>
+    {% if ms_graph_configured %}
+    <div class="chase-banner chase-banner-info" role="status">
+      {% if ms_status.connected and ms_status.fresh %}
+      <strong>Connected</strong> · {{ ms_status.email or 'Microsoft account' }}
+      {% elif ms_status.connected %}
+      <strong>Reconnect required</strong> · token expired
+      {% else %}
+      <strong>Configured</strong> · not connected yet
+      · client <code>{{ ms_graph_client_mask or '…' }}</code>
+      · secret {% if ms_graph_secret_set %}set{% else %}<em>missing</em>{% endif %}
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="chase-banner chase-banner-practice" role="status">
+      <strong>Not configured</strong> — add to <code>.env</code> then restart:
+      <code>MS_GRAPH_CLIENT_ID</code>, <code>MS_GRAPH_CLIENT_SECRET</code>,
+      <code>MS_GRAPH_REDIRECT_URI</code>.
+    </div>
+    {% endif %}
+    <dl class="dl-grid">
+      <dt>Redirect URI</dt>
+      <dd><code class="small">{{ ms_graph_redirect or '—' }}</code></dd>
+    </dl>
+    <div class="actions">
+      {% if ms_graph_configured %}
+      <a class="btn wc-touch" href="/oauth/microsoft/start?return_to=/settings#settings-other">
+        {% if ms_status.connected %}Reconnect Microsoft{% else %}Connect Microsoft{% endif %}
+      </a>
+      {% else %}
+      <span class="btn disabled" aria-disabled="true">Connect Microsoft</span>
+      {% endif %}
+      <a class="btn btn-outline wc-touch" href="/settings/microsoft-graph">Manage</a>
+      <a class="btn btn-outline wc-touch" href="/documents">Documents</a>
+    </div>
+  </div>
+
+  <div class="card settings-card">
     <h3>Asana</h3>
     <p class="muted small">
       Pull tasks assigned to you; push late Accounts &amp; Confirmation Statement jobs.

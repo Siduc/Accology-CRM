@@ -6,27 +6,39 @@ from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models.finance import BankTransaction, CreditorBill
-from app.services.practice_tasks import compute_task_horizons, list_tasks
 from app.services.working_capital import (
     cash_balance,
     compute_creditors,
     compute_debtors,
     compute_wip,
-    compute_wip_type_horizons,
+    compute_wip_age_home,
+    compute_pe_year_layout,
+    compute_wip_book,
+    compute_wip_type_totals_for_band,
     ensure_default_bank_account,
-    job_horizon_key,
+    job_period_end_bucket,
+    job_service_kind,
+    job_type_bucket,
+    job_wip_band,
     retainer_book,
     wip_amount_for_job,
-    wip_horizon_boundaries,
+    wip_jobs,
+    wip_list_status,
+    _client_is_retainer,
     _match_job_type,
+    _job_fee,
+    _job_is_completed,
+    _job_is_open,
 )
 from app.templating import render
 
 router = APIRouter(prefix="/working-capital", tags=["working-capital"])
+
+VALID_BANDS = {"today", "m1", "m2", "m3", "later"}
 
 
 def _parse_date(value: str):
@@ -54,46 +66,65 @@ async def wc_wip(
     horizon: str = "",
     status: str = "",
     client_id: str = "",
+    pe_year: str = "",
+    pe_slice: str = "",
     db: Session = Depends(get_db),
 ):
     """
-    WIP desk (hierarchical):
-      1) Four metric tiles — Accounts, CS, Tasks, VAT
-      2) Type drill → aged horizon tiles for that type
-      3) Horizon drill → filtered list
-    VAT tile links out to /vat (not horizons).
+    WIP desk:
+      Home: Today · next 3 calendar months · everything else · Total
+      Drill age band → type tiles (Accounts / CS / Other) + filtered list
+      Foot: WIP book by period end year + prospects
     """
     today = date.today()
     snap = compute_wip(db, today)
-    horizons = compute_wip_type_horizons(db, today)
-    bounds = wip_horizon_boundaries(today)
-    task_horizon = compute_task_horizons(db, today)
-
-    # VAT snapshot for WIP home tile
-    vat_summary = None
-    try:
-        from app.services.vat_ledger import vat_return_summary
-
-        vat_summary = vat_return_summary(db, "this_quarter")
-    except Exception:
-        vat_summary = None
+    age_home = compute_wip_age_home(db, today)
+    wip_book = compute_wip_book(db, today)
 
     filter_type = (type or "").strip()
     filter_horizon = (horizon or "").strip()
     filter_status = (status or "").strip()
     filter_client_id = int(client_id) if (client_id or "").isdigit() else None
+    filter_pe = (pe_year or "").strip().lower()
+    pe_map = {
+        "2027": "pe_2027",
+        "pe_2027": "pe_2027",
+        "2026": "pe_2026",
+        "pe_2026": "pe_2026",
+        "2025": "pe_2025",
+        "pe_2025": "pe_2025",
+        "2024": "pe_2024_prior",
+        "2024prior": "pe_2024_prior",
+        "pe_2024_prior": "pe_2024_prior",
+        "prior": "pe_2024_prior",
+    }
+    filter_pe_key = pe_map.get(filter_pe, "")
+    filter_pe_slice = (pe_slice or "").strip().lower()
+    valid_pe_slices = {
+        "completed",
+        "accounts",
+        "cs",
+        "vat",
+        "other",
+        "year",
+    }
+    if filter_pe_slice and filter_pe_slice not in valid_pe_slices:
+        filter_pe_slice = ""
 
     legacy = {
-        "overdue": "imminent",
-        "eom": "imminent",
-        "next_eom": "planning",
-        "plus3": "planning",
-        "plus3b": "pre_planning",
+        "overdue": "today",
+        "eom": "today",
+        "imminent": "today",
+        "planning": "m1",
+        "pre_planning": "m2",
+        "next_eom": "m1",
+        "plus3": "m1",
+        "plus3b": "m2",
+        "tasks": "",  # tasks no longer a home band
     }
     if filter_horizon in legacy:
         filter_horizon = legacy[filter_horizon]
-    valid_horizons = {"imminent", "planning", "pre_planning", "later"}
-    if filter_horizon and filter_horizon not in valid_horizons:
+    if filter_horizon and filter_horizon not in VALID_BANDS:
         filter_horizon = ""
 
     if filter_type.lower() in (
@@ -106,29 +137,36 @@ async def wc_wip(
         filter_type = "Confirmation Statement"
     elif filter_type.lower() in ("accounts", "account"):
         filter_type = "Accounts"
-    elif filter_type.lower() == "tasks":
-        filter_type = "Tasks"
-    elif filter_type.lower() == "vat":
-        return RedirectResponse("/vat", status_code=303)
+    elif filter_type.lower() in ("other", "others"):
+        filter_type = "Other"
     elif filter_type:
-        # unknown type — ignore
-        filter_type = ""
+        # keep free text for other job types match via _match or exact bucket
+        if filter_type not in ("Accounts", "Confirmation Statement", "Other"):
+            filter_type = "Other" if filter_type else ""
 
-    # View levels
-    # home: no type → 4 metric tiles
-    # type: type set, no horizon → aged columns for that type
-    # list: type + horizon (or status/client with type)
-    show_type_home = not filter_type
-    show_type_horizons = bool(filter_type) and not filter_horizon and not filter_status and not filter_client_id
-    show_list = bool(filter_type and (filter_horizon or filter_status or filter_client_id))
+    show_age_home = (
+        not filter_horizon
+        and not filter_status
+        and not filter_client_id
+        and not filter_type
+        and not filter_pe_key
+    )
+    show_band_drill = bool(filter_horizon)  # age band → type tiles + list
+    # PE year drill: 1-2-2-1 layout (not age home, not wip book strip)
+    show_pe_year_home = bool(filter_pe_key) and not filter_horizon
+    show_list = bool(
+        filter_horizon
+        or filter_status
+        or filter_client_id
+        or filter_type
+        or filter_pe_slice
+    )
+    # When PE year selected without slice, show layout only (no list until tile click)
+    # When pe_slice set, show list under layout
 
-    horizon_labels = {
-        "imminent": "Overdue and Imminent",
-        "planning": "Planning",
-        "pre_planning": "Pre Planning",
-        "later": "Everything else",
-    }
+    band_labels = {k: v["label"] for k, v in age_home["bands"].items()}
     list_status_options = [
+        "Today",
         "Overdue",
         "Imminent",
         "Planning",
@@ -144,8 +182,6 @@ async def wc_wip(
             return d.strftime("%d-%m-%Y")
         return str(d)
 
-    from app.services.working_capital import wip_list_status
-
     _book = retainer_book(db)
     _monthly_by = _book.get("monthly_by_client") or {}
     _open_counts: dict = {}
@@ -153,82 +189,28 @@ async def wc_wip(
         if jj.client_id and jj.client and jj.client.is_retainer():
             _open_counts[jj.client_id] = _open_counts.get(jj.client_id, 0) + 1
 
-    # Metric tiles for home
-    type_metrics = []
-    for h in horizons:
-        type_metrics.append(
-            {
-                "key": "Accounts" if h.job_type == "Accounts" else "Confirmation Statement",
-                "href": (
-                    "/working-capital/wip?type=Accounts"
-                    if h.job_type == "Accounts"
-                    else "/working-capital/wip?type=Confirmation+Statement"
-                ),
-                "label": h.label,
-                "count": h.total_count,
-                "amount": h.total_amount,
-                "kind": "accounts" if h.job_type == "Accounts" else "cs",
-                "unit": "jobs",
-            }
-        )
-    type_metrics.append(
-        {
-            "key": "Tasks",
-            "href": "/working-capital/wip?type=Tasks",
-            "label": "Tasks",
-            "count": task_horizon.get("total_count", 0),
-            "amount": task_horizon.get("total_amount", 0.0),
-            "kind": "tasks",
-            "unit": "tasks",
-        }
-    )
-    vat_net = float(getattr(vat_summary, "box5_net", 0) or 0) if vat_summary else 0.0
-    type_metrics.append(
-        {
-            "key": "VAT",
-            "href": "/vat",
-            "label": "VAT",
-            "count": 0,
-            "amount": abs(vat_net),
-            "amount_signed": vat_net,
-            "kind": "vat",
-            "unit": "this quarter",
-            "subtitle": (
-                "Due to HMRC"
-                if vat_net >= 0
-                else "Reclaim"
-            )
-            if vat_summary
-            else "Open VAT ledger",
-        }
-    )
+    type_totals = []
+    if filter_horizon:
+        type_totals = compute_wip_type_totals_for_band(db, filter_horizon, today)
 
-    # Active type horizon row (for level 2)
-    active_horizon_row = None
-    if filter_type == "Tasks":
-        active_horizon_row = {
-            "job_type": "Tasks",
-            "label": "Tasks",
-            "buckets": task_horizon.get("buckets") or [],
-            "total_count": task_horizon.get("total_count", 0),
-            "total_amount": task_horizon.get("total_amount", 0.0),
-        }
-    elif filter_type in ("Accounts", "Confirmation Statement"):
-        for h in horizons:
-            if h.job_type == filter_type:
-                active_horizon_row = h
-                break
+    pe_layout = None
+    if show_pe_year_home:
+        pe_layout = compute_pe_year_layout(db, filter_pe_key, today)
 
-    # Job rows — list level
     rows = []
     clients_for_filter = []
-    if show_list and filter_type != "Tasks":
+    # Age-band list (open WIP only)
+    if show_list and filter_horizon:
         seen_c = {}
         for j in snap.jobs:
-            if filter_type and not _match_job_type(j.type, filter_type):
+            if job_wip_band(j, today) != filter_horizon:
                 continue
-            if filter_horizon:
-                if job_horizon_key(j, today) != filter_horizon:
+            tb = job_type_bucket(j)
+            if filter_type:
+                if filter_type == "Other":
+                    if tb != "Other":
+                        continue
+                elif not _match_job_type(j.type, filter_type) and tb != filter_type:
                     continue
             due = j.statutory_due_date or j.target_completion
             if due and due < today:
@@ -241,12 +223,17 @@ async def wc_wip(
                     continue
                 if filter_status == "Imminent" and list_st != "Imminent":
                     continue
-                if filter_status not in ("Overdue", "Imminent") and list_st != filter_status:
+                if filter_status == "Today" and list_st != "Today":
+                    continue
+                if filter_status not in (
+                    "Overdue",
+                    "Imminent",
+                    "Today",
+                ) and list_st != filter_status:
                     continue
             if filter_client_id and j.client_id != filter_client_id:
                 continue
             is_ret = bool(j.client and j.client.is_retainer())
-            fee = float(j.fee or 0)
             wip_amt = wip_amount_for_job(
                 j, open_counts=_open_counts, monthly_by_client=_monthly_by
             )
@@ -257,11 +244,11 @@ async def wc_wip(
                     "job": j,
                     "age_days": age,
                     "amount": wip_amt,
-                    "fee_display": fee,
                     "is_retainer": is_ret,
                     "list_status": list_st,
                     "due_fmt": _fmt_d(due),
                     "period_end_fmt": _fmt_d(j.period_end),
+                    "type_bucket": tb,
                 }
             )
         rows.sort(key=lambda r: (-r["age_days"], -r["amount"]))
@@ -270,52 +257,163 @@ async def wc_wip(
             key=lambda c: (c.display_name() or "").lower(),
         )
 
-    task_rows = []
-    if show_list and filter_type == "Tasks":
-        open_tasks = list_tasks(db, include_closed=False, include_hold=False, limit=200)
-        from app.services.working_capital import job_horizon_key_for_due
+    # PE-year slice list (includes completed when slice=completed|year)
+    # 2027 outstanding/year = live open WIP ledger (not only PE-date 2027 jobs).
+    if filter_pe_key and filter_pe_slice:
+        from app.models import Job
 
-        for t in open_tasks:
-            hk = job_horizon_key_for_due(t.due_on, today)
-            if filter_horizon and hk != filter_horizon:
+        if filter_pe_key == "pe_2027" and filter_pe_slice in (
+            "accounts",
+            "cs",
+            "vat",
+            "other",
+            "year",
+        ):
+            pe_jobs = list(wip_jobs(db))
+        elif filter_pe_key == "pe_2027" and filter_pe_slice == "completed":
+            pe_jobs = (
+                db.query(Job)
+                .options(joinedload(Job.client))
+                .filter(Job.status.notin_(["Cancelled"]))
+                .all()
+            )
+            pe_jobs = [
+                j
+                for j in pe_jobs
+                if job_period_end_bucket(j) == "pe_2027" and _job_is_completed(j)
+            ]
+        else:
+            pe_jobs = (
+                db.query(Job)
+                .options(joinedload(Job.client))
+                .filter(Job.status.notin_(["Cancelled"]))
+                .all()
+            )
+            pe_jobs = [j for j in pe_jobs if job_period_end_bucket(j) == filter_pe_key]
+
+        slice_jobs = []
+        for j in pe_jobs:
+            kind = job_service_kind(j)
+            if filter_pe_slice == "completed":
+                if filter_pe_key != "pe_2027" and not _job_is_completed(j):
+                    continue
+            elif filter_pe_slice == "year":
+                pass
+            elif filter_pe_slice in ("accounts", "cs", "vat", "other"):
+                if filter_pe_key == "pe_2027":
+                    if kind != filter_pe_slice:
+                        continue
+                elif not (_job_is_open(j) and kind == filter_pe_slice):
+                    continue
+            else:
                 continue
-            if filter_client_id and t.client_id != filter_client_id:
-                continue
-            t_status = t.display_status(today)
-            if filter_status and t_status != filter_status:
-                continue
-            task_rows.append(t)
+            slice_jobs.append(j)
+
+        _rbook = retainer_book(db)
+        _monthly = _rbook.get("monthly_by_client") or {}
+        _oc: dict = {}
+        for jj in slice_jobs:
+            if jj.client_id and _client_is_retainer(jj.client):
+                _oc[jj.client_id] = _oc.get(jj.client_id, 0) + 1
+
+        seen_c = {}
+        for j in slice_jobs:
+            due = j.statutory_due_date or j.target_completion
+            if due and due < today:
+                age = (today - due).days
+            else:
+                age = 0
+            list_st = j.status or "—"
+            if j.client and j.client_id not in seen_c:
+                seen_c[j.client_id] = j.client
+            if _client_is_retainer(j.client) and filter_pe_slice != "completed":
+                amt = wip_amount_for_job(
+                    j, open_counts=_oc, monthly_by_client=_monthly
+                )
+            elif filter_pe_slice == "completed" and _client_is_retainer(j.client):
+                amt = 0.0
+            else:
+                amt = _job_fee(j)
+            rows.append(
+                {
+                    "job": j,
+                    "age_days": age,
+                    "amount": amt,
+                    "is_retainer": bool(j.client and j.client.is_retainer()),
+                    "list_status": list_st,
+                    "due_fmt": _fmt_d(due),
+                    "period_end_fmt": _fmt_d(j.period_end),
+                    "type_bucket": job_service_kind(j),
+                }
+            )
+        rows.sort(key=lambda r: (-r["age_days"], -r["amount"]))
+        clients_for_filter = sorted(
+            seen_c.values(),
+            key=lambda c: (c.display_name() or "").lower(),
+        )
 
     filter_fee = round(sum(r["amount"] for r in rows), 2)
-    if filter_type == "Tasks":
-        filter_fee = round(sum(float(t.fee or 0) for t in task_rows), 2)
-
-    filter_label = ""
-    if filter_type or filter_horizon or filter_status:
-        parts = []
-        if filter_type:
-            parts.append(
-                "Confirmation statements"
-                if filter_type == "Confirmation Statement"
-                else filter_type
-            )
-        if filter_horizon:
-            parts.append(horizon_labels.get(filter_horizon, filter_horizon))
-        if filter_status:
-            parts.append(filter_status)
-        filter_label = " · ".join(parts)
+    filter_label_parts = []
+    if filter_horizon:
+        filter_label_parts.append(band_labels.get(filter_horizon, filter_horizon))
+    if filter_pe_key:
+        pe_labels = {
+            "pe_2027": "2027 period end",
+            "pe_2026": "2026 period end",
+            "pe_2025": "2025 period end",
+            "pe_2024_prior": "2024 & earlier period end",
+        }
+        filter_label_parts.append(pe_labels.get(filter_pe_key, filter_pe_key))
+    if filter_type:
+        filter_label_parts.append(
+            "Confirmation statements"
+            if filter_type == "Confirmation Statement"
+            else filter_type
+        )
+    if filter_status:
+        filter_label_parts.append(filter_status)
+    if filter_pe_slice:
+        slice_labs = {
+            "completed": "Jobs completed",
+            "accounts": "Accounts outstanding",
+            "cs": "Confirmation statements outstanding",
+            "vat": "VAT outstanding",
+            "other": "Other outstanding",
+            "year": "Jobs for the year",
+        }
+        filter_label_parts.append(slice_labs.get(filter_pe_slice, filter_pe_slice))
+    filter_label = " · ".join(filter_label_parts)
 
     type_query = ""
     if filter_type == "Accounts":
         type_query = "Accounts"
     elif filter_type == "Confirmation Statement":
         type_query = "Confirmation+Statement"
-    elif filter_type == "Tasks":
-        type_query = "Tasks"
+    elif filter_type == "Other":
+        type_query = "Other"
 
-    back_type_url = (
-        f"/working-capital/wip?type={type_query}" if type_query else "/working-capital/wip"
-    )
+    mid_box_class = {
+        "m1": "wc-box-wip",
+        "m2": "wc-box-debtors",
+        "m3": "wc-box-cash",
+        "later": "wc-box-creditors",
+    }
+    mid_tile_class = {
+        "m1": "tile-wip",
+        "m2": "tile-debtors",
+        "m3": "tile-cash",
+        "later": "tile-creditors",
+    }
+    type_box_class = {
+        "Accounts": "wc-box-wip",
+        "Confirmation Statement": "wc-box-debtors",
+        "Other": "wc-box-cash",
+    }
+    type_tile_class = {
+        "Accounts": "tile-wip",
+        "Confirmation Statement": "tile-debtors",
+        "Other": "tile-cash",
+    }
 
     return render(
         request,
@@ -329,29 +427,39 @@ async def wc_wip(
             "retainer_count": getattr(snap, "retainer_count", 0) or 0,
             "retainer_monthly": getattr(snap, "retainer_monthly", 0) or 0,
             "retainer_annual": getattr(snap, "retainer_annual", 0) or 0,
-            "retainer_job_count": getattr(snap, "retainer_job_count", 0) or 0,
             "jobs_value": getattr(snap, "jobs_value", 0) or 0,
             "tasks_value": getattr(snap, "tasks_value", 0) or 0,
-            "horizon_bounds": bounds,
             "filter_type": filter_type,
             "filter_horizon": filter_horizon,
             "filter_status": filter_status,
             "filter_client_id": filter_client_id,
             "filter_label": filter_label,
             "filter_fee": filter_fee,
-            "filter_count": len(rows) + len(task_rows),
-            "show_type_home": show_type_home,
-            "show_type_horizons": show_type_horizons,
+            "filter_count": len(rows),
+            "show_age_home": show_age_home,
+            "show_band_drill": show_band_drill,
+            "show_pe_year_home": show_pe_year_home,
             "show_list": show_list,
-            "type_metrics": type_metrics,
-            "active_horizon_row": active_horizon_row,
+            "age_home": age_home,
+            "today_band": age_home["today"],
+            "mid_bands": age_home["mid"],
+            "all_bands": [
+                age_home["today"],
+                *age_home["mid"],
+            ],
+            "type_totals": type_totals,
+            "mid_box_class": mid_box_class,
+            "mid_tile_class": mid_tile_class,
+            "type_box_class": type_box_class,
+            "type_tile_class": type_tile_class,
             "type_query": type_query,
-            "back_type_url": back_type_url,
             "list_status_options": list_status_options,
             "filter_clients": clients_for_filter,
-            "task_horizon": task_horizon,
-            "task_rows": task_rows,
-            "vat_summary": vat_summary,
+            "band_labels": band_labels,
+            "wip_book": wip_book,
+            "filter_pe_key": filter_pe_key,
+            "filter_pe_slice": filter_pe_slice,
+            "pe_layout": pe_layout,
         },
     )
 

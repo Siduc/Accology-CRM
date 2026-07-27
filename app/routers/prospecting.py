@@ -1,0 +1,562 @@
+"""Prospecting Ledger UI."""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models.prospecting import (
+    CAMPAIGN_CHANNELS,
+    CAMPAIGN_STATUSES,
+    PIPELINE_LABELS,
+    PIPELINE_STATUSES,
+    CampaignMember,
+    Prospect,
+    ProspectActivity,
+    ProspectCampaign,
+)
+from app.models.sales import Service
+from app.services.companies_house import (
+    download_document_content,
+    fetch_document_metadata,
+    fetch_filing_history,
+    has_api_key,
+    search_companies,
+)
+from app.services.prospecting import (
+    add_to_campaign,
+    convert_prospect_to_client,
+    create_campaign,
+    create_prospect,
+    enrich_prospect_from_ch,
+    export_campaign_email_csv,
+    export_campaign_letter_csv,
+    hub_stats,
+    import_emails_csv,
+    import_incorporations,
+    list_prospects,
+    log_activity,
+    set_pipeline_status,
+)
+from app.templating import render
+
+router = APIRouter(prefix="/prospecting", tags=["prospecting"])
+
+
+def _parse_date(value: str):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+@router.get("", response_class=HTMLResponse)
+async def prospecting_hub(request: Request, db: Session = Depends(get_db)):
+    stats = hub_stats(db)
+    campaigns = (
+        db.query(ProspectCampaign)
+        .order_by(ProspectCampaign.updated_at.desc())
+        .limit(8)
+        .all()
+    )
+    recent = list_prospects(db, open_only=True, limit=8)
+    return render(
+        request,
+        "prospecting/hub.html",
+        {
+            "stats": stats,
+            "campaigns": campaigns,
+            "recent": recent,
+            "pipeline_labels": PIPELINE_LABELS,
+            "ch_key": has_api_key(),
+        },
+    )
+
+
+@router.get("/prospects", response_class=HTMLResponse)
+async def prospects_list(
+    request: Request,
+    q: str = Query(""),
+    status: str = Query(""),
+    source: str = Query(""),
+    sic: str = Query(""),
+    postcode: str = Query(""),
+    campaign_id: str = Query(""),
+    min_score: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    cid = int(campaign_id) if (campaign_id or "").isdigit() else None
+    ms = int(min_score) if (min_score or "").isdigit() else None
+    rows = list_prospects(
+        db,
+        q=q,
+        status=status,
+        source=source,
+        sic=sic,
+        postcode=postcode,
+        campaign_id=cid,
+        min_score=ms,
+        open_only=not status,
+        limit=250,
+    )
+    campaigns = db.query(ProspectCampaign).order_by(ProspectCampaign.name).all()
+    return render(
+        request,
+        "prospecting/prospects_list.html",
+        {
+            "rows": rows,
+            "q": q,
+            "status": status,
+            "source": source,
+            "sic": sic,
+            "postcode": postcode,
+            "campaign_id": cid,
+            "min_score": min_score,
+            "campaigns": campaigns,
+            "pipeline_statuses": PIPELINE_STATUSES,
+            "pipeline_labels": PIPELINE_LABELS,
+        },
+    )
+
+
+@router.get("/prospects/new", response_class=HTMLResponse)
+async def prospect_new_form(request: Request):
+    return render(
+        request,
+        "prospecting/prospect_form.html",
+        {"prospect": None, "error": None},
+    )
+
+
+@router.post("/prospects/new", response_class=HTMLResponse)
+async def prospect_create(
+    request: Request,
+    company_name: str = Form(...),
+    company_number: str = Form(""),
+    contact_name: str = Form(""),
+    email: str = Form(""),
+    phone: str = Form(""),
+    address_line1: str = Form(""),
+    town: str = Form(""),
+    postcode: str = Form(""),
+    sic_codes: str = Form(""),
+    notes: str = Form(""),
+    estimated_value: str = Form("0"),
+    db: Session = Depends(get_db),
+):
+    try:
+        est = float((estimated_value or "0").replace("£", "").replace(",", "").strip() or 0)
+    except ValueError:
+        est = 0.0
+    p = create_prospect(
+        db,
+        company_name=company_name,
+        company_number=company_number,
+        contact_name=contact_name,
+        email=email,
+        phone=phone,
+        address_line1=address_line1,
+        town=town,
+        postcode=postcode,
+        sic_codes=sic_codes,
+        notes=notes,
+        source="manual",
+        estimated_value=est,
+    )
+    return RedirectResponse(f"/prospecting/prospects/{p.id}", status_code=303)
+
+
+@router.get("/prospects/{prospect_id:int}", response_class=HTMLResponse)
+async def prospect_detail(
+    request: Request,
+    prospect_id: int,
+    msg: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not p:
+        return RedirectResponse("/prospecting/prospects", status_code=303)
+    activities = (
+        db.query(ProspectActivity)
+        .filter(ProspectActivity.prospect_id == p.id)
+        .order_by(ProspectActivity.activity_at.desc())
+        .limit(80)
+        .all()
+    )
+    campaigns = (
+        db.query(ProspectCampaign)
+        .filter(ProspectCampaign.status.in_(("draft", "active", "paused")))
+        .order_by(ProspectCampaign.name)
+        .all()
+    )
+    memberships = (
+        db.query(CampaignMember)
+        .filter(CampaignMember.prospect_id == p.id, CampaignMember.status != "removed")
+        .all()
+    )
+    return render(
+        request,
+        "prospecting/prospect_detail.html",
+        {
+            "p": p,
+            "activities": activities,
+            "campaigns": campaigns,
+            "memberships": memberships,
+            "pipeline_statuses": PIPELINE_STATUSES,
+            "pipeline_labels": PIPELINE_LABELS,
+            "msg": msg,
+            "ch_key": has_api_key(),
+        },
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/status")
+async def prospect_status(
+    prospect_id: int,
+    status: str = Form(...),
+    lost_reason: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    set_pipeline_status(db, prospect_id, status, lost_reason=lost_reason)
+    return RedirectResponse(f"/prospecting/prospects/{prospect_id}?msg=status", status_code=303)
+
+
+@router.post("/prospects/{prospect_id:int}/activity")
+async def prospect_activity(
+    prospect_id: int,
+    activity_type: str = Form("note"),
+    subject: str = Form(""),
+    body: str = Form(""),
+    direction: str = Form("outbound"),
+    db: Session = Depends(get_db),
+):
+    if db.query(Prospect).filter(Prospect.id == prospect_id).first():
+        log_activity(
+            db,
+            prospect_id,
+            activity_type=activity_type,
+            subject=subject,
+            body=body,
+            direction=direction,
+        )
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}?msg=activity", status_code=303
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/enrich")
+async def prospect_enrich(prospect_id: int, db: Session = Depends(get_db)):
+    _, msg = enrich_prospect_from_ch(db, prospect_id)
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}?msg={quote(msg[:80])}",
+        status_code=303,
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/convert")
+async def prospect_convert(prospect_id: int, db: Session = Depends(get_db)):
+    client, p, msg = convert_prospect_to_client(db, prospect_id)
+    if client:
+        return RedirectResponse(f"/clients/{client.id}?msg=converted", status_code=303)
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}?msg={quote(msg)}", status_code=303
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/add-campaign")
+async def prospect_add_campaign(
+    prospect_id: int,
+    campaign_id: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    add_to_campaign(db, campaign_id, prospect_id)
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}?msg=campaign", status_code=303
+    )
+
+
+@router.post("/prospects/bulk-add-campaign")
+async def bulk_add_campaign(
+    campaign_id: int = Form(...),
+    prospect_ids: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    for part in (prospect_ids or "").split(","):
+        part = part.strip()
+        if part.isdigit():
+            add_to_campaign(db, campaign_id, int(part))
+    return RedirectResponse(
+        f"/prospecting/campaigns/{campaign_id}?msg=added", status_code=303
+    )
+
+
+@router.get("/campaigns", response_class=HTMLResponse)
+async def campaigns_list(request: Request, db: Session = Depends(get_db)):
+    rows = db.query(ProspectCampaign).order_by(ProspectCampaign.updated_at.desc()).all()
+    counts = {}
+    for c in rows:
+        n = (
+            db.query(CampaignMember)
+            .filter(
+                CampaignMember.campaign_id == c.id,
+                CampaignMember.status != "removed",
+            )
+            .count()
+        )
+        counts[c.id] = n
+    return render(
+        request,
+        "prospecting/campaigns.html",
+        {"rows": rows, "counts": counts},
+    )
+
+
+@router.get("/campaigns/new", response_class=HTMLResponse)
+async def campaign_new_form(request: Request, db: Session = Depends(get_db)):
+    services = (
+        db.query(Service)
+        .filter(Service.is_active == True)  # noqa: E712
+        .order_by(Service.name)
+        .all()
+    )
+    return render(
+        request,
+        "prospecting/campaign_form.html",
+        {
+            "campaign": None,
+            "services": services,
+            "channels": CAMPAIGN_CHANNELS,
+            "statuses": CAMPAIGN_STATUSES,
+        },
+    )
+
+
+@router.post("/campaigns/new")
+async def campaign_create(
+    name: str = Form(...),
+    description: str = Form(""),
+    service_id: str = Form(""),
+    channel: str = Form("mixed"),
+    status: str = Form("draft"),
+    sequence_json: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    sid = int(service_id) if (service_id or "").isdigit() else None
+    c = create_campaign(
+        db,
+        name=name,
+        description=description,
+        service_id=sid,
+        channel=channel,
+        status=status,
+        sequence_json=sequence_json,
+    )
+    return RedirectResponse(f"/prospecting/campaigns/{c.id}", status_code=303)
+
+
+@router.get("/campaigns/{campaign_id:int}", response_class=HTMLResponse)
+async def campaign_detail(
+    request: Request,
+    campaign_id: int,
+    msg: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    c = db.query(ProspectCampaign).filter(ProspectCampaign.id == campaign_id).first()
+    if not c:
+        return RedirectResponse("/prospecting/campaigns", status_code=303)
+    members = (
+        db.query(CampaignMember)
+        .filter(
+            CampaignMember.campaign_id == c.id,
+            CampaignMember.status != "removed",
+        )
+        .all()
+    )
+    return render(
+        request,
+        "prospecting/campaign_detail.html",
+        {"c": c, "members": members, "msg": msg, "pipeline_labels": PIPELINE_LABELS},
+    )
+
+
+@router.post("/campaigns/{campaign_id:int}/add")
+async def campaign_add_member(
+    campaign_id: int,
+    prospect_id: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    add_to_campaign(db, campaign_id, prospect_id)
+    return RedirectResponse(
+        f"/prospecting/campaigns/{campaign_id}?msg=added", status_code=303
+    )
+
+
+@router.get("/campaigns/{campaign_id:int}/export/letter")
+async def campaign_export_letter(campaign_id: int, db: Session = Depends(get_db)):
+    data = export_campaign_letter_csv(db, campaign_id)
+    return Response(
+        content=data,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="campaign-{campaign_id}-letter.csv"'
+        },
+    )
+
+
+@router.get("/campaigns/{campaign_id:int}/export/email")
+async def campaign_export_email(campaign_id: int, db: Session = Depends(get_db)):
+    data = export_campaign_email_csv(db, campaign_id)
+    return Response(
+        content=data,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="campaign-{campaign_id}-email.csv"'
+        },
+    )
+
+
+@router.post("/campaigns/{campaign_id:int}/import-emails")
+async def campaign_import_emails(
+    campaign_id: int,
+    csv_data: str = Form(""),
+    csv_file: UploadFile = File(None),
+    db: Session = Depends(get_db),
+):
+    text = csv_data or ""
+    if csv_file and csv_file.filename:
+        text = (await csv_file.read()).decode("utf-8", errors="replace")
+    result = import_emails_csv(db, text)
+    msg = f"updated-{result['updated']}"
+    return RedirectResponse(
+        f"/prospecting/campaigns/{campaign_id}?msg={msg}", status_code=303
+    )
+
+
+@router.get("/ch/import", response_class=HTMLResponse)
+async def ch_import_form(request: Request, msg: str = Query(""), db: Session = Depends(get_db)):
+    return render(
+        request,
+        "prospecting/ch_import.html",
+        {
+            "msg": msg,
+            "ch_key": has_api_key(),
+            "today": date.today(),
+            "default_from": (date.today().replace(day=1)).isoformat(),
+        },
+    )
+
+
+@router.post("/ch/import")
+async def ch_import_run(
+    from_date: str = Form(...),
+    to_date: str = Form(""),
+    sic_codes: str = Form(""),
+    location: str = Form(""),
+    limit: str = Form("50"),
+    db: Session = Depends(get_db),
+):
+    fd = _parse_date(from_date) or date.today()
+    td = _parse_date(to_date) or date.today()
+    lim = int(limit) if (limit or "").isdigit() else 50
+    run = import_incorporations(
+        db,
+        from_date=fd,
+        to_date=td,
+        sic_codes=sic_codes,
+        location=location,
+        limit=lim,
+    )
+    return RedirectResponse(
+        f"/prospecting/ch/import?msg={quote(run.message or 'done')}",
+        status_code=303,
+    )
+
+
+@router.get("/ch/search", response_class=HTMLResponse)
+async def ch_search(
+    request: Request,
+    q: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    items = []
+    error = ""
+    if q.strip():
+        res = search_companies(q.strip())
+        if res.ok:
+            items = (res.profile or {}).get("items") or []
+        else:
+            error = res.error or "Search failed"
+    return render(
+        request,
+        "prospecting/ch_search.html",
+        {"q": q, "items": items, "error": error, "ch_key": has_api_key()},
+    )
+
+
+@router.post("/ch/search/add")
+async def ch_search_add(
+    company_number: str = Form(...),
+    company_name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    p = create_prospect(
+        db,
+        company_name=company_name or company_number,
+        company_number=company_number,
+        source="ch_search",
+    )
+    enrich_prospect_from_ch(db, p.id)
+    return RedirectResponse(f"/prospecting/prospects/{p.id}", status_code=303)
+
+
+@router.get("/prospects/{prospect_id:int}/filings", response_class=HTMLResponse)
+async def prospect_filings(
+    request: Request, prospect_id: int, db: Session = Depends(get_db)
+):
+    p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not p:
+        return RedirectResponse("/prospecting/prospects", status_code=303)
+    items = []
+    error = ""
+    if p.company_number:
+        res = fetch_filing_history(p.company_number, items_per_page=40)
+        if res.ok:
+            items = (res.profile or {}).get("items") or []
+        else:
+            error = res.error or "Could not load filings"
+    return render(
+        request,
+        "prospecting/filings.html",
+        {"p": p, "items": items, "error": error},
+    )
+
+
+@router.get("/ch/document")
+async def ch_document(
+    company_number: str = Query(...),
+    transaction_id: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    meta = fetch_document_metadata(company_number, transaction_id)
+    if not meta.ok:
+        return Response(meta.error or "Document metadata failed", status_code=400)
+    links = (meta.profile or {}).get("links") or {}
+    doc_link = links.get("document_metadata") or links.get("self") or ""
+    document_id = (meta.profile or {}).get("id") or ""
+    if not document_id and "/document/" in str(doc_link):
+        document_id = str(doc_link).split("/document/")[-1].strip("/")
+    ok, body, ctype, err = download_document_content(document_id)
+    if not ok:
+        return Response(err or "Download failed", status_code=400)
+    return Response(
+        content=body,
+        media_type=ctype or "application/pdf",
+        headers={"Content-Disposition": "inline; filename=filing.pdf"},
+    )

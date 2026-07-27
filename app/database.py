@@ -191,6 +191,16 @@ def _add_missing_columns():
             ("amount_paid", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
             ("balance", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
         ],
+        "prospects": [
+            ("estimated_value", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+        ],
+        "practice_tasks": [
+            ("priority", "VARCHAR"),
+            ("source_email_date", "DATE"),
+            ("import_source", "VARCHAR"),
+            ("import_hash", "VARCHAR"),
+            ("import_batch_id", "VARCHAR"),
+        ],
     }
 
     with engine.begin() as conn:

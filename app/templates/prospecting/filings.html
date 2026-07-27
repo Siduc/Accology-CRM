@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Filings · {{ p.display_name() }}{% endblock %}
+{% block minibar_title %}Filings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting/prospects/{{ p.id }}">← {{ p.display_name() }}</a></p>
+    <h1>Filing history</h1>
+    <p class="muted small">{{ p.company_number }} · Companies House</p>
+  </div>
+</div>
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+<div class="card">
+  {% if items %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Date</th><th>Type</th><th>Description</th><th>Pages</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td class="small">{{ it.date or it.action_date or '—' }}</td>
+          <td class="small">{{ it.type or it.category or '—' }}</td>
+          <td>{{ it.description or '—' }}</td>
+          <td class="num">{{ it.pages or '—' }}</td>
+          <td>
+            {% if it.transaction_id %}
+            <a class="btn btn-sm btn-outline" target="_blank"
+               href="/prospecting/ch/document?company_number={{ p.company_number }}&transaction_id={{ it.transaction_id }}">
+              Document
+            </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No filings returned.</p>
+  {% endif %}
+</div>
+{% endblock %}

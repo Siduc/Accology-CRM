@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Accologise{% endblock %}
-{% block apple_title %}Accologise{% endblock %}
+{% block title %}Dashboard · Practice CRM{% endblock %}
+{% block apple_title %}Dashboard{% endblock %}
 {% block apple_touch_icon %}/static/icons/home/dashboard.png?v=home1{% endblock %}
 {% block content %}
 
@@ -8,14 +8,8 @@
 <div class="dash-view dash-desktop">
   <div class="desk-topbar">
     <div>
-      <a class="desk-brand" href="/dashboard">
-        <span class="desk-brand-mark" aria-hidden="true">A</span>
-        <span>
-          Accologise
-          <span class="desk-brand-tag">Practice CRM · Working capital</span>
-        </span>
-      </a>
-      <p class="muted small" style="margin:0.35rem 0 0">Practice cycle · {{ today }}</p>
+      <h1 class="desk-page-title">Accologise</h1>
+      <p class="desk-page-sub">Working capital · {{ today }}</p>
     </div>
     <div class="actions">
       <a class="btn btn-sm" href="/jobs/new">New Job</a>
@@ -26,132 +20,148 @@
     </div>
   </div>
 
-  <div class="wc-grid" id="working-capital-desktop">
-    <a class="wc-box wc-box-wip wc-touch" href="/working-capital/wip">
-      <div class="wc-box-head">
-        <span class="wc-box-title">1 · Work in progress</span>
-        <span class="wc-box-link">Open →</span>
-      </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}</div>
-      <div class="wc-box-meta">
-        {{ wc_wip_count|default(0) }} jobs
-        {% if (wc_wip_tasks_count|default(0)) > 0 %}
-        · {{ wc_wip_tasks_count }} tasks
-        {% endif %}
-        · jobs + retainers + tasks
-      </div>
-      <div class="wc-box-meta small" style="margin-top:0.25rem">
-        Jobs £{{ '{:,.0f}'.format(wc_wip_jobs_value|default(0)) }}
-        {% if (wc_retainer_count|default(0)) > 0 %}
-        + <span class="badge badge-retainer">Retainers</span>
-        £{{ '{:,.0f}'.format(wc_retainer_annual|default(0)) }}/yr
-        ({{ wc_retainer_count }} · £{{ '{:,.0f}'.format(wc_retainer_monthly|default(0)) }}/mo)
-        {% endif %}
-        {% if (wc_wip_tasks_value|default(0)) > 0 or (wc_wip_tasks_count|default(0)) > 0 %}
-        + tasks £{{ '{:,.0f}'.format(wc_wip_tasks_value|default(0)) }}
-        {% endif %}
-      </div>
-      <div class="wc-ageing">
-        {% for b in wc_wip_ageing|default([]) %}
-        <div class="wc-age-row">
-          <span class="wc-age-lab">{{ b.label }}</span>
-          <span class="wc-age-bar-wrap"><span class="wc-age-bar" style="width:{{ ((b.amount / ((wc_wip_value if wc_wip_value else 1))) * 100)|int }}%"></span></span>
-          <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+  <div class="wc-cycle" id="working-capital-desktop">
+    {# Prospects — same format + colour as Net assets (wide) #}
+    <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch" href="/prospecting">
+      <div class="wc-net-main">
+        <div class="wc-net-label">Prospects</div>
+        <div class="wc-net-value">£{{ '{:,.0f}'.format(prospecting_value|default(0)) }}</div>
+        <div class="wc-net-formula small">
+          {{ prospecting_open|default(0)|int }} open leads · pipeline value
         </div>
-        {% endfor %}
       </div>
+      <p class="wc-net-hint small">Prospecting ledger →</p>
     </a>
 
-    <a class="wc-box wc-box-debtors wc-touch" href="/sales/ageing">
-      <div class="wc-box-head">
-        <span class="wc-box-title">2 · Debtors</span>
-        <span class="wc-box-link">Open →</span>
-      </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}</div>
-      <div class="wc-box-meta">
-        {{ wc_debtors_count|default(0) }} outstanding
-        · chase {{ chase_pipeline_count|default(0) }}
-        (£{{ '{:,.0f}'.format(chase_pipeline_amount|default(0)) }})
-      </div>
-      <div class="wc-ageing">
-        {% for b in wc_debtors_ageing|default([]) %}
-        <div class="wc-age-row">
-          <span class="wc-age-lab">{{ b.label }}</span>
-          <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-amber" style="width:{{ ((b.amount / ((wc_debtors_total if wc_debtors_total else 1))) * 100)|int }}%"></span></span>
-          <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+    {# 2×2 Working capital #}
+    <div class="wc-grid">
+      <a class="wc-box wc-box-wip wc-touch" href="/working-capital/wip">
+        <div class="wc-box-head">
+          <span class="wc-box-title">1 · Work in progress</span>
+          <span class="wc-box-link">Open →</span>
         </div>
-        {% endfor %}
-      </div>
-      <div class="wc-box-meta small" style="margin-top:0.35rem">
-        Credit control:
-        P {{ chase_by_stage.polite|default(0) }}
-        · F {{ chase_by_stage.firm|default(0) }}
-        · Fin {{ chase_by_stage.final|default(0) }}
-        · L {{ chase_by_stage.legal|default(0) }}
-        {% if not chase_live %}<span class="badge">practice</span>{% endif %}
-      </div>
-    </a>
-
-    <a class="wc-box wc-box-cash wc-touch" href="/bank">
-      <div class="wc-box-head">
-        <span class="wc-box-title">3 · Cash</span>
-        <span class="wc-box-link">Bank Ledger →</span>
-      </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}</div>
-      <div class="wc-box-meta">{{ wc_cash_name|default('Practice account') }} · {{ wc_cash_txn_count|default(0) }} transactions</div>
-      <ul class="wc-recent">
-        {% if wc_cash_recent %}
-          {% for t in wc_cash_recent[:4] %}
-          <li>
-            <span class="wc-recent-date">{{ t.txn_date }}</span>
-            <span class="wc-recent-desc">{{ t.description or '—' }}</span>
-            <span class="wc-recent-amt {% if t.amount >= 0 %}pos{% else %}neg{% endif %}">
-              {% if t.amount >= 0 %}+{% endif %}£{{ '%.0f'|format(t.amount) }}
-            </span>
-          </li>
+        <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}</div>
+        <div class="wc-box-meta">
+          {{ wc_wip_count|default(0) }} jobs
+          {% if (wc_wip_tasks_count|default(0)) > 0 %}
+          · {{ wc_wip_tasks_count }} tasks
+          {% endif %}
+          · jobs + retainers + tasks
+        </div>
+        <div class="wc-box-meta small" style="margin-top:0.25rem">
+          Jobs £{{ '{:,.0f}'.format(wc_wip_jobs_value|default(0)) }}
+          {% if (wc_retainer_count|default(0)) > 0 %}
+          + <span class="badge badge-retainer">Retainers</span>
+          £{{ '{:,.0f}'.format(wc_retainer_annual|default(0)) }}/yr
+          ({{ wc_retainer_count }} · £{{ '{:,.0f}'.format(wc_retainer_monthly|default(0)) }}/mo)
+          {% endif %}
+          {% if (wc_wip_tasks_value|default(0)) > 0 or (wc_wip_tasks_count|default(0)) > 0 %}
+          + tasks £{{ '{:,.0f}'.format(wc_wip_tasks_value|default(0)) }}
+          {% endif %}
+        </div>
+        <div class="wc-ageing">
+          {% for b in wc_wip_ageing|default([]) %}
+          <div class="wc-age-row">
+            <span class="wc-age-lab">{{ b.label }}</span>
+            <span class="wc-age-bar-wrap"><span class="wc-age-bar" style="width:{{ ((b.amount / ((wc_wip_value if wc_wip_value else 1))) * 100)|int }}%"></span></span>
+            <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+          </div>
           {% endfor %}
-        {% else %}
-          <li class="muted small">No transactions yet — open Cash to set balance</li>
-        {% endif %}
-      </ul>
-    </a>
-
-    <a class="wc-box wc-box-creditors wc-touch" href="/purchase">
-      <div class="wc-box-head">
-        <span class="wc-box-title">4 · Creditors</span>
-        <span class="wc-box-link">Purchase Ledger →</span>
-      </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}</div>
-      <div class="wc-box-meta">
-        Suppliers £{{ '{:,.0f}'.format(wc_creditors_supplier|default(0)) }}
-        · VAT £{{ '{:,.0f}'.format(wc_creditors_vat|default(0)) }}
-        · {{ wc_creditors_count|default(0) }} open
-      </div>
-      <div class="wc-ageing">
-        {% for b in wc_creditors_ageing|default([]) %}
-        <div class="wc-age-row">
-          <span class="wc-age-lab">{{ b.label }}</span>
-          <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-red" style="width:{{ ((b.amount / ((wc_creditors_total if wc_creditors_total else 1))) * 100)|int }}%"></span></span>
-          <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
         </div>
-        {% endfor %}
-      </div>
-    </a>
-  </div>
+      </a>
 
-  <section class="wc-net-banner wc-net-result {% if (wc_net|default(0)) < 0 %}wc-net-neg{% else %}wc-net-pos{% endif %}">
-    <div class="wc-net-main">
-      <div class="wc-net-label">Net assets</div>
-      <div class="wc-net-value">£{{ '{:,.0f}'.format(wc_net|default(0)) }}</div>
-      <div class="wc-net-formula muted small">
-        WIP £{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}
-        + Debtors £{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}
-        + Cash £{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}
-        − Creditors £{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}
-      </div>
+      <a class="wc-box wc-box-debtors wc-touch" href="/sales/ageing">
+        <div class="wc-box-head">
+          <span class="wc-box-title">2 · Debtors</span>
+          <span class="wc-box-link">Open →</span>
+        </div>
+        <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}</div>
+        <div class="wc-box-meta">
+          {{ wc_debtors_count|default(0) }} outstanding
+          · chase {{ chase_pipeline_count|default(0) }}
+          (£{{ '{:,.0f}'.format(chase_pipeline_amount|default(0)) }})
+        </div>
+        <div class="wc-ageing">
+          {% for b in wc_debtors_ageing|default([]) %}
+          <div class="wc-age-row">
+            <span class="wc-age-lab">{{ b.label }}</span>
+            <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-amber" style="width:{{ ((b.amount / ((wc_debtors_total if wc_debtors_total else 1))) * 100)|int }}%"></span></span>
+            <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="wc-box-meta small" style="margin-top:0.35rem">
+          Credit control:
+          P {{ chase_by_stage.polite|default(0) }}
+          · F {{ chase_by_stage.firm|default(0) }}
+          · Fin {{ chase_by_stage.final|default(0) }}
+          · L {{ chase_by_stage.legal|default(0) }}
+          {% if not chase_live %}<span class="badge">practice</span>{% endif %}
+        </div>
+      </a>
+
+      <a class="wc-box wc-box-cash wc-touch" href="/bank">
+        <div class="wc-box-head">
+          <span class="wc-box-title">3 · Cash</span>
+          <span class="wc-box-link">Bank Ledger →</span>
+        </div>
+        <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}</div>
+        <div class="wc-box-meta">{{ wc_cash_name|default('Practice account') }} · {{ wc_cash_txn_count|default(0) }} transactions</div>
+        <ul class="wc-recent">
+          {% if wc_cash_recent %}
+            {% for t in wc_cash_recent[:4] %}
+            <li>
+              <span class="wc-recent-date">{{ t.txn_date }}</span>
+              <span class="wc-recent-desc">{{ t.description or '—' }}</span>
+              <span class="wc-recent-amt {% if t.amount >= 0 %}pos{% else %}neg{% endif %}">
+                {% if t.amount >= 0 %}+{% endif %}£{{ '%.0f'|format(t.amount) }}
+              </span>
+            </li>
+            {% endfor %}
+          {% else %}
+            <li class="muted small">No transactions yet — open Cash to set balance</li>
+          {% endif %}
+        </ul>
+      </a>
+
+      <a class="wc-box wc-box-creditors wc-touch" href="/purchase">
+        <div class="wc-box-head">
+          <span class="wc-box-title">4 · Creditors</span>
+          <span class="wc-box-link">Purchase Ledger →</span>
+        </div>
+        <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}</div>
+        <div class="wc-box-meta">
+          Suppliers £{{ '{:,.0f}'.format(wc_creditors_supplier|default(0)) }}
+          · VAT £{{ '{:,.0f}'.format(wc_creditors_vat|default(0)) }}
+          · {{ wc_creditors_count|default(0) }} open
+        </div>
+        <div class="wc-ageing">
+          {% for b in wc_creditors_ageing|default([]) %}
+          <div class="wc-age-row">
+            <span class="wc-age-lab">{{ b.label }}</span>
+            <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-red" style="width:{{ ((b.amount / ((wc_creditors_total if wc_creditors_total else 1))) * 100)|int }}%"></span></span>
+            <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </a>
     </div>
-    <p class="wc-net-hint muted small">Outcome of the cycle: assets in work, invoices, and bank, less what you owe.</p>
-  </section>
+
+    {# 1 · Net assets (full width) #}
+    <section class="wc-net-banner wc-net-result wc-total-banner {% if (wc_net|default(0)) < 0 %}wc-net-neg{% else %}wc-net-pos{% endif %}">
+      <div class="wc-net-main">
+        <div class="wc-net-label">Net assets</div>
+        <div class="wc-net-value">£{{ '{:,.0f}'.format(wc_net|default(0)) }}</div>
+        <div class="wc-net-formula small">
+          WIP £{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}
+          + Debtors £{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}
+          + Cash £{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}
+          − Creditors £{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}
+        </div>
+      </div>
+      <p class="wc-net-hint small">Outcome of the cycle: assets in work, invoices, and bank, less what you owe.</p>
+    </section>
+  </div>
 
   {% if live_notes %}
   <div class="desk-notes-strip" aria-label="Pinned notes">
@@ -171,13 +181,13 @@
         <p class="muted small headcount-hint">
           {% if period != 'overall' and opening_clients is defined and opening_clients is not none %}
           {{ period }}: Opening {{ opening_clients|int }} + New {{ total_new_clients|default(0)|int }} − Lost {{ total_lost|default(0)|int }}
-          = Closing <strong>{{ total_clients|default(0)|int }}</strong>
-          (opening for next year). Groups at 31 Dec {{ period }}.
-          Join/leave: engagement &amp; disengagement dates when set, else first/last invoice.
+          = Closing <strong>{{ total_clients|default(0)|int }}</strong>.
+          Groups = your Groups board.
           {% else %}
-          Overall: Clients (closing) = New − Lost.
-          Groups as at today. Year tabs: Opening + New − Lost = Closing.
-          Engagement / disengagement on the client record override invoice proxies.
+          Overall: <strong>Clients</strong> = New − Lost
+          ({{ total_new_clients|default(0)|int }} − {{ total_lost|default(0)|int }} = {{ total_clients|default(0)|int }}).
+          Join = engagement or first invoice. Lost = disengagement / Inactive.
+          Groups = your drag-and-drop Groups board.
           {% endif %}
         </p>
       </div>
@@ -193,11 +203,11 @@
         <div class="stat-num" style="color:#0f172a;font-size:2.25rem;font-weight:800;line-height:1.1;">{{ total_groups|default(0)|int }}</div>
         <div class="stat-name">Groups</div>
       </a>
-      <a class="stat-tile stat-tile-success" href="/clients?status=Active">
+      <a class="stat-tile stat-tile-success" href="/clients?book={% if clients_book == 'year' %}on&as_of={{ clients_as_of|default('') }}{% else %}closing{% endif %}">
         <div class="stat-num" style="color:#15803d;font-size:2.25rem;font-weight:800;line-height:1.1;">{{ total_clients|default(0)|int }}</div>
         <div class="stat-name">{% if period == 'overall' %}Clients{% else %}Closing{% endif %}</div>
       </a>
-      <a class="stat-tile" href="/clients">
+      <a class="stat-tile" href="/clients?cohort={{ new_cohort|default('all') }}">
         <div class="stat-num" style="color:#1d4ed8;font-size:2.25rem;font-weight:800;line-height:1.1;">{{ total_new_clients|default(0)|int }}</div>
         <div class="stat-name">New</div>
       </a>
@@ -219,8 +229,8 @@
   <div class="hub">
     <header class="hub-header">
       <div>
-        <p class="hub-brand"><span class="hub-brand-mark" aria-hidden="true">A</span>Accologise</p>
-        <p class="hub-date muted small">Practice CRM · {{ today }}</p>
+        <p class="hub-brand" style="font-weight:900;font-size:1.35rem;letter-spacing:-0.03em">Accologise</p>
+        <p class="hub-date muted small">Working capital · {{ today }}</p>
       </div>
       <div class="hub-header-actions">
         <a class="hub-logout" href="/settings">Settings</a>
@@ -243,6 +253,14 @@
       </a>
     </div>
 
+    <a class="live-tile live-tile-wide tile-prospects" href="/prospecting" aria-label="Prospects">
+      <span class="live-kicker">Prospects</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(prospecting_value|default(0)) }}</span>
+      <span class="live-sub">{{ prospecting_open|default(total_prospects)|default(0)|int }} open leads</span>
+      <span class="live-age"><span>Pipeline value</span></span>
+    </a>
+
+    {# 2×2 WC #}
     <div class="live-grid" id="working-capital-mobile" aria-label="Working capital cycle">
       <a class="live-tile tile-wip" href="/working-capital/wip">
         <span class="live-kicker">1 · WIP</span>
@@ -301,6 +319,7 @@
       {% endfor %}
     </div>
 
+    {# 1 · Net assets #}
     <section class="live-net {% if (wc_net|default(0)) < 0 %}live-net-neg{% endif %}" aria-label="Net assets">
       <div class="live-net-label">Net assets</div>
       <div class="live-net-value">£{{ '{:,.0f}'.format(wc_net|default(0)) }}</div>
@@ -328,11 +347,11 @@
           <span class="practice-num">{{ total_groups|default(0)|int }}</span>
           <span class="practice-lab">Groups</span>
         </a>
-        <a class="practice-tile practice-ok" href="/clients?status=Active">
+        <a class="practice-tile practice-ok" href="/clients?book={% if clients_book == 'year' %}on&as_of={{ clients_as_of|default('') }}{% else %}closing{% endif %}">
           <span class="practice-num">{{ total_clients|default(0)|int }}</span>
-          <span class="practice-lab">{% if period == 'overall' %}Clients{% else %}Close{% endif %}</span>
+          <span class="practice-lab">{% if period == 'overall' %}Clients{% else %}Closing{% endif %}</span>
         </a>
-        <a class="practice-tile practice-new" href="/clients">
+        <a class="practice-tile practice-new" href="/clients?cohort={{ new_cohort|default('all') }}">
           <span class="practice-num">{{ total_new_clients|default(0)|int }}</span>
           <span class="practice-lab">New</span>
         </a>
@@ -345,7 +364,9 @@
           <span class="practice-lab">Prospects</span>
         </a>
       </div>
-      <p class="muted small hub-practice-note">{{ year_label|default('Overall') }}{% if period == 'overall' %} · Clients = New − Lost{% else %} · Groups at 31 Dec{% endif %}</p>
+      <p class="muted small hub-practice-note">
+        {{ year_label|default('Overall') }} · Clients = New − Lost · Groups board
+      </p>
     </section>
   </div>
 </div>

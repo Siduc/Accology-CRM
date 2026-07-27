@@ -252,6 +252,38 @@ def _on_books_client_ids(db: Session, as_of: date) -> List[int]:
     return ids
 
 
+def _closing_client_ids(db: Session) -> List[int]:
+    """
+    Overall closing stock: had a join, and not lost
+    (no leave date and not currently Inactive).
+    This is New − Lost as a set, not a different 'on books' cut.
+    """
+    ids: List[int] = []
+    for cid, status, join, leave in _client_lifecycle_rows(db):
+        if join is None:
+            continue
+        if leave is not None or _is_currently_lost(status):
+            continue
+        ids.append(cid)
+    return ids
+
+
+def _new_client_ids(db: Session, year: Optional[int] = None) -> List[int]:
+    """Clients with a join date (overall), or join in calendar year."""
+    if year is None:
+        return [
+            cid
+            for cid, _st, join, _leave in _client_lifecycle_rows(db)
+            if join is not None
+        ]
+    d0, d1 = _year_date_bounds(year)
+    return [
+        cid
+        for cid, _st, join, _leave in _client_lifecycle_rows(db)
+        if join is not None and d0 <= join <= d1
+    ]
+
+
 def _practice_book_metrics(
     db: Session,
     mode: str,
@@ -262,43 +294,36 @@ def _practice_book_metrics(
     Returns:
       total_groups, total_clients (closing), total_new, total_lost,
       opening_clients, closing_clients
-    """
-    life = _client_lifecycle_rows(db)
 
+    Overall: Clients = New − Lost (set of joined, not-lost clients).
+    Year: Opening + New − Lost stock roll-forward for the year.
+    Groups tile is filled by the practice Groups board separately.
+    """
     if mode == "overall" or year is None:
-        # New = ever joined; Lost = ever left; Clients = New − Lost
-        new_all = 0
+        new_ids = _new_client_ids(db, None)
+        new_all = len(new_ids)
         lost_all = 0
-        for _cid, status, join, leave in life:
+        for _cid, status, join, leave in _client_lifecycle_rows(db):
             if join is None:
                 continue
-            new_all += 1
             if leave is not None or _is_currently_lost(status):
-                # Prefer leave date; still count currently lost without leave
                 lost_all += 1
-        closing = new_all - lost_all
-        on_books_ids = _on_books_client_ids(db, today)
-        prospect_ids = [
-            int(r[0])
-            for r in db.query(Client.id)
-            .filter(Client.overall_status == "Prospect")
-            .all()
-        ]
-        group_ids = list(set(on_books_ids) | set(prospect_ids))
-        groups = int(count_groups(db, client_ids=group_ids)) if group_ids else 0
+        closing_ids = _closing_client_ids(db)
+        closing = len(closing_ids)
+        # Groups board count applied in dashboard(); placeholder here
+        groups = 0
         return groups, closing, new_all, lost_all, None, closing
 
-    # Year view: stock roll-forward
+    # Year view: activity New/Lost; Clients = on the book at year-end
+    # (or today if viewing the current year mid-year) so tile = list.
     y = year
-    d_close = date(y, 12, 31)
+    d_eoy = date(y, 12, 31)
+    as_of = today if y == today.year and today < d_eoy else d_eoy
     opening = _count_on_books(db, date(y - 1, 12, 31))
     new_y = _count_new_in_year(db, y)
     lost_y = _count_lost_in_year(db, y)
-    closing = opening + new_y - lost_y
-
-    on_books_eoy = _on_books_client_ids(db, d_close)
-    groups = int(count_groups(db, client_ids=on_books_eoy)) if on_books_eoy else 0
-
+    closing = _count_on_books(db, as_of)
+    groups = 0
     return groups, closing, new_y, lost_y, opening, closing
 
 
@@ -337,15 +362,39 @@ async def dashboard(
         closing_clients,
     ) = _practice_book_metrics(db, mode, year, today)
 
-    # Prefer persisted practice groups (editable board) for the Groups tile
+    # Groups tile = editable Groups board (drag/drop), not a derived graph
     try:
         total_groups = count_practice_groups(db)
     except Exception:
         pass
 
+    # Drill-down keys for Clients / New tiles
+    if mode == "year" and year is not None:
+        d_eoy = date(year, 12, 31)
+        clients_as_of = today if year == today.year and today < d_eoy else d_eoy
+        clients_book = "year"
+        new_cohort = str(year)
+    else:
+        clients_as_of = today
+        clients_book = "closing"
+        new_cohort = "all"
+
     total_prospects = int(
         _count_clients_by_statuses(db, PROSPECT_STATUSES, None, None)
     )
+    prospecting_open = total_prospects
+    prospecting_value = 0.0
+    try:
+        from app.services.prospecting import hub_stats
+
+        _hs = hub_stats(db)
+        prospecting_open = int(_hs.get("open_count") or 0)
+        prospecting_value = float(_hs.get("open_value") or 0)
+        if prospecting_open == 0 and total_prospects:
+            prospecting_open = total_prospects
+    except Exception:
+        prospecting_open = total_prospects
+        prospecting_value = 0.0
 
     try:
         live_notes = pinned_for_live_tiles(db, limit=6)
@@ -434,8 +483,13 @@ async def dashboard(
             "earliest_year": EARLIEST_INVOICE_YEAR,
             "total_groups": total_groups,
             "total_clients": total_clients,
+            "clients_as_of": clients_as_of.isoformat(),
+            "clients_book": clients_book,
+            "new_cohort": new_cohort,
             "total_new_clients": total_new_clients,
             "total_prospects": total_prospects,
+            "prospecting_open": prospecting_open,
+            "prospecting_value": prospecting_value,
             "total_lost": total_lost,
             "opening_clients": opening_clients,
             "closing_clients": closing_clients,

@@ -25,6 +25,12 @@ class PracticeTask(Base):
     due_on = Column(Date, nullable=True, index=True)
     period_end = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
+    # High | Medium | Low
+    priority = Column(String, nullable=True, index=True)
+    source_email_date = Column(Date, nullable=True)
+    import_source = Column(String, nullable=True)  # e.g. outlook_grok
+    import_hash = Column(String, nullable=True, index=True)
+    import_batch_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -36,6 +42,7 @@ class PracticeTask(Base):
     DEVELOPMENT = ("Development",)
     # Not practice WIP (parked thinking / finished)
     INACTIVE = CLOSED + HOLD + DEVELOPMENT
+    PRIORITIES = ("High", "Medium", "Low")
 
     def is_closed(self) -> bool:
         return (self.status or "") in self.CLOSED
@@ -79,3 +86,9 @@ class PracticeTask(Base):
             return HORIZON_STATUS.get(key, self.status or "Planned")
         except Exception:
             return self.status or "Planned"
+
+    def display_priority(self) -> str:
+        p = (self.priority or "").strip()
+        if p in self.PRIORITIES:
+            return p
+        return "Medium"

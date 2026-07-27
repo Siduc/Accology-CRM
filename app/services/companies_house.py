@@ -261,6 +261,157 @@ def download_cs_bundle(company_number: str, api_key: Optional[str] = None) -> CH
     return CHFetchResult(ok=True, company_number=cn, profile=bundle)
 
 
+def _ch_get_json_query(
+    path: str,
+    params: Optional[Dict[str, Any]] = None,
+    *,
+    api_key: Optional[str] = None,
+) -> CHFetchResult:
+    """GET with query string (search / advanced search)."""
+    from urllib.parse import urlencode
+
+    q = {k: v for k, v in (params or {}).items() if v not in (None, "", [])}
+    suffix = f"?{urlencode(q, doseq=True)}" if q else ""
+    return _ch_get_json(f"{path}{suffix}", api_key=api_key)
+
+
+def search_companies(
+    q: str, *, items_per_page: int = 20, start_index: int = 0, api_key: Optional[str] = None
+) -> CHFetchResult:
+    """GET /search/companies"""
+    q = (q or "").strip()
+    if not q:
+        return CHFetchResult(ok=False, company_number="", error="Search query required")
+    return _ch_get_json_query(
+        "/search/companies",
+        {
+            "q": q,
+            "items_per_page": min(int(items_per_page), 100),
+            "start_index": max(0, int(start_index)),
+        },
+        api_key=api_key,
+    )
+
+
+def advanced_search_companies(
+    *,
+    incorporated_from: Optional[str] = None,
+    incorporated_to: Optional[str] = None,
+    company_status: Optional[str] = None,
+    sic_codes: Optional[str] = None,
+    location: Optional[str] = None,
+    company_name_includes: Optional[str] = None,
+    size: int = 50,
+    start_index: int = 0,
+    api_key: Optional[str] = None,
+) -> CHFetchResult:
+    """
+    GET /advanced-search/companies
+    Dates as YYYY-MM-DD. sic_codes comma-separated.
+    """
+    params: Dict[str, Any] = {
+        "size": min(max(int(size), 1), 100),
+        "start_index": max(0, int(start_index)),
+    }
+    if incorporated_from:
+        params["incorporated_from"] = incorporated_from
+    if incorporated_to:
+        params["incorporated_to"] = incorporated_to
+    if company_status:
+        params["company_status"] = company_status
+    if sic_codes:
+        params["sic_codes"] = sic_codes
+    if location:
+        params["location"] = location
+    if company_name_includes:
+        params["company_name_includes"] = company_name_includes
+    return _ch_get_json_query("/advanced-search/companies", params, api_key=api_key)
+
+
+def fetch_filing_history(
+    company_number: str,
+    *,
+    category: Optional[str] = None,
+    items_per_page: int = 25,
+    start_index: int = 0,
+    api_key: Optional[str] = None,
+) -> CHFetchResult:
+    """GET /company/{cn}/filing-history"""
+    cn = normalize_company_number(company_number)
+    if not cn:
+        return CHFetchResult(ok=False, company_number=cn, error="Missing company number")
+    params: Dict[str, Any] = {
+        "items_per_page": min(int(items_per_page), 100),
+        "start_index": max(0, int(start_index)),
+    }
+    if category:
+        params["category"] = category
+    from urllib.parse import urlencode
+
+    path = f"/company/{cn}/filing-history?{urlencode(params)}"
+    return _ch_get_json(path, api_key=api_key, company_number=cn)
+
+
+def fetch_document_metadata(
+    company_number: str, transaction_id: str, *, api_key: Optional[str] = None
+) -> CHFetchResult:
+    """GET /company/{cn}/filing-history/{tx}/document"""
+    cn = normalize_company_number(company_number)
+    tx = (transaction_id or "").strip()
+    if not cn or not tx:
+        return CHFetchResult(
+            ok=False, company_number=cn or "", error="Company number and transaction id required"
+        )
+    path = f"/company/{cn}/filing-history/{tx}/document"
+    return _ch_get_json(path, api_key=api_key, company_number=cn)
+
+
+def download_document_content(
+    document_id: str, *, api_key: Optional[str] = None
+) -> tuple[bool, bytes, str, str]:
+    """
+    GET document-api …/document/{id}/content
+    Returns (ok, body_bytes, content_type, error).
+    """
+    doc_id = (document_id or "").strip().rstrip("/")
+    if not doc_id:
+        return False, b"", "", "Missing document id"
+    # Accept full links or bare ids
+    if "document-api" in doc_id and "/document/" in doc_id:
+        # extract id segment
+        try:
+            part = doc_id.split("/document/")[1].split("/")[0]
+            doc_id = part
+        except Exception:
+            pass
+    key = clean_api_key(api_key or get_api_key() or "")
+    if not key:
+        return False, b"", "", "No Companies House API key"
+    url = (
+        f"https://document-api.company-information.service.gov.uk"
+        f"/document/{doc_id}/content"
+    )
+    req = Request(
+        url,
+        headers={
+            "Authorization": _authorization_header(key),
+            "Accept": "application/pdf, application/xhtml+xml, application/xml, */*",
+            "User-Agent": "AccountantCRM/1.0",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=60) as resp:
+            body = resp.read()
+            ctype = resp.headers.get("Content-Type") or "application/pdf"
+            return True, body, ctype, ""
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:300]
+        return False, b"", "", f"HTTP {exc.code}: {detail}"
+    except Exception as exc:  # noqa: BLE001
+        return False, b"", "", str(exc)
+
+
 def summarize_profile_dates(profile: Dict[str, Any]) -> Dict[str, Any]:
     """Extract the dates we care about for the UI preview."""
     accounts = profile.get("accounts") or {}

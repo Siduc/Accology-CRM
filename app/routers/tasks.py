@@ -1,17 +1,27 @@
-"""Practice task ledger routes."""
+"""Practice task ledger routes + Outlook/Grok import."""
 
 from __future__ import annotations
 
 from datetime import date, datetime
+from urllib.parse import quote as url_quote
 
-from fastapi import APIRouter, Depends, Form, Request
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Client, Job
 from app.models.practice_task import PracticeTask
-from app.services.practice_tasks import TASK_STATUSES, list_tasks
+from app.services.practice_tasks import (
+    TASK_PRIORITIES,
+    TASK_STATUSES,
+    complete_task,
+    create_task,
+    list_tasks,
+)
+from app.services import task_import as task_imp
 from app.templating import render
 
 router = APIRouter(tags=["tasks"])
@@ -33,11 +43,26 @@ def _parse_money(value: str) -> float:
         return 0.0
 
 
+def _user(request: Request) -> str:
+    return (request.session.get("user") or "").strip() or "user"
+
+
+def _active_clients(db: Session, limit: int = 400):
+    return (
+        db.query(Client)
+        .filter(Client.overall_status.notin_(["Inactive"]))
+        .order_by(Client.company_name)
+        .limit(limit)
+        .all()
+    )
+
+
 @router.get("/tasks", response_class=HTMLResponse)
 async def tasks_list(
     request: Request,
     status: str = "",
     client_id: str = "",
+    priority: str = "",
     db: Session = Depends(get_db),
 ):
     cid = int(client_id) if (client_id or "").isdigit() else None
@@ -45,15 +70,10 @@ async def tasks_list(
         db,
         status=status or "",
         client_id=cid,
+        priority=priority or "",
         include_closed=bool(status),
     )
-    clients = (
-        db.query(Client)
-        .filter(Client.overall_status.notin_(["Inactive"]))
-        .order_by(Client.company_name)
-        .limit(400)
-        .all()
-    )
+    clients = _active_clients(db)
     total_fees = round(sum(float(t.fee or 0) for t in tasks if not t.is_closed()), 2)
     return render(
         request,
@@ -61,13 +81,185 @@ async def tasks_list(
         {
             "tasks": tasks,
             "statuses": TASK_STATUSES,
+            "priorities": TASK_PRIORITIES,
             "status": status,
+            "priority": priority,
             "clients": clients,
             "filter_client_id": cid,
             "total_fees": total_fees,
             "today": date.today(),
+            "import_msg": request.query_params.get("import_msg", ""),
+            "msg": request.query_params.get("msg", ""),
         },
     )
+
+
+@router.get("/tasks/import", response_class=HTMLResponse)
+async def tasks_import_get(request: Request, db: Session = Depends(get_db)):
+    return render(
+        request,
+        "tasks/import.html",
+        {
+            "preview": False,
+            "rows": [],
+            "paste_text": "",
+            "counts": {},
+            "clients": _active_clients(db, 500),
+            "priorities": TASK_PRIORITIES,
+            "error": request.query_params.get("error", ""),
+            "review_json": "",
+        },
+    )
+
+
+async def _read_upload_or_paste(
+    paste_text: str, file: Optional[UploadFile]
+) -> tuple:
+    """Return (text, source_kind) where source_kind is paste|csv|xlsx."""
+    if file and file.filename:
+        raw = await file.read()
+        name = (file.filename or "").lower()
+        if name.endswith((".xlsx", ".xlsm")):
+            try:
+                from app.services.import_csv import excel_bytes_to_csv_text
+
+                return excel_bytes_to_csv_text(raw), "csv"
+            except Exception as exc:
+                raise ValueError(f"Could not read Excel: {exc}") from exc
+        for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+            try:
+                return raw.decode(enc), "csv"
+            except UnicodeDecodeError:
+                continue
+        return raw.decode("utf-8", errors="replace"), "csv"
+    return (paste_text or "").strip(), "paste"
+
+
+@router.post("/tasks/import", response_class=HTMLResponse)
+async def tasks_import_post(
+    request: Request,
+    action: str = Form("preview"),
+    paste_text: str = Form(""),
+    review_json: str = Form(""),
+    file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    clients = _active_clients(db, 500)
+    act = (action or "preview").strip().lower()
+
+    if act == "commit":
+        try:
+            rows = task_imp.deserialize_review(review_json)
+        except Exception:
+            return RedirectResponse(
+                f"/tasks/import?error={url_quote('Review data expired — paste again.')}",
+                status_code=303,
+            )
+        form = dict(await request.form())
+        rows = task_imp.apply_review_overrides(rows, form)
+        result = task_imp.commit_rows(db, rows, uploaded_by=_user(request))
+        msg = (
+            f"{result['created']} task(s) created"
+            f", {result['skipped_dupe']} duplicate(s) skipped"
+            f", {result['skipped']} other skipped"
+        )
+        if result["errors"]:
+            msg += f" · {len(result['errors'])} error(s)"
+        return RedirectResponse(
+            f"/tasks?import_msg={url_quote(msg)}", status_code=303
+        )
+
+    # Preview
+    try:
+        text, kind = await _read_upload_or_paste(paste_text, file)
+    except ValueError as exc:
+        return render(
+            request,
+            "tasks/import.html",
+            {
+                "preview": False,
+                "rows": [],
+                "paste_text": paste_text,
+                "counts": {},
+                "clients": clients,
+                "priorities": TASK_PRIORITIES,
+                "error": str(exc),
+                "review_json": "",
+            },
+        )
+
+    if not text:
+        return render(
+            request,
+            "tasks/import.html",
+            {
+                "preview": False,
+                "rows": [],
+                "paste_text": paste_text,
+                "counts": {},
+                "clients": clients,
+                "priorities": TASK_PRIORITIES,
+                "error": "Paste a list or upload a CSV/Excel file.",
+                "review_json": "",
+            },
+        )
+
+    if kind == "csv" or (
+        "\t" in text
+        or (text.count(",") >= 2 and "\n" in text and re_looks_like_csv(text))
+    ):
+        # Prefer CSV if has header-ish first line
+        if kind == "csv" or _looks_like_csv(text):
+            rows = task_imp.parse_task_csv(text)
+            if not rows:
+                rows = task_imp.parse_task_paste(text)
+        else:
+            rows = task_imp.parse_task_paste(text)
+    else:
+        rows = task_imp.parse_task_paste(text)
+
+    if not rows:
+        return render(
+            request,
+            "tasks/import.html",
+            {
+                "preview": False,
+                "rows": [],
+                "paste_text": paste_text or text[:2000],
+                "counts": {},
+                "clients": clients,
+                "priorities": TASK_PRIORITIES,
+                "error": "No tasks found in the pasted text or file.",
+                "review_json": "",
+            },
+        )
+
+    rows = task_imp.enrich_rows(db, rows)
+    counts = task_imp.summary_counts(rows)
+    return render(
+        request,
+        "tasks/import.html",
+        {
+            "preview": True,
+            "rows": rows,
+            "paste_text": paste_text if kind == "paste" else "",
+            "counts": counts,
+            "clients": clients,
+            "priorities": TASK_PRIORITIES,
+            "error": "",
+            "review_json": task_imp.serialize_review(rows),
+        },
+    )
+
+
+def re_looks_like_csv(text: str) -> bool:
+    return _looks_like_csv(text)
+
+
+def _looks_like_csv(text: str) -> bool:
+    first = (text or "").splitlines()[0].lower() if text else ""
+    headers = ("subject", "title", "task", "client", "company", "due", "priority")
+    return any(h in first for h in headers)
 
 
 @router.get("/tasks/new", response_class=HTMLResponse)
@@ -77,13 +269,7 @@ async def task_new_form(
     job_id: str = "",
     db: Session = Depends(get_db),
 ):
-    clients = (
-        db.query(Client)
-        .filter(Client.overall_status.notin_(["Inactive"]))
-        .order_by(Client.company_name)
-        .limit(400)
-        .all()
-    )
+    clients = _active_clients(db)
     cid = int(client_id) if (client_id or "").isdigit() else None
     jid = int(job_id) if (job_id or "").isdigit() else None
     jobs = []
@@ -104,6 +290,7 @@ async def task_new_form(
             "clients": clients,
             "jobs": jobs,
             "statuses": TASK_STATUSES,
+            "priorities": TASK_PRIORITIES,
             "pre_client_id": cid,
             "pre_job_id": jid,
         },
@@ -111,7 +298,7 @@ async def task_new_form(
 
 
 @router.post("/tasks/new")
-async def task_create(
+async def task_create_route(
     request: Request,
     title: str = Form(...),
     description: str = Form(""),
@@ -122,12 +309,15 @@ async def task_create(
     client_id: str = Form(""),
     job_id: str = Form(""),
     notes: str = Form(""),
+    priority: str = Form("Medium"),
+    source_email_date: str = Form(""),
     next: str = Form("/tasks"),
     db: Session = Depends(get_db),
 ):
     cid = int(client_id) if (client_id or "").isdigit() else None
     jid = int(job_id) if (job_id or "").isdigit() else None
-    task = PracticeTask(
+    create_task(
+        db,
         title=(title or "").strip() or "Task",
         description=(description or "").strip() or None,
         fee=_parse_money(fee),
@@ -137,9 +327,9 @@ async def task_create(
         client_id=cid,
         job_id=jid,
         notes=(notes or "").strip() or None,
+        priority=priority if priority in TASK_PRIORITIES else "Medium",
+        source_email_date=_parse_date(source_email_date),
     )
-    db.add(task)
-    db.commit()
     dest = (next or "/tasks").strip() or "/tasks"
     return RedirectResponse(dest, status_code=303)
 
@@ -151,13 +341,7 @@ async def task_edit_form(
     task = db.query(PracticeTask).filter(PracticeTask.id == task_id).first()
     if not task:
         return RedirectResponse("/tasks", status_code=303)
-    clients = (
-        db.query(Client)
-        .filter(Client.overall_status.notin_(["Inactive"]))
-        .order_by(Client.company_name)
-        .limit(400)
-        .all()
-    )
+    clients = _active_clients(db)
     jobs = []
     if task.client_id:
         jobs = (
@@ -175,6 +359,7 @@ async def task_edit_form(
             "clients": clients,
             "jobs": jobs,
             "statuses": TASK_STATUSES,
+            "priorities": TASK_PRIORITIES,
             "pre_client_id": task.client_id,
             "pre_job_id": task.job_id,
         },
@@ -194,6 +379,8 @@ async def task_update(
     client_id: str = Form(""),
     job_id: str = Form(""),
     notes: str = Form(""),
+    priority: str = Form("Medium"),
+    source_email_date: str = Form(""),
     next: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -209,6 +396,8 @@ async def task_update(
     task.client_id = int(client_id) if (client_id or "").isdigit() else None
     task.job_id = int(job_id) if (job_id or "").isdigit() else None
     task.notes = (notes or "").strip() or None
+    task.priority = priority if priority in TASK_PRIORITIES else (task.priority or "Medium")
+    task.source_email_date = _parse_date(source_email_date)
     task.updated_at = datetime.utcnow()
     db.commit()
     dest = (next or f"/tasks/{task_id}/edit").strip()
@@ -223,7 +412,20 @@ async def task_complete(
 ):
     task = db.query(PracticeTask).filter(PracticeTask.id == task_id).first()
     if task:
-        task.status = "Completed"
+        complete_task(db, task)
+    return RedirectResponse((next or "/tasks").strip(), status_code=303)
+
+
+@router.post("/tasks/{task_id:int}/priority")
+async def task_set_priority(
+    task_id: int,
+    priority: str = Form("Medium"),
+    next: str = Form("/tasks"),
+    db: Session = Depends(get_db),
+):
+    task = db.query(PracticeTask).filter(PracticeTask.id == task_id).first()
+    if task and priority in TASK_PRIORITIES:
+        task.priority = priority
         task.updated_at = datetime.utcnow()
         db.commit()
     return RedirectResponse((next or "/tasks").strip(), status_code=303)

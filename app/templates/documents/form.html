@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Upload document · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted" style="margin:0 0 0.35rem"><a href="/documents">← Documents</a></p>
+    <h1 class="desk-page-title" style="font-size:clamp(1.35rem,3vw,1.75rem)">Upload document</h1>
+    <p class="desk-page-sub muted small">Files are stored in your Microsoft OneDrive under Accologise Documents.</p>
+  </div>
+</div>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+{% if not conn.connected or not conn.fresh %}
+<div class="chase-banner chase-banner-info" style="margin-bottom:1rem">
+  Connect Microsoft before uploading.
+  <a class="btn btn-sm wc-touch" href="/oauth/microsoft/start?return_to=/documents/new">Connect Microsoft</a>
+</div>
+{% endif %}
+
+<div class="card">
+  <form class="stack" method="post" action="/documents/new" enctype="multipart/form-data" id="doc-upload-form">
+    <div class="doc-dropzone" id="doc-dropzone">
+      <input type="file" name="file" id="doc-file" required
+             accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif,.webp,.txt,.rtf,.msg,.eml">
+      <p class="doc-dropzone-label"><strong>Drag &amp; drop</strong> or choose a file</p>
+      <p class="small muted" id="doc-file-name">PDF, Word, Excel, images…</p>
+    </div>
+
+    <div>
+      <label>Title</label>
+      <input type="text" name="title" placeholder="Defaults to filename" style="width:100%">
+    </div>
+    <div>
+      <label>Description</label>
+      <textarea name="description" rows="2" style="width:100%"></textarea>
+    </div>
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div>
+        <label>Category</label>
+        <select name="category" style="width:100%">
+          {% for c in categories %}
+          <option value="{{ c }}" {% if c == 'Other' %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Tags</label>
+        <input type="text" name="tags" placeholder="comma,separated" style="width:100%">
+      </div>
+    </div>
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div>
+        <label>Client</label>
+        <select name="client_id" id="doc-client" style="width:100%">
+          <option value="">— Select —</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}" {% if client_id == c.id %}selected{% endif %}>{{ c.display_name() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Job</label>
+        <select name="job_id" style="width:100%">
+          <option value="">— Optional —</option>
+          {% for j in jobs %}
+          <option value="{{ j.id }}" {% if job_id == j.id %}selected{% endif %}>
+            JOB-{{ j.id }} · {{ j.type or 'Job' }}
+            {% if j.client %} · {{ j.client.display_name() }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <label class="small">
+      <input type="checkbox" name="is_key" value="1"> Mark as key document
+    </label>
+    <div class="actions">
+      <button class="btn wc-touch" type="submit" {% if not conn.connected or not conn.fresh %}disabled{% endif %}>Upload to OneDrive</button>
+      <a class="btn btn-outline wc-touch" href="/documents">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  var zone = document.getElementById('doc-dropzone');
+  var input = document.getElementById('doc-file');
+  var nameEl = document.getElementById('doc-file-name');
+  if (!zone || !input) return;
+  function showName() {
+    if (input.files && input.files[0]) {
+      nameEl.textContent = input.files[0].name;
+    }
+  }
+  input.addEventListener('change', showName);
+  ;['dragenter','dragover'].forEach(function (ev) {
+    zone.addEventListener(ev, function (e) {
+      e.preventDefault(); e.stopPropagation();
+      zone.classList.add('is-dragover');
+    });
+  });
+  ;['dragleave','drop'].forEach(function (ev) {
+    zone.addEventListener(ev, function (e) {
+      e.preventDefault(); e.stopPropagation();
+      zone.classList.remove('is-dragover');
+    });
+  });
+  zone.addEventListener('drop', function (e) {
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) {
+      input.files = files;
+      showName();
+    }
+  });
+})();
+</script>
+{% endblock %}

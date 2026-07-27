@@ -562,9 +562,11 @@ TASK_EXPORT_HEADERS = [
     "id",
     "title",
     "status",
+    "priority",
     "fee",
     "due_on",
     "period_end",
+    "source_email_date",
     "client_id",
     "client_name",
     "job_id",
@@ -576,9 +578,11 @@ TASK_EXPORT_HEADERS = [
 TASK_UPDATABLE = {
     "title",
     "status",
+    "priority",
     "fee",
     "due_on",
     "period_end",
+    "source_email_date",
     "client_id",
     "job_id",
     "description",
@@ -603,9 +607,11 @@ def export_tasks_csv(db: Session, *, status: str = "", include_closed: bool = Tr
                 "id": t.id,
                 "title": t.title or "",
                 "status": t.status or "",
+                "priority": t.priority or "Medium",
                 "fee": f"{float(t.fee or 0):.2f}",
                 "due_on": _fmt_date(t.due_on),
                 "period_end": _fmt_date(t.period_end),
+                "source_email_date": _fmt_date(getattr(t, "source_email_date", None)),
                 "client_id": t.client_id or "",
                 "client_name": t.client.display_name() if t.client else "",
                 "job_id": t.job_id or "",
@@ -637,7 +643,7 @@ def reimport_tasks(db: Session, text: str, *, allow_create: bool = True) -> Exch
                 if key not in row:
                     continue
                 raw = row.get(key)
-                if key in ("due_on", "period_end"):
+                if key in ("due_on", "period_end", "source_email_date"):
                     if raw is None or str(raw).strip() == "":
                         continue
                     val = _parse_date(raw)
@@ -653,7 +659,7 @@ def reimport_tasks(db: Session, text: str, *, allow_create: bool = True) -> Exch
                     val = (raw or "").strip() or task.title
                 else:
                     val = (raw or "").strip() or None
-                if getattr(task, key) != val:
+                if getattr(task, key, None) != val:
                     setattr(task, key, val)
                     changed = True
             if changed:
@@ -672,12 +678,15 @@ def reimport_tasks(db: Session, text: str, *, allow_create: bool = True) -> Exch
             result.skipped += 1
             result.errors.append(f"Row {idx}: title required to create task")
             continue
+        pri = (row.get("priority") or "Medium").strip() or "Medium"
         task = PracticeTask(
             title=title,
             status=(row.get("status") or "Planned").strip() or "Planned",
+            priority=pri,
             fee=_parse_float(row.get("fee")) or 0.0,
             due_on=_parse_date(row.get("due_on")),
             period_end=_parse_date(row.get("period_end")),
+            source_email_date=_parse_date(row.get("source_email_date")),
             client_id=_parse_int(row.get("client_id")),
             job_id=_parse_int(row.get("job_id")),
             description=(row.get("description") or "").strip() or None,

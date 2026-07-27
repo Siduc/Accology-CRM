@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}CH search · Prospecting{% endblock %}
+{% block minibar_title %}CH search{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting">← Prospecting</a></p>
+    <h1>Companies House search</h1>
+  </div>
+</div>
+<form class="card filters" method="get" action="/prospecting/ch/search">
+  <div style="flex:1">
+    <label class="small muted">Company name or number</label><br>
+    <input name="q" value="{{ q }}" style="min-width:16rem" required>
+  </div>
+  <div style="align-self:end"><button class="btn" type="submit">Search</button></div>
+</form>
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+{% if items %}
+<div class="card">
+  <table class="data">
+    <thead><tr><th>Name</th><th>Number</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for it in items %}
+      <tr>
+        <td>{{ it.company_name or it.title }}</td>
+        <td>{{ it.company_number }}</td>
+        <td class="small">{{ it.company_status or '—' }}</td>
+        <td>
+          <form method="post" action="/prospecting/ch/search/add">
+            <input type="hidden" name="company_number" value="{{ it.company_number }}">
+            <input type="hidden" name="company_name" value="{{ it.company_name or it.title or '' }}">
+            <button class="btn btn-sm" type="submit">Add prospect</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% elif q %}
+<p class="empty">No results.</p>
+{% endif %}
+{% endblock %}

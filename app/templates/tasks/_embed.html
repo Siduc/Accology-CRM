@@ -1,0 +1,64 @@
+{# Expects: tasks, embed_title, new_task_href, next_url, empty_msg #}
+<div class="card" id="practice-tasks" style="margin-top:1rem">
+  <div class="page-header" style="margin-bottom:0.75rem">
+    <div>
+      <h2 style="margin:0">{{ embed_title|default('Tasks') }}{% if tasks %} ({{ tasks|length }}){% endif %}</h2>
+    </div>
+    <div class="actions">
+      {% if new_task_href %}
+      <a class="btn btn-sm wc-touch" href="{{ new_task_href }}">Add task</a>
+      {% endif %}
+      <a class="btn btn-sm btn-outline wc-touch" href="/tasks/import">Import</a>
+    </div>
+  </div>
+  {% if tasks %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Task</th>
+          <th>Priority</th>
+          <th>Due</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tasks %}
+        <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
+          <td>
+            <a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a>
+          </td>
+          <td>
+            {% set p = t.display_priority() %}
+            <span class="badge priority-{{ p|lower }}">{{ p }}</span>
+          </td>
+          <td class="small">
+            {% if t.due_on %}
+              {% if t.is_overdue() %}<span class="badge badge-overdue">{{ t.due_on }}</span>
+              {% else %}{{ t.due_on }}{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td class="small">
+            {% if t.is_overdue() %}<span class="badge badge-overdue">{{ t.display_status() }}</span>
+            {% else %}<span class="badge">{{ t.display_status() }}</span>{% endif %}
+          </td>
+          <td class="actions">
+            {% if not t.is_closed() %}
+            <form method="post" action="/tasks/{{ t.id }}/complete" style="display:inline">
+              <input type="hidden" name="next" value="{{ next_url }}">
+              <button class="btn btn-sm btn-outline" type="submit">Done</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">{{ empty_msg|default('No open tasks.') }}
+    {% if new_task_href %}<a href="{{ new_task_href }}">Add one</a>.{% endif %}
+  </p>
+  {% endif %}
+</div>

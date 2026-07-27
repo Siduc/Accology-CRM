@@ -7,6 +7,9 @@
   <div>
     <h1>{{ page_title or 'Clients' }}</h1>
     <p class="muted small">{{ clients|length }} matching</p>
+    {% if book_note %}
+    <p class="muted small">{{ book_note }}</p>
+    {% endif %}
   </div>
   <div class="actions">
     <a class="btn btn-sm" href="/clients/new">Add Client</a>

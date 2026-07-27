@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Import outstanding tasks · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted" style="margin:0 0 0.35rem"><a href="/tasks">← Task ledger</a></p>
+    <h1 class="desk-page-title" style="font-size:clamp(1.35rem,3vw,1.75rem)">Import outstanding tasks</h1>
+    <p class="desk-page-sub muted small">
+      Bring items from <strong>Grok in Outlook</strong> — paste a list or upload CSV/Excel, review matches &amp; duplicates, then import.
+    </p>
+  </div>
+</div>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+{% if not preview %}
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">1 · Paste from Outlook / Grok</h2>
+  <p class="muted small">
+    One task per line, or use pipes: <code>Subject | Client | Due date</code>.
+    Labelled blocks also work (<code>Subject:</code>, <code>Client:</code>, <code>Due:</code>).
+  </p>
+  <form class="stack" method="post" action="/tasks/import" enctype="multipart/form-data">
+    <input type="hidden" name="action" value="preview">
+    <textarea name="paste_text" rows="12" style="width:100%;font-family:ui-monospace,monospace;font-size:0.9rem"
+              placeholder="File VAT return for Big Box Art · 31/07/2026&#10;Chase engagement letter | Parcel Planet | 15/08/2026&#10;&#10;Subject: Review payroll for Accology&#10;Client: Accology Pays Limited&#10;Due: 2026-08-01">{{ paste_text }}</textarea>
+
+    <h3 style="margin:1rem 0 0.35rem;font-size:1rem">Or upload CSV / Excel</h3>
+    <p class="muted small" style="margin-top:0">
+      Columns (flexible names): Subject/Title, Client/Company, Due date, Email date, Priority, Notes, Description, From email.
+    </p>
+    <input type="file" name="file" accept=".csv,.txt,.xlsx,.xlsm">
+
+    <div class="actions">
+      <button class="btn wc-touch" type="submit">Preview import</button>
+      <a class="btn btn-outline wc-touch" href="/tasks">Cancel</a>
+    </div>
+  </form>
+</div>
+{% else %}
+
+{# Summary chips #}
+<div class="wip-desk subdash-desk" style="margin-bottom:1rem">
+  <div class="wc-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="wc-box wc-box-wip">
+      <div class="wc-box-head"><span class="wc-box-title">Will create</span></div>
+      <div class="wc-box-value">{{ counts.will_create|default(0) }}</div>
+    </div>
+    <div class="wc-box wc-box-debtors">
+      <div class="wc-box-head"><span class="wc-box-title">Duplicates</span></div>
+      <div class="wc-box-value">{{ counts.duplicates|default(0) }}</div>
+    </div>
+    <div class="wc-box wc-box-cash">
+      <div class="wc-box-head"><span class="wc-box-title">Unmatched clients</span></div>
+      <div class="wc-box-value">{{ counts.unmatched|default(0) }}</div>
+    </div>
+    <div class="wc-box wc-box-creditors">
+      <div class="wc-box-head"><span class="wc-box-title">Rows</span></div>
+      <div class="wc-box-value">{{ counts.total|default(0) }}</div>
+    </div>
+  </div>
+</div>
+<div class="wip-mobile subdash-mobile" style="margin-bottom:1rem">
+  <div class="live-grid">
+    <div class="live-tile tile-wip"><span class="live-kicker">Create</span><span class="live-value">{{ counts.will_create|default(0) }}</span></div>
+    <div class="live-tile tile-debtors"><span class="live-kicker">Dupes</span><span class="live-value">{{ counts.duplicates|default(0) }}</span></div>
+    <div class="live-tile tile-cash"><span class="live-kicker">Unmatched</span><span class="live-value">{{ counts.unmatched|default(0) }}</span></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="page-header" style="margin-bottom:0.75rem">
+    <div>
+      <h2 style="margin:0">2 · Review before import</h2>
+      <p class="muted small" style="margin:0.35rem 0 0">
+        Duplicates are unchecked by default. Change client or priority per row, then import selected.
+      </p>
+    </div>
+  </div>
+
+  <form method="post" action="/tasks/import" id="task-import-commit">
+    <input type="hidden" name="action" value="commit">
+    <input type="hidden" name="review_json" value="{{ review_json|e }}">
+
+    <div class="table-wrap">
+      <table class="data task-import-table">
+        <thead>
+          <tr>
+            <th>Include</th>
+            <th>Subject</th>
+            <th>Client</th>
+            <th>Due</th>
+            <th>Source email</th>
+            <th>Priority</th>
+            <th>Flag</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr class="{% if r.is_duplicate %}row-muted{% endif %}{% if r.error %} row-overdue{% endif %}">
+            <td>
+              <input type="checkbox" name="include_{{ loop.index0 }}" value="1"
+                     {% if r.include %}checked{% endif %}
+                     {% if r.error %}disabled{% endif %}>
+            </td>
+            <td>
+              <strong>{{ r.subject }}</strong>
+              {% if r.description %}<div class="small muted">{{ r.description[:90] }}{% if r.description|length > 90 %}…{% endif %}</div>{% endif %}
+              {% if r.notes %}<div class="small muted">{{ r.notes[:60] }}</div>{% endif %}
+            </td>
+            <td>
+              {% if r.client_match_status == 'exact' or r.client_match_status == 'fuzzy' or r.client_match_status == 'number' or r.client_match_status == 'domain' %}
+              <span class="badge badge-active">{{ r.client_match_status }}</span>
+              {% elif r.client_match_status == 'ambiguous' %}
+              <span class="badge badge-progress">ambiguous</span>
+              {% elif r.client_raw %}
+              <span class="badge">unmatched</span>
+              {% else %}
+              <span class="muted small">standalone</span>
+              {% endif %}
+              <select name="client_id_{{ loop.index0 }}" style="max-width:12rem;display:block;margin-top:0.25rem">
+                <option value="">— Standalone —</option>
+                {% set cand_ids = r.client_candidates|map(attribute='id')|list %}
+                {% for c in clients %}
+                <option value="{{ c.id }}"
+                  {% if r.client_id == c.id %}selected
+                  {% elif not r.client_id and c.id in cand_ids and loop.first %}
+                  {% endif %}>
+                  {{ c.display_name() }}
+                </option>
+                {% endfor %}
+              </select>
+              {% if r.client_raw and not r.client_id %}
+              <div class="small muted">from: {{ r.client_raw }}</div>
+              {% endif %}
+            </td>
+            <td>
+              <input type="date" name="due_on_{{ loop.index0 }}" value="{{ r.due_on or '' }}" style="max-width:9.5rem">
+            </td>
+            <td class="small">{{ r.source_email_date or '—' }}</td>
+            <td>
+              <select name="priority_{{ loop.index0 }}">
+                {% for p in priorities %}
+                <option value="{{ p }}" {% if r.priority == p %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td class="small">
+              {% if r.error %}
+              <span class="badge badge-overdue">Error</span>
+              <div>{{ r.error }}</div>
+              {% elif r.is_duplicate %}
+              <span class="badge badge-overdue">Duplicate</span>
+              <div>
+                {% if r.duplicate_of_id %}
+                <a href="/tasks/{{ r.duplicate_of_id }}/edit">#{{ r.duplicate_of_id }}</a>
+                {% endif %}
+                {{ r.duplicate_reason }}
+              </div>
+              {% else %}
+              <span class="badge badge-active">New</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="actions" style="margin-top:1rem">
+      <button class="btn wc-touch" type="submit">Import selected</button>
+      <a class="btn btn-outline wc-touch" href="/tasks/import">Start over</a>
+      <a class="btn btn-outline wc-touch" href="/tasks">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

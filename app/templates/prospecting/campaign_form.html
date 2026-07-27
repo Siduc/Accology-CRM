@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}New campaign · Prospecting{% endblock %}
+{% block minibar_title %}New campaign{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting/campaigns">← Campaigns</a></p>
+    <h1>New campaign</h1>
+  </div>
+</div>
+<div class="card" style="max-width:40rem">
+  <form class="stack" method="post" action="/prospecting/campaigns/new">
+    <label>Name *</label>
+    <input name="name" required placeholder="e.g. New starts Q3 · Year-end package">
+    <label>Description</label>
+    <textarea name="description" rows="2"></textarea>
+    <div class="form-grid">
+      <div>
+        <label>Service (Services Ledger)</label>
+        <select name="service_id">
+          <option value="">— none —</option>
+          {% for s in services %}
+          <option value="{{ s.id }}">{{ s.name }} ({{ s.code }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Channel</label>
+        <select name="channel">
+          {% for ch in channels %}
+          <option value="{{ ch }}">{{ ch }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Status</label>
+        <select name="status">
+          {% for st in statuses %}
+          <option value="{{ st }}" {% if st == 'active' %}selected{% endif %}>{{ st }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <label>Sequence (JSON, optional)</label>
+    <textarea name="sequence_json" rows="3" placeholder='[{"type":"letter","offset_days":0},{"type":"email","offset_days":7}]'></textarea>
+    <div class="actions">
+      <button class="btn wc-touch" type="submit">Create campaign</button>
+      <a class="btn btn-outline" href="/prospecting/campaigns">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

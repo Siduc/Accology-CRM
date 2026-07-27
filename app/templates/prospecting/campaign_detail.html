@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ c.name }} · Campaign{% endblock %}
+{% block minibar_title %}Campaign{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting/campaigns">← Campaigns</a></p>
+    <h1>{{ c.name }}</h1>
+    <p class="muted small">
+      {{ c.channel }} · {{ c.status }}
+      {% if c.service_label %} · {{ c.service_label }}{% endif %}
+      · {{ members|length }} members
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn wc-touch" href="/prospecting/campaigns/{{ c.id }}/export/letter">Letter CSV</a>
+    <a class="btn btn-outline wc-touch" href="/prospecting/campaigns/{{ c.id }}/export/email">Email CSV</a>
+    <a class="btn btn-outline wc-touch" href="/prospecting/prospects">Add from list</a>
+  </div>
+</div>
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
+{% endif %}
+{% if c.description %}<p class="muted">{{ c.description }}</p>{% endif %}
+{% if c.sequence_json %}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Sequence</h2>
+  <pre class="small" style="white-space:pre-wrap">{{ c.sequence_json }}</pre>
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Import verified emails</h2>
+  <p class="muted small">CSV with columns email + company_number or company_name.</p>
+  <form class="stack" method="post" action="/prospecting/campaigns/{{ c.id }}/import-emails" enctype="multipart/form-data">
+    <input type="file" name="csv_file" accept=".csv,.txt">
+    <textarea name="csv_data" rows="3" placeholder="email,company_number&#10;a@b.com,12345678"></textarea>
+    <button class="btn btn-sm" type="submit">Import emails</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Members</h2>
+  {% if members %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Prospect</th><th>Pipeline</th><th>Email</th><th>Member status</th><th>Score</th></tr>
+      </thead>
+      <tbody>
+        {% for m in members %}
+        {% set p = m.prospect %}
+        <tr>
+          <td>
+            {% if p %}
+            <a href="/prospecting/prospects/{{ p.id }}"><strong>{{ p.display_name() }}</strong></a>
+            <div class="muted small">{{ p.company_number or '' }}</div>
+            {% else %}—{% endif %}
+          </td>
+          <td>{% if p %}{{ pipeline_labels.get(p.pipeline_status, p.pipeline_status) }}{% endif %}</td>
+          <td class="small">{% if p %}{{ p.email or '—' }}{% endif %}</td>
+          <td>{{ m.status }}</td>
+          <td>{% if p %}{{ p.score }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No members — select prospects on the list and add to this campaign.</p>
+  {% endif %}
+</div>
+{% endblock %}

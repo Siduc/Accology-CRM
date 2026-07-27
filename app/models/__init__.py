@@ -29,6 +29,15 @@ from app.models.sales import (
     PaymentAllocation,
     DebtChaseAction,
 )
+from app.models.prospecting import (
+    Prospect,
+    ProspectCampaign,
+    CampaignMember,
+    ProspectActivity,
+    ChSyncRun,
+)
+from app.models.ms_graph_token import MsGraphToken
+from app.models.document import Document, DocumentVersion
 
 __all__ = [
     "Client",
@@ -61,4 +70,12 @@ __all__ = [
     "DebtChaseAction",
     "PracticeTask",
     "DevBacklogItem",
+    "Prospect",
+    "ProspectCampaign",
+    "CampaignMember",
+    "ProspectActivity",
+    "ChSyncRun",
+    "MsGraphToken",
+    "Document",
+    "DocumentVersion",
 ]

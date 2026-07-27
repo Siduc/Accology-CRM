@@ -15,22 +15,18 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
   <title>{% block title %}Accologise{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=subdash-boxes1">
+  <link rel="stylesheet" href="/static/style.css?v=wip-book2">
   <script src="/static/dashboard_view.js?v=dual1" defer></script>
   <script src="/static/pwa.js?v=2" defer></script>
 </head>
 <body class="dash-auto {% if hide_nav %}body-hub{% else %}body-page{% endif %}">
   {% if not hide_nav %}
   <header class="minibar">
-    <a class="minibar-brand" href="/dashboard" title="Accologise home">
-      <span class="minibar-brand-mark" aria-hidden="true">A</span>
-      <span class="minibar-brand-text">
-        <span class="minibar-brand-name">Accologise</span>
-        <span class="minibar-brand-tag">Practice CRM</span>
-      </span>
-    </a>
-    <div class="minibar-right">
+    <a class="minibar-title" href="/dashboard" title="Dashboard home">Accologise</a>
+    {# Full nav only on large screens; phone uses footer #}
+    <div class="minibar-right minibar-nav-desk">
       <a class="minibar-logout" href="/sales">Sales</a>
+      <a class="minibar-logout" href="/prospecting">Prospecting</a>
       <a class="minibar-logout" href="/purchase">Purchase</a>
       <a class="minibar-logout" href="/bank">Bank</a>
       <a class="minibar-logout" href="/vat">VAT</a>
@@ -38,7 +34,12 @@
       <a class="minibar-logout" href="/groups">Groups</a>
       <a class="minibar-logout" href="/notes">Notes</a>
       <a class="minibar-logout" href="/tasks">Tasks</a>
+      <a class="minibar-logout" href="/documents">Documents</a>
       <a class="minibar-logout" href="/asana">Asana</a>
+      <a class="minibar-logout" href="/settings">Settings</a>
+      <a class="minibar-logout" href="/logout">Logout</a>
+    </div>
+    <div class="minibar-right minibar-nav-phone">
       <a class="minibar-logout" href="/settings">Settings</a>
       <a class="minibar-logout" href="/logout">Logout</a>
     </div>
@@ -48,7 +49,21 @@
     {% block content %}{% endblock %}
   </main>
   {% if not hide_nav %}
-  <footer class="site-footer"><strong>Accologise</strong> · Practice CRM</footer>
+  <nav class="foot-nav" aria-label="Main">
+    <a href="/sales">Sales</a>
+    <a href="/prospecting">Prospects</a>
+    <a href="/purchase">Purchase</a>
+    <a href="/bank">Bank</a>
+    <a href="/vat">VAT</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/services">Services</a>
+    <a href="/groups">Groups</a>
+    <a href="/notes">Notes</a>
+    <a href="/asana">Asana</a>
+    <a href="/settings">Settings</a>
+    <a href="/logout">Logout</a>
+  </nav>
+  <footer class="site-footer">Accologise · Practice CRM</footer>
   {% endif %}
 </body>
 </html>

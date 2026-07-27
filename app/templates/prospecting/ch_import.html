@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}CH import · Prospecting{% endblock %}
+{% block minibar_title %}CH import{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting">← Prospecting</a> · <a href="/prospecting/ch/search">Search</a></p>
+    <h1>Import new incorporations</h1>
+    <p class="muted small">Companies House advanced search → Prospect rows only (not Clients).</p>
+  </div>
+</div>
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
+{% endif %}
+{% if not ch_key %}
+<div class="alert alert-error">No Companies House API key — set COMPANIES_HOUSE_API_KEY or save key under CH jobs.</div>
+{% endif %}
+<div class="card" style="max-width:36rem">
+  <form class="stack" method="post" action="/prospecting/ch/import">
+    <div class="form-grid">
+      <div>
+        <label>Incorporated from *</label>
+        <input type="date" name="from_date" value="{{ default_from }}" required>
+      </div>
+      <div>
+        <label>To</label>
+        <input type="date" name="to_date" value="{{ today.isoformat() }}">
+      </div>
+      <div>
+        <label>SIC codes</label>
+        <input name="sic_codes" placeholder="69201,62020">
+      </div>
+      <div>
+        <label>Location</label>
+        <input name="location" placeholder="Birmingham">
+      </div>
+      <div>
+        <label>Limit</label>
+        <input name="limit" value="50" inputmode="numeric">
+      </div>
+    </div>
+    <button class="btn wc-touch" type="submit" {% if not ch_key %}disabled{% endif %}>Run import</button>
+  </form>
+</div>
+{% endblock %}

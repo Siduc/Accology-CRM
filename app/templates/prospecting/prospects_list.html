@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Prospects · Prospecting{% endblock %}
+{% block minibar_title %}Prospects{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting">← Prospecting</a></p>
+    <h1>Prospects</h1>
+    <p class="muted small">{{ rows|length }} shown · score · pipeline · filters</p>
+  </div>
+  <div class="actions">
+    <a class="btn wc-touch" href="/prospecting/prospects/new">New prospect</a>
+    <a class="btn btn-outline wc-touch" href="/prospecting/ch/import">CH import</a>
+  </div>
+</div>
+
+<form class="card filters" method="get" action="/prospecting/prospects" style="margin-bottom:1rem">
+  <div>
+    <label class="small muted">Search</label><br>
+    <input name="q" value="{{ q }}" placeholder="Name, number, email…">
+  </div>
+  <div>
+    <label class="small muted">Pipeline</label><br>
+    <select name="status">
+      <option value="">Open only</option>
+      {% for s in pipeline_statuses %}
+      <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ pipeline_labels.get(s, s) }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="small muted">SIC contains</label><br>
+    <input name="sic" value="{{ sic }}" placeholder="e.g. 62020">
+  </div>
+  <div>
+    <label class="small muted">Postcode</label><br>
+    <input name="postcode" value="{{ postcode }}" placeholder="B, CV…">
+  </div>
+  <div>
+    <label class="small muted">Min score</label><br>
+    <input name="min_score" value="{{ min_score }}" inputmode="numeric" style="width:5rem">
+  </div>
+  <div>
+    <label class="small muted">Campaign</label><br>
+    <select name="campaign_id">
+      <option value="">Any</option>
+      {% for c in campaigns %}
+      <option value="{{ c.id }}" {% if campaign_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div style="align-self:end">
+    <button class="btn btn-sm" type="submit">Filter</button>
+  </div>
+</form>
+
+{% if campaigns %}
+<form class="card" method="post" action="/prospecting/prospects/bulk-add-campaign" style="margin-bottom:1rem"
+      onsubmit="var ids=[].map.call(document.querySelectorAll('input[name=pick]:checked'),function(x){return x.value}); document.getElementById('bulk_ids').value=ids.join(','); return ids.length>0;">
+  <div class="actions" style="flex-wrap:wrap;align-items:end">
+    <div>
+      <label class="small muted">Add selected to campaign</label><br>
+      <select name="campaign_id" required>
+        {% for c in campaigns %}
+        <option value="{{ c.id }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <input type="hidden" name="prospect_ids" id="bulk_ids" value="">
+    <button class="btn btn-sm" type="submit">Add to campaign</button>
+  </div>
+</form>
+{% endif %}
+
+<div class="card">
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Company</th>
+          <th>Pipeline</th>
+          <th class="num">Value</th>
+          <th>Score</th>
+          <th>Location</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in rows %}
+        <tr class="row-link" onclick="window.location='/prospecting/prospects/{{ p.id }}'">
+          <td onclick="event.stopPropagation()"><input type="checkbox" name="pick" value="{{ p.id }}"></td>
+          <td>
+            <a href="/prospecting/prospects/{{ p.id }}" onclick="event.stopPropagation()"><strong>{{ p.display_name() }}</strong></a>
+            <div class="muted small">{{ p.company_number or '—' }}</div>
+          </td>
+          <td><span class="badge">{{ pipeline_labels.get(p.pipeline_status, p.pipeline_status) }}</span></td>
+          <td class="num"><strong>£{{ '{:,.0f}'.format(p.estimated_value or 0) }}</strong></td>
+          <td><strong>{{ p.score }}</strong></td>
+          <td class="small">{{ p.town or '—' }} {{ p.postcode or '' }}</td>
+          <td class="small">{{ p.source }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No prospects match. Try CH import or clear filters.</p>
+  {% endif %}
+</div>
+{% endblock %}

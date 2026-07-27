@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}{{ p.display_name() }} · Prospecting{% endblock %}
+{% block minibar_title %}Prospect{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting/prospects">← Prospects</a></p>
+    <h1>{{ p.display_name() }}</h1>
+    <p class="muted small">
+      {{ p.company_number or 'No CH number' }} ·
+      score <strong>{{ p.score }}</strong> ·
+      {{ pipeline_labels.get(p.pipeline_status, p.pipeline_status) }} ·
+      {{ p.source }}
+    </p>
+  </div>
+  <div class="actions">
+    {% if p.company_number and ch_key %}
+    <form method="post" action="/prospecting/prospects/{{ p.id }}/enrich" style="display:inline">
+      <button class="btn btn-outline wc-touch" type="submit">Enrich from CH</button>
+    </form>
+    <a class="btn btn-outline wc-touch" href="/prospecting/prospects/{{ p.id }}/filings">Filings</a>
+    {% endif %}
+    {% if not p.client_id %}
+    <form method="post" action="/prospecting/prospects/{{ p.id }}/convert" style="display:inline"
+          onsubmit="return confirm('Convert to Active client?');">
+      <button class="btn wc-touch" type="submit">Convert to client</button>
+    </form>
+    {% else %}
+    <a class="btn wc-touch" href="/clients/{{ p.client_id }}">Open client</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
+{% endif %}
+
+{# Pipeline stepper #}
+<div class="period-toggle" style="margin-bottom:1rem;flex-wrap:wrap" role="group">
+  {% for s in pipeline_statuses %}
+  <form method="post" action="/prospecting/prospects/{{ p.id }}/status" style="display:inline">
+    <input type="hidden" name="status" value="{{ s }}">
+    <button type="submit" class="period-btn {% if p.pipeline_status == s %}is-active{% endif %}">
+      {{ pipeline_labels.get(s, s) }}
+    </button>
+  </form>
+  {% endfor %}
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Company</h2>
+    <dl class="dl-grid">
+      <dt>Contact</dt><dd>{{ p.contact_name or '—' }}</dd>
+      <dt>Email</dt><dd>{{ p.email or '—' }}</dd>
+      <dt>Phone</dt><dd>{{ p.phone or '—' }}</dd>
+      <dt>Address</dt><dd>{{ p.address_block() or '—' }}</dd>
+      <dt>SIC</dt><dd>{{ p.sic_codes or '—' }}</dd>
+      <dt>Incorporated</dt><dd>{{ p.incorporation_date|uk_date if p.incorporation_date else '—' }}</dd>
+      <dt>CH status</dt><dd>{{ p.company_status or '—' }}</dd>
+      <dt>Accounts due</dt><dd>{{ p.accounts_next_due|uk_date if p.accounts_next_due else '—' }}</dd>
+      <dt>CS due</dt><dd>{{ p.cs_next_due|uk_date if p.cs_next_due else '—' }}</dd>
+      <dt>CH fetched</dt><dd>{{ p.ch_fetched_at or '—' }}</dd>
+      <dt>Pipeline value</dt><dd><strong>£{{ '%.2f'|format(p.estimated_value or 0) }}</strong></dd>
+    </dl>
+    {% if p.notes %}<p class="small" style="margin-top:0.75rem">{{ p.notes }}</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Add to campaign</h2>
+    {% if campaigns %}
+    <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/add-campaign">
+      <select name="campaign_id" required>
+        {% for c in campaigns %}
+        <option value="{{ c.id }}">{{ c.name }} ({{ c.channel }})</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm" type="submit">Add</button>
+    </form>
+    {% else %}
+    <p class="empty">No open campaigns. <a href="/prospecting/campaigns/new">Create one</a>.</p>
+    {% endif %}
+    {% if memberships %}
+    <h3 style="margin-top:1rem">Memberships</h3>
+    <ul class="chase-history">
+      {% for m in memberships %}
+      <li>
+        {% if m.campaign %}<a href="/prospecting/campaigns/{{ m.campaign_id }}">{{ m.campaign.name }}</a>{% else %}#{{ m.campaign_id }}{% endif %}
+        · {{ m.status }}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid-2" style="margin-top:1rem">
+  <div class="card">
+    <h2>Log activity</h2>
+    <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/activity">
+      <div class="form-grid">
+        <div>
+          <label>Type</label>
+          <select name="activity_type">
+            <option value="call">Call</option>
+            <option value="email">Email</option>
+            <option value="letter">Letter</option>
+            <option value="social">Social</option>
+            <option value="note" selected>Note</option>
+          </select>
+        </div>
+        <div>
+          <label>Direction</label>
+          <select name="direction">
+            <option value="outbound">Outbound</option>
+            <option value="inbound">Inbound</option>
+            <option value="internal">Internal</option>
+          </select>
+        </div>
+      </div>
+      <label>Subject</label>
+      <input name="subject">
+      <label>Detail</label>
+      <textarea name="body" rows="3"></textarea>
+      <button class="btn wc-touch" type="submit">Save activity</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Timeline</h2>
+    {% if activities %}
+    <ul class="chase-history">
+      {% for a in activities %}
+      <li>
+        <strong>{{ a.activity_type }}</strong>
+        {% if a.subject %} · {{ a.subject }}{% endif %}
+        <div class="muted small">{{ a.activity_at }} · {{ a.direction }}</div>
+        {% if a.body %}<div class="small">{{ a.body }}</div>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No activities yet.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

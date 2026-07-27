@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title }} · Documents{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted" style="margin:0 0 0.35rem"><a href="/documents">← Documents</a></p>
+    <h1 class="desk-page-title" style="font-size:clamp(1.35rem,3vw,1.75rem)">
+      {% if doc.is_key %}<span class="doc-key">★</span> {% endif %}{{ doc.title }}
+    </h1>
+    <p class="desk-page-sub muted small">
+      {{ doc.category }} · v{{ doc.version }}
+      {% if doc.client %} · <a href="/clients/{{ doc.client.id }}">{{ doc.client.display_name() }}</a>{% endif %}
+      {% if doc.job %} · <a href="/jobs/{{ doc.job.id }}">JOB-{{ doc.job.id }}</a>{% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm wc-touch" href="/documents/{{ doc.id }}/download">Download</a>
+    {% if doc.onedrive_web_url %}
+    <a class="btn btn-sm btn-outline wc-touch" href="{{ doc.onedrive_web_url }}" target="_blank" rel="noopener">Open in OneDrive</a>
+    {% endif %}
+    <form method="post" action="/documents/{{ doc.id }}/key" style="display:inline">
+      <button class="btn btn-sm btn-outline wc-touch" type="submit">{% if doc.is_key %}Unmark key{% else %}Mark key{% endif %}</button>
+    </form>
+  </div>
+</div>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+{% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
+
+{% if not conn.connected or not conn.fresh %}
+<div class="chase-banner chase-banner-info" style="margin-bottom:1rem">
+  Microsoft session issue — download/preview may fail.
+  <a class="btn btn-sm" href="/oauth/microsoft/start?return_to=/documents/{{ doc.id }}">Reconnect</a>
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">Preview</h2>
+  {% set kind = doc.preview_kind() %}
+  {% if kind == 'pdf' %}
+  <div class="doc-preview">
+    <iframe src="/documents/{{ doc.id }}/preview" title="PDF preview"></iframe>
+  </div>
+  {% elif kind == 'image' %}
+  <div class="doc-preview doc-preview-img">
+    <img src="/documents/{{ doc.id }}/preview" alt="{{ doc.title }}">
+  </div>
+  {% else %}
+  <p class="muted">No in-browser preview for this file type.
+    <a href="/documents/{{ doc.id }}/download">Download</a> to open.
+  </p>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">Details</h2>
+  <dl class="dl-grid">
+    <dt>File</dt><dd>{{ doc.original_filename or '—' }}</dd>
+    <dt>Size</dt><dd>{% if doc.size_bytes %}{{ '%.1f'|format(doc.size_bytes / 1024) }} KB{% else %}—{% endif %}</dd>
+    <dt>Uploaded</dt><dd>{{ doc.uploaded_at.strftime('%d-%m-%Y %H:%M') if doc.uploaded_at else '—' }} · {{ doc.uploaded_by or '—' }}</dd>
+    <dt>OneDrive path</dt><dd class="small">{{ doc.onedrive_path or '—' }}</dd>
+    <dt>Tags</dt><dd>{{ doc.tags or '—' }}</dd>
+    <dt>Description</dt><dd>{{ doc.description or '—' }}</dd>
+  </dl>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">Edit metadata</h2>
+  <form class="stack" method="post" action="/documents/{{ doc.id }}/edit">
+    <div>
+      <label>Title</label>
+      <input type="text" name="title" value="{{ doc.title }}" required style="width:100%">
+    </div>
+    <div>
+      <label>Description</label>
+      <textarea name="description" rows="2" style="width:100%">{{ doc.description or '' }}</textarea>
+    </div>
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div>
+        <label>Category</label>
+        <select name="category" style="width:100%">
+          {% for c in categories %}
+          <option value="{{ c }}" {% if doc.category == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Tags</label>
+        <input type="text" name="tags" value="{{ doc.tags or '' }}" style="width:100%">
+      </div>
+    </div>
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div>
+        <label>Client</label>
+        <select name="client_id" style="width:100%">
+          <option value="">—</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}" {% if doc.client_id == c.id %}selected{% endif %}>{{ c.display_name() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Job</label>
+        <select name="job_id" style="width:100%">
+          <option value="">—</option>
+          {% for j in jobs %}
+          <option value="{{ j.id }}" {% if doc.job_id == j.id %}selected{% endif %}>JOB-{{ j.id }} · {{ j.type or '' }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <label class="small"><input type="checkbox" name="is_key" value="1" {% if doc.is_key %}checked{% endif %}> Key document</label>
+    <button class="btn btn-sm wc-touch" type="submit">Save</button>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">Replace file (new version)</h2>
+  <form method="post" action="/documents/{{ doc.id }}/replace" enctype="multipart/form-data" class="stack">
+    <input type="file" name="file" required>
+    <button class="btn btn-sm wc-touch" type="submit">Upload new version</button>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">Version history</h2>
+  {% if versions %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Ver</th><th>File</th><th>Size</th><th>When</th><th>By</th><th>Note</th></tr>
+      </thead>
+      <tbody>
+        {% for v in versions %}
+        <tr>
+          <td>v{{ v.version }}</td>
+          <td class="small">{{ v.original_filename or '—' }}</td>
+          <td class="small">{% if v.size_bytes %}{{ '%.0f'|format(v.size_bytes / 1024) }} KB{% else %}—{% endif %}</td>
+          <td class="small">{{ v.uploaded_at.strftime('%d-%m-%Y %H:%M') if v.uploaded_at else '—' }}</td>
+          <td class="small">{{ v.uploaded_by or '—' }}</td>
+          <td class="small">{{ v.note or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No version history yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <form method="post" action="/documents/{{ doc.id }}/delete" onsubmit="return confirm('Delete this document from Accologise and OneDrive?');">
+    <input type="hidden" name="return_to" value="/documents">
+    <button class="btn btn-sm btn-outline" type="submit" style="color:#b91c1c">Delete document</button>
+  </form>
+</div>
+{% endblock %}

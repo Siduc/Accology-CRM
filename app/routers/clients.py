@@ -59,12 +59,69 @@ async def list_clients(
     request: Request,
     q: str = Query(""),
     status: str = Query(""),
+    book: str = Query(""),
+    as_of: str = Query(""),
+    cohort: str = Query(""),
     db: Session = Depends(get_db),
 ):
-    """Live clients — excludes Inactive (those appear under Lost Clients)."""
+    """Live clients — excludes Inactive (those appear under Lost Clients).
+
+    book=closing — dashboard Clients tile (joined, not lost) = New − Lost set.
+    book=on&as_of= — on the book at a date (engagement/invoice stock).
+    cohort=all|YYYY — New tile (ever joined, or joined in year).
+    """
     query = db.query(Client)
     query = _client_search(query, q)
-    if status:
+    page_title = "Clients"
+    book_note = ""
+    book_key = (book or "").strip().lower()
+    cohort_key = (cohort or "").strip().lower()
+
+    if book_key in ("closing", "close", "clients"):
+        from app.routers.dashboard import _closing_client_ids
+
+        ids = _closing_client_ids(db)
+        if ids:
+            query = query.filter(Client.id.in_(ids))
+        else:
+            query = query.filter(Client.id == -1)
+        page_title = "Clients · closing stock"
+        book_note = (
+            f"{len(ids)} clients = New − Lost (joined via engagement/first invoice, "
+            "not currently lost). Matches the dashboard Clients tile on Overall."
+        )
+    elif book_key in ("on", "1", "true", "yes"):
+        from app.routers.dashboard import _on_books_client_ids
+
+        as_of_d = _parse_date(as_of) or date.today()
+        ids = _on_books_client_ids(db, as_of_d)
+        if ids:
+            query = query.filter(Client.id.in_(ids))
+        else:
+            query = query.filter(Client.id == -1)
+        page_title = f"On books · {as_of_d.strftime('%d-%m-%Y')}"
+        book_note = (
+            f"Practice book at {as_of_d.strftime('%d-%m-%Y')} — "
+            f"engagement/first invoice through before leave/disengagement."
+        )
+    elif cohort_key:
+        from app.routers.dashboard import _new_client_ids
+
+        year = int(cohort_key) if cohort_key.isdigit() else None
+        ids = _new_client_ids(db, year)
+        if ids:
+            query = query.filter(Client.id.in_(ids))
+        else:
+            query = query.filter(Client.id == -1)
+        page_title = (
+            f"New clients · {year}" if year else "New clients · all time"
+        )
+        book_note = (
+            f"{len(ids)} clients with a join date"
+            + (f" in {year}" if year else " (engagement or first invoice).")
+            + " Matches the dashboard New tile."
+        )
+    elif status:
         if status == "Inactive":
             return RedirectResponse("/lost/clients", status_code=303)
         query = query.filter(Client.overall_status == status)
@@ -82,8 +139,11 @@ async def list_clients(
             "clients": clients,
             "q": q,
             "status": status,
+            "book": book,
+            "as_of": as_of,
+            "book_note": book_note,
             "statuses": LIVE_STATUSES,
-            "page_title": "Clients",
+            "page_title": page_title,
             "view": "live",
             "all_statuses": STATUSES,
             "lost_count": db.query(Client)
@@ -289,6 +349,28 @@ async def client_detail(
     except Exception:
         ch_oauth_connected = False
 
+    documents = []
+    docs_conn = {
+        "configured": False,
+        "connected": False,
+        "fresh": False,
+    }
+    try:
+        from app.services import documents as docs_svc
+
+        documents = docs_svc.list_documents(db, client_id=client_id, limit=100)
+        docs_conn = docs_svc.docs_connection(db)
+    except Exception:
+        documents = []
+
+    client_tasks = []
+    try:
+        from app.services.practice_tasks import list_tasks
+
+        client_tasks = list_tasks(db, client_id=client_id, include_closed=False, limit=50)
+    except Exception:
+        client_tasks = []
+
     # Pre-serialize chart JSON so template never fails on tojson edge cases
     import json
 
@@ -318,6 +400,9 @@ async def client_detail(
             "active_tab": tab or "overview",
             "latest_cs_pack": latest_cs_pack,
             "ch_oauth_connected": ch_oauth_connected,
+            "documents": documents,
+            "docs_conn": docs_conn,
+            "client_tasks": client_tasks,
         },
     )
 

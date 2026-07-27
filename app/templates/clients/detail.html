@@ -74,6 +74,8 @@
 <nav class="tabs" role="tablist" aria-label="Client sections">
   <button type="button" class="tab-btn {% if active_tab == 'overview' or not active_tab %}active{% endif %}" data-tab="overview" role="tab">Overview</button>
   <button type="button" class="tab-btn {% if active_tab == 'details' %}active{% endif %}" data-tab="details" role="tab">Details</button>
+  <button type="button" class="tab-btn {% if active_tab == 'documents' %}active{% endif %}" data-tab="documents" role="tab">Documents{% if documents %} ({{ documents|length }}){% endif %}</button>
+  <button type="button" class="tab-btn {% if active_tab == 'tasks' %}active{% endif %}" data-tab="tasks" role="tab">Tasks{% if client_tasks %} ({{ client_tasks|length }}){% endif %}</button>
   <button type="button" class="tab-btn {% if active_tab == 'connections' %}active{% endif %}" data-tab="connections" role="tab">Connections</button>
   <button type="button" class="tab-btn {% if active_tab == 'fees' %}active{% endif %}" data-tab="fees" role="tab">Previous fees</button>
 </nav>
@@ -647,6 +649,73 @@
 </div>
 
 {# ========== PREVIOUS FEES + PREVIOUS JOBS ========== #}
+<div class="tab-panel {% if active_tab == 'tasks' %}active{% endif %}" id="tab-tasks" role="tabpanel" {% if active_tab != 'tasks' %}hidden{% endif %}>
+  {% with tasks=client_tasks|default([]), embed_title='Tasks', new_task_href='/tasks/new?client_id=' ~ client.id, next_url='/clients/' ~ client.id ~ '?tab=tasks', empty_msg='No open tasks for this client.' %}
+  {% include "tasks/_embed.html" %}
+  {% endwith %}
+</div>
+
+<div class="tab-panel {% if active_tab == 'documents' %}active{% endif %}" id="tab-documents" role="tabpanel" {% if active_tab != 'documents' %}hidden{% endif %}>
+  <div class="card" id="documents">
+    <div class="page-header" style="margin-bottom:0.75rem">
+      <div>
+        <h2 style="margin:0">Documents{% if documents %} ({{ documents|length }}){% endif %}</h2>
+        <p class="muted small" style="margin:0.35rem 0 0">Stored in Microsoft OneDrive under this client’s folder.</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-sm wc-touch" href="/documents/new?client_id={{ client.id }}">Upload</a>
+        <a class="btn btn-sm btn-outline wc-touch" href="/documents?client_id={{ client.id }}">All for client</a>
+      </div>
+    </div>
+    {% if not docs_conn.connected or not docs_conn.fresh %}
+    <div class="chase-banner chase-banner-info" style="margin-bottom:0.75rem">
+      {% if not docs_conn.configured %}
+      Configure Microsoft Graph in Settings to store documents in OneDrive.
+      {% elif not docs_conn.connected %}
+      <a href="/oauth/microsoft/start?return_to=/clients/{{ client.id }}?tab=documents">Connect Microsoft</a> to upload documents.
+      {% else %}
+      <a href="/oauth/microsoft/start?return_to=/clients/{{ client.id }}?tab=documents">Reconnect Microsoft</a> — session expired.
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if documents %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Title</th>
+            <th>Category</th>
+            <th>Uploaded</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in documents %}
+          <tr>
+            <td>{% if d.is_key %}<span class="doc-key">★</span>{% endif %}</td>
+            <td>
+              <a href="/documents/{{ d.id }}"><strong>{{ d.title }}</strong></a>
+              <div class="small muted">{{ d.original_filename or '' }}</div>
+            </td>
+            <td class="small">{{ d.category }}</td>
+            <td class="small">{{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '—' }}</td>
+            <td class="actions">
+              <a class="btn btn-sm btn-outline" href="/documents/{{ d.id }}/download">↓</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No documents for this client yet.
+      <a href="/documents/new?client_id={{ client.id }}">Upload the first one</a>.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
 <div class="tab-panel {% if active_tab == 'fees' %}active{% endif %}" id="tab-fees" role="tabpanel" {% if active_tab != 'fees' %}hidden{% endif %}>
   <div class="card">
     <h2>Previous fees &amp; jobs</h2>

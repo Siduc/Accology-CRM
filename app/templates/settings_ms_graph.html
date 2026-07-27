@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Microsoft OneDrive · Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted" style="margin:0 0 0.35rem"><a href="/settings">← Settings</a></p>
+    <h1 class="desk-page-title">Microsoft Graph · OneDrive</h1>
+    <p class="desk-page-sub muted small">Practice document storage via Microsoft Graph API.</p>
+  </div>
+</div>
+
+{% if oauth_error %}<div class="alert alert-error">{{ oauth_error }}</div>{% endif %}
+{% if oauth_msg == 'connected' %}
+<div class="chase-banner chase-banner-info">Microsoft OneDrive connected.</div>
+{% elif oauth_msg == 'disconnected' %}
+<div class="chase-banner chase-banner-info">Microsoft connection removed.</div>
+{% endif %}
+
+<div class="card settings-card">
+  <h3>Connection status</h3>
+  {% if status.connected and status.fresh %}
+  <p class="chase-banner chase-banner-info" style="margin:0 0 0.75rem">
+    Connected as <strong>{{ status.email or 'Microsoft account' }}</strong>
+  </p>
+  {% elif status.connected %}
+  <p class="alert alert-error" style="margin:0 0 0.75rem">Token expired — reconnect required.</p>
+  {% elif configured %}
+  <p class="muted">App credentials are set, but OneDrive is not connected yet.</p>
+  {% else %}
+  <p class="muted">Add <code>MS_GRAPH_CLIENT_ID</code>, <code>MS_GRAPH_CLIENT_SECRET</code> and
+    <code>MS_GRAPH_REDIRECT_URI</code> to <code>.env</code>, then restart the app.</p>
+  {% endif %}
+
+  <dl class="dl-grid">
+    <dt>Client ID</dt><dd><code>{{ client_mask or '—' }}</code></dd>
+    <dt>Secret</dt><dd>{% if secret_set %}set{% else %}<em>missing</em>{% endif %}</dd>
+    <dt>Redirect URI</dt><dd><code class="small">{{ redirect_uri }}</code></dd>
+    <dt>Drive id</dt><dd class="small">{{ status.drive_id or '—' }}</dd>
+    <dt>Root folder id</dt><dd class="small">{{ status.root_folder_id or '—' }}</dd>
+    <dt>Expires</dt><dd class="small">{{ status.expires_at or '—' }}</dd>
+  </dl>
+
+  {% if probe %}
+  <p class="small muted" style="margin-top:0.75rem">
+    Probe: {% if probe.ok %}OK · {{ probe.email }} · drive {{ probe.drive_id }}{% else %}{{ probe.error }}{% endif %}
+  </p>
+  {% endif %}
+
+  <div class="actions" style="margin-top:1rem">
+    {% if configured %}
+    <a class="btn wc-touch" href="/oauth/microsoft/start?return_to=/settings/microsoft-graph">
+      {% if status.connected %}Reconnect Microsoft{% else %}Connect Microsoft{% endif %}
+    </a>
+    {% endif %}
+    {% if status.connected %}
+    <form method="post" action="/settings/microsoft-graph/probe" style="display:inline">
+      <button class="btn btn-outline wc-touch" type="submit">Test connection</button>
+    </form>
+    <form method="post" action="/oauth/microsoft/disconnect" style="display:inline">
+      <input type="hidden" name="return_to" value="/settings/microsoft-graph">
+      {% if status.token_id %}<input type="hidden" name="token_id" value="{{ status.token_id }}">{% endif %}
+      <button class="btn btn-outline wc-touch" type="submit">Disconnect</button>
+    </form>
+    {% endif %}
+    <a class="btn btn-outline wc-touch" href="/documents">Documents</a>
+  </div>
+</div>
+
+<div class="card settings-card" style="margin-top:1rem">
+  <h3>Azure app setup</h3>
+  <ol class="small" style="padding-left:1.2rem;line-height:1.55">
+    <li>Azure Portal → App registrations → New registration.</li>
+    <li>Add a <strong>Web</strong> redirect URI matching <code>{{ redirect_uri }}</code>.</li>
+    <li>Certificates &amp; secrets → new client secret.</li>
+    <li>API permissions (delegated): <code>Files.ReadWrite</code>, <code>User.Read</code>, <code>offline_access</code>.</li>
+    <li>Copy Client ID &amp; secret into <code>.env</code> and restart Accologise.</li>
+  </ol>
+  <p class="small muted">Folder tree created on first upload:
+    <code>Accologise Documents / Clients / …</code> and
+    <code>Accologise Documents / Jobs / JOB-…</code>.
+  </p>
+</div>
+{% endblock %}

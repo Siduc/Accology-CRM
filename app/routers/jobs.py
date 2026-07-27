@@ -339,6 +339,25 @@ async def create_job(
     return RedirectResponse(f"/jobs/{job.id}", status_code=303)
 
 
+@router.post("/{job_id:int}/status-quick")
+async def job_status_quick(
+    job_id: int,
+    status: str = Form(...),
+    next: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Change job workflow status from any list (returns to next or job page)."""
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if job and status in JOB_STATUSES:
+        job.status = status
+        job.updated_at = datetime.utcnow()
+        db.commit()
+    dest = (next or "").strip() or f"/jobs/{job_id}"
+    if not dest.startswith("/"):
+        dest = f"/jobs/{job_id}"
+    return RedirectResponse(dest, status_code=303)
+
+
 @router.get("/{job_id:int}", response_class=HTMLResponse)
 async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db)):
     job = (
@@ -352,6 +371,26 @@ async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db
     from app.services.client_connections import is_connected
 
     asana_enabled = is_connected(db, job.client_id, "asana") if job.client_id else False
+    documents = []
+    docs_conn = {
+        "configured": False,
+        "connected": False,
+        "fresh": False,
+    }
+    try:
+        from app.services import documents as docs_svc
+
+        documents = docs_svc.list_documents(db, job_id=job_id, limit=100)
+        docs_conn = docs_svc.docs_connection(db)
+    except Exception:
+        documents = []
+    job_tasks = []
+    try:
+        from app.services.practice_tasks import list_tasks
+
+        job_tasks = list_tasks(db, job_id=job_id, include_closed=False, limit=50)
+    except Exception:
+        job_tasks = []
     return render(
         request,
         "jobs/detail.html",
@@ -361,6 +400,9 @@ async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db
             "asana_msg": request.query_params.get("asana_msg", ""),
             "asana_error": request.query_params.get("asana_error", ""),
             "asana_enabled": asana_enabled,
+            "documents": documents,
+            "docs_conn": docs_conn,
+            "job_tasks": job_tasks,
         },
     )
 

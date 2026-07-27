@@ -15,12 +15,16 @@ from app.config import (
     CH_OAUTH_CLIENT_SECRET,
     CH_OAUTH_REDIRECT_URI,
     CHASE_LIVE_MODE,
+    MS_GRAPH_CLIENT_ID,
+    MS_GRAPH_CLIENT_SECRET,
+    MS_GRAPH_REDIRECT_URI,
     PRACTICE_EMAIL,
     PRACTICE_NAME,
     PRACTICE_PHONE,
     SMTP_FROM,
     SMTP_HOST,
     ch_oauth_configured,
+    ms_graph_configured,
 )
 from app.database import get_db
 from app.models.dev_backlog import DevBacklogItem
@@ -34,6 +38,10 @@ from app.services.ch_oauth import (
     redirect_uri_warning,
 )
 from app.services.dev_backlog import list_backlog, seed_system_backlog
+from app.services.ms_graph_oauth import (
+    connection_status as ms_connection_status,
+    mask_client_id as ms_mask_client_id,
+)
 from app.templating import render
 
 router = APIRouter(tags=["settings"])
@@ -53,6 +61,15 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
         backlog = []
     oauth_last = latest_oauth_summary()
     oauth_stu = diagnose_stu_from_events()
+    try:
+        ms_status = ms_connection_status(db)
+    except Exception:
+        ms_status = {
+            "configured": ms_graph_configured(),
+            "connected": False,
+            "fresh": False,
+            "email": "",
+        }
     return render(
         request,
         "settings.html",
@@ -77,6 +94,11 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "ch_oauth_tokens": oauth_tokens,
             "ch_oauth_last": oauth_last,
             "ch_oauth_stu": oauth_stu,
+            "ms_graph_configured": ms_graph_configured(),
+            "ms_graph_client_mask": ms_mask_client_id(MS_GRAPH_CLIENT_ID),
+            "ms_graph_secret_set": bool((MS_GRAPH_CLIENT_SECRET or "").strip()),
+            "ms_graph_redirect": MS_GRAPH_REDIRECT_URI or "",
+            "ms_status": ms_status,
             "oauth_error": request.query_params.get("oauth_error", ""),
             "oauth_msg": request.query_params.get("oauth_msg", ""),
             "backlog": backlog,

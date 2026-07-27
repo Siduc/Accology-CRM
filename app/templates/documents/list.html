@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Documents · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="desk-page-title" style="font-size:clamp(1.45rem,3vw,1.9rem)">Documents</h1>
+    <p class="desk-page-sub muted small">
+      Stored in Microsoft OneDrive ·
+      {% if conn.connected and conn.fresh %}
+      <span class="badge badge-success">Connected · {{ conn.email or 'OneDrive' }}</span>
+      {% elif conn.connected %}
+      <span class="badge badge-overdue">Reconnect required</span>
+      {% elif conn.configured %}
+      <span class="badge">Not connected</span>
+      {% else %}
+      <span class="badge">Microsoft not configured</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm wc-touch" href="/documents/new">Upload</a>
+    <a class="btn btn-sm btn-outline wc-touch" href="/settings/microsoft-graph">Microsoft</a>
+  </div>
+</div>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+{% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
+
+{% if not conn.connected or not conn.fresh %}
+<div class="chase-banner chase-banner-info" style="margin-bottom:1rem">
+  {% if not conn.configured %}
+  Set <code>MS_GRAPH_CLIENT_ID</code> and <code>MS_GRAPH_CLIENT_SECRET</code> in <code>.env</code>, then restart.
+  {% elif not conn.connected %}
+  Connect Microsoft OneDrive to upload and open practice documents.
+  <a class="btn btn-sm wc-touch" href="/oauth/microsoft/start?return_to=/documents">Connect Microsoft</a>
+  {% else %}
+  Your Microsoft session needs re-authorisation.
+  <a class="btn btn-sm wc-touch" href="/oauth/microsoft/start?return_to=/documents">Reconnect</a>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="wip-desk subdash-desk" style="margin-bottom:1rem">
+  <div class="wc-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+    <div class="wc-box wc-box-wip">
+      <div class="wc-box-head"><span class="wc-box-title">All documents</span></div>
+      <div class="wc-box-value">{{ counts.total|default(0) }}</div>
+    </div>
+    <div class="wc-box wc-box-debtors">
+      <div class="wc-box-head"><span class="wc-box-title">Key documents</span></div>
+      <div class="wc-box-value">{{ counts.key|default(0) }}</div>
+    </div>
+    <div class="wc-box wc-box-cash">
+      <div class="wc-box-head"><span class="wc-box-title">In this list</span></div>
+      <div class="wc-box-value">{{ documents|length }}</div>
+    </div>
+  </div>
+</div>
+<div class="wip-mobile subdash-mobile" style="margin-bottom:1rem">
+  <div class="live-grid">
+    <div class="live-tile tile-wip">
+      <span class="live-kicker">All</span>
+      <span class="live-value">{{ counts.total|default(0) }}</span>
+    </div>
+    <div class="live-tile tile-debtors">
+      <span class="live-kicker">Key</span>
+      <span class="live-value">{{ counts.key|default(0) }}</span>
+    </div>
+  </div>
+</div>
+
+<form class="filters card" method="get" action="/documents" style="margin-bottom:1rem">
+  <div>
+    <label class="small muted">Search</label><br>
+    <input type="search" name="q" value="{{ q }}" placeholder="Title, tags, file…">
+  </div>
+  <div>
+    <label class="small muted">Category</label><br>
+    <select name="category">
+      <option value="">All</option>
+      {% for c in categories %}
+      <option value="{{ c }}" {% if filter_category == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="small muted">Client</label><br>
+    <select name="client_id">
+      <option value="">All clients</option>
+      {% for c in clients %}
+      <option value="{{ c.id }}" {% if filter_client_id == c.id %}selected{% endif %}>{{ c.display_name() }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="small muted">Key only</label><br>
+    <label class="small"><input type="checkbox" name="key_only" value="1" {% if key_only %}checked{% endif %}> Key documents</label>
+  </div>
+  <div style="align-self:flex-end">
+    <button class="btn btn-sm wc-touch" type="submit">Filter</button>
+    <a class="btn btn-sm btn-outline wc-touch" href="/documents">Clear</a>
+  </div>
+</form>
+
+<div class="card">
+  {% if documents %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Title</th>
+          <th>Category</th>
+          <th>Client</th>
+          <th>Job</th>
+          <th>Uploaded</th>
+          <th>By</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in documents %}
+        <tr>
+          <td>{% if d.is_key %}<span class="doc-key" title="Key document">★</span>{% endif %}</td>
+          <td>
+            <a href="/documents/{{ d.id }}"><strong>{{ d.title }}</strong></a>
+            <div class="small muted">{{ d.original_filename or '' }}</div>
+          </td>
+          <td class="small">{{ d.category }}</td>
+          <td class="small">
+            {% if d.client %}<a href="/clients/{{ d.client.id }}">{{ d.client.display_name() }}</a>{% else %}—{% endif %}
+          </td>
+          <td class="small">
+            {% if d.job %}<a href="/jobs/{{ d.job.id }}">JOB-{{ d.job.id }}</a>{% else %}—{% endif %}
+          </td>
+          <td class="small">{{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '—' }}</td>
+          <td class="small">{{ d.uploaded_by or '—' }}</td>
+          <td class="actions">
+            <a class="btn btn-sm btn-outline" href="/documents/{{ d.id }}/download">↓</a>
+            <a class="btn btn-sm btn-outline" href="/documents/{{ d.id }}">Open</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No documents match these filters.
+    {% if conn.connected %}<a href="/documents/new">Upload one</a>.{% endif %}
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

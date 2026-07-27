@@ -3,106 +3,103 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="small muted"><a href="/dashboard#working-capital">← Working capital</a></p>
-    <h1>Work in progress</h1>
-    <p class="muted small">
-      {{ count }} open jobs · WIP £{{ '{:,.2f}'.format(total) }}
-      (jobs £{{ '{:,.0f}'.format(jobs_value|default(0)) }}
-      {% if (retainer_count|default(0)) > 0 %}
-      + retainers £{{ '{:,.0f}'.format(retainer_annual|default(0)) }}/yr
-      · {{ retainer_count }} clients · £{{ '{:,.0f}'.format(retainer_monthly|default(0)) }}/mo
-      {% endif %}
-      ) · as at {{ today.strftime('%d-%m-%Y') }}
+    <h1 class="desk-page-title" style="font-size:clamp(1.55rem,3vw,1.95rem)">Work in progress</h1>
+    <p class="desk-page-sub">
+      {{ count }} open jobs · £{{ '{:,.0f}'.format(total) }}
+      · as at {{ today.strftime('%d-%m-%Y') }}
     </p>
   </div>
-  <div class="actions wip-top-actions">
-    <a class="btn wc-touch" href="/jobs/new?next=/working-capital/wip">New job</a>
-    <a class="btn btn-outline wc-touch" href="/tasks/new?next=/working-capital/wip">New task</a>
+  {# Desk: same quick actions as dashboard #}
+  <div class="actions wip-top-actions wip-actions-desk">
+    <a class="btn btn-sm" href="/jobs/new?next=/working-capital/wip">New Job</a>
+    <a class="btn btn-sm btn-secondary" href="/clients/new">New Client</a>
+    <a class="btn btn-sm btn-outline" href="/prospecting/prospects/new">New Prospect</a>
   </div>
 </div>
 
-{% set box_class = {
-  'accounts': 'wc-box-wip',
-  'cs': 'wc-box-debtors',
-  'tasks': 'wc-box-cash',
-  'vat': 'wc-box-creditors',
-  'imminent': 'wc-box-creditors',
-  'planning': 'wc-box-wip',
-  'pre_planning': 'wc-box-debtors',
-  'later': 'wc-box-cash'
-} %}
-{% set tile_class = {
-  'accounts': 'tile-wip',
-  'cs': 'tile-debtors',
-  'tasks': 'tile-cash',
-  'vat': 'tile-creditors',
-  'imminent': 'tile-creditors',
-  'planning': 'tile-wip',
-  'pre_planning': 'tile-debtors',
-  'later': 'tile-cash'
-} %}
+{# Phone: action tiles like main dashboard #}
+<div class="action-tiles wip-action-tiles" role="navigation" aria-label="Quick actions">
+  <a class="action-tile action-job" href="/jobs/new?next=/working-capital/wip">
+    <span class="action-plus">+</span>
+    <span class="action-label">New Job</span>
+  </a>
+  <a class="action-tile action-client" href="/clients/new">
+    <span class="action-plus">+</span>
+    <span class="action-label">New Client</span>
+  </a>
+  <a class="action-tile action-prospect" href="/prospecting/prospects/new">
+    <span class="action-plus">+</span>
+    <span class="action-label">New Prospect</span>
+  </a>
+</div>
 
-{# ========== LEVEL 1: four metric boxes + total (dashboard style) ========== #}
-{% if show_type_home %}
-<p class="small muted subdash-hint">Same layout as the main dashboard — open a box to age it, then filter the list. VAT opens the VAT ledger.</p>
+{% if show_age_home %}
+<p class="small muted subdash-hint wip-hint-desk">
+  <strong>Today</strong> = overdue + this month + status Today · then next three months · everything else.
+</p>
 
-{# —— Desktop professional —— #}
-<div class="wip-desk subdash-desk">
-  <div class="wc-grid" aria-label="WIP type metrics">
-    {% for m in type_metrics %}
+<div class="wip-desk subdash-desk wc-cycle">
+  {# Today — same format as Total WIP banner #}
+  <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch"
+     href="/working-capital/wip?horizon=today">
+    <div class="wc-net-main">
+      <div class="wc-net-label">Today</div>
+      <div class="wc-net-value">£{{ '{:,.0f}'.format(today_band.amount) }}</div>
+      <div class="wc-net-formula small">
+        {{ today_band.count }} jobs · overdue · imminent · status Today
+      </div>
+    </div>
+    <p class="wc-net-hint small">Types + list →</p>
+  </a>
+
+  <div class="wc-grid" aria-label="WIP months">
+    {% for b in mid_bands %}
     {% set n = loop.index %}
-    <a class="wc-box {{ box_class.get(m.kind, 'wc-box-wip') }} wc-touch" href="{{ m.href }}">
+    <a class="wc-box {{ mid_box_class.get(b.key, 'wc-box-wip') }} wc-touch"
+       href="/working-capital/wip?horizon={{ b.key }}">
       <div class="wc-box-head">
-        <span class="wc-box-title">{{ n }} · {{ m.label }}</span>
-        <span class="wc-box-link">{% if m.kind == 'vat' %}VAT →{% else %}Age →{% endif %}</span>
+        <span class="wc-box-title">{{ n }} · {{ b.label }}</span>
+        <span class="wc-box-link">Types →</span>
       </div>
-      <div class="wc-box-value">
-        {% if m.kind == 'vat' and m.amount_signed is defined and m.amount_signed < 0 %}-{% endif %}£{{ '{:,.0f}'.format(m.amount) }}
-      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(b.amount) }}</div>
       <div class="wc-box-meta">
-        {% if m.kind == 'vat' %}
-          {{ m.subtitle|default('This quarter') }} · net VAT
-        {% else %}
-          {{ m.count }} {{ m.unit }} · drill for horizons
-        {% endif %}
+        <span class="wc-box-meta-num">{{ b.count }}</span>
+        jobs · {{ b.detail|default('') }}
       </div>
     </a>
     {% endfor %}
   </div>
 
-  <section class="wc-net-banner wc-net-result wc-net-pos" aria-label="Total WIP">
+  <section class="wc-net-banner wc-net-result wc-total-banner wc-net-pos">
     <div class="wc-net-main">
       <div class="wc-net-label">Total WIP</div>
       <div class="wc-net-value">£{{ '{:,.0f}'.format(total) }}</div>
-      <div class="wc-net-formula muted small">
+      <div class="wc-net-formula small">
         Jobs £{{ '{:,.0f}'.format(jobs_value|default(0)) }}
         {% if (retainer_annual|default(0)) > 0 %}+ retainers £{{ '{:,.0f}'.format(retainer_annual) }}/yr{% endif %}
         {% if (tasks_value|default(0)) > 0 %}+ tasks £{{ '{:,.0f}'.format(tasks_value) }}{% endif %}
-        · {{ count }} jobs
       </div>
     </div>
-    <p class="wc-net-hint muted small">Sum of open work. Tap a box above for aged columns.</p>
   </section>
 </div>
 
-{# —— Phone Live OS —— #}
 <div class="wip-mobile subdash-mobile">
-  <div class="live-grid" aria-label="WIP type Live tiles">
-    {% for m in type_metrics %}
-    {% set n = loop.index %}
-    <a class="live-tile {{ tile_class.get(m.kind, 'tile-wip') }}" href="{{ m.href }}">
-      <span class="live-kicker">{{ n }} · {{ m.label }}</span>
-      <span class="live-value">
-        {% if m.kind == 'vat' and m.amount_signed is defined and m.amount_signed < 0 %}-{% endif %}£{{ '{:,.0f}'.format(m.amount) }}
-      </span>
-      <span class="live-sub">
-        {% if m.kind == 'vat' %}{{ m.subtitle|default('VAT ledger') }}{% else %}{{ m.count }} {{ m.unit }}{% endif %}
-      </span>
-      <span class="live-age"><span>{% if m.kind == 'vat' %}Open service{% else %}Tap to age{% endif %}</span></span>
+  <a class="live-tile live-tile-wide tile-creditors" href="/working-capital/wip?horizon=today">
+    <span class="live-kicker">Today</span>
+    <span class="live-value">£{{ '{:,.0f}'.format(today_band.amount) }}</span>
+    <span class="live-sub">{{ today_band.count }} jobs</span>
+  </a>
+  <div class="live-grid">
+    {% for b in mid_bands %}
+    <a class="live-tile {{ mid_tile_class.get(b.key, 'tile-wip') }}"
+       href="/working-capital/wip?horizon={{ b.key }}">
+      <span class="live-kicker">{{ b.label }}</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(b.amount) }}</span>
+      <span class="live-sub">{{ b.count }} jobs</span>
     </a>
     {% endfor %}
   </div>
-  <section class="live-net" aria-label="Total WIP">
+  <section class="live-net">
     <div class="live-net-label">Total WIP</div>
     <div class="live-net-value">£{{ '{:,.0f}'.format(total) }}</div>
     <div class="live-net-formula">Jobs + retainers + tasks</div>
@@ -110,142 +107,76 @@
 </div>
 {% endif %}
 
-{# ========== LEVEL 2: four aged horizon boxes + type total ========== #}
-{% if show_type_horizons and active_horizon_row %}
-{% set row = active_horizon_row %}
-{% set type_title = row.label if row.label is defined else filter_type %}
-{% set type_total = row.total_amount if row.total_amount is defined else 0 %}
-{% set type_count = row.total_count if row.total_count is defined else 0 %}
-<p class="small muted">
-  <a href="/working-capital/wip">← All WIP metrics</a>
-  · {{ type_title }} · click a horizon for the list
+{% if show_band_drill %}
+{# Type tiles only — no age boxes again #}
+<p class="small muted" style="margin-bottom:0.75rem">
+  <a href="/working-capital/wip">← All WIP ages</a>
+  · <strong>{{ band_labels.get(filter_horizon, filter_horizon) }}</strong>
 </p>
 
 <div class="wip-desk subdash-desk">
-  <div class="wc-grid" aria-label="{{ type_title }} horizons">
-    {% for b in row.buckets %}
-    {% set bkey = b.key if b.key is defined else b['key'] %}
-    {% set blabel = b.label if b.label is defined else b['label'] %}
-    {% set bcount = b.count if b.count is defined else b['count'] %}
-    {% set bamount = b.amount if b.amount is defined else b['amount'] %}
-    {% set n = loop.index %}
-    <a class="wc-box {{ box_class.get(bkey, 'wc-box-wip') }} wc-touch"
-       href="/working-capital/wip?type={{ type_query }}&amp;horizon={{ bkey }}#wip-list">
+  <div class="wc-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+    {% for t in type_totals %}
+    {% set tq = 'Accounts' if t.key == 'Accounts' else ('Confirmation+Statement' if t.key == 'Confirmation Statement' else 'Other') %}
+    <a class="wc-box {{ type_box_class.get(t.key, 'wc-box-wip') }} wc-touch {% if filter_type == t.key %}is-selected{% endif %}"
+       href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type={{ tq }}#wip-list">
       <div class="wc-box-head">
-        <span class="wc-box-title">{{ n }} · {{ blabel }}</span>
-        <span class="wc-box-link">List →</span>
+        <span class="wc-box-title">{{ t.label }}</span>
+        <span class="wc-box-link">{% if filter_type == t.key %}Selected{% else %}List →{% endif %}</span>
       </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(bamount) }}</div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(t.amount) }}</div>
       <div class="wc-box-meta">
-        {{ bcount }} {% if filter_type == 'Tasks' %}tasks{% else %}jobs{% endif %}
+        <span class="wc-box-meta-num">{{ t.count }}</span> jobs
       </div>
     </a>
     {% endfor %}
   </div>
-  <section class="wc-net-banner wc-net-result wc-net-pos" aria-label="{{ type_title }} total">
-    <div class="wc-net-main">
-      <div class="wc-net-label">Total · {{ type_title }}</div>
-      <div class="wc-net-value">£{{ '{:,.0f}'.format(type_total) }}</div>
-      <div class="wc-net-formula muted small">{{ type_count }} open · sum of the four horizons</div>
-    </div>
-    <p class="wc-net-hint muted small"><a href="/working-capital/wip" style="color:#cbd5e1">← Back to WIP metrics</a></p>
-  </section>
-</div>
-
-<div class="wip-mobile subdash-mobile">
-  <div class="live-grid" aria-label="{{ type_title }} horizons">
-    {% for b in row.buckets %}
-    {% set bkey = b.key if b.key is defined else b['key'] %}
-    {% set blabel = b.label if b.label is defined else b['label'] %}
-    {% set bcount = b.count if b.count is defined else b['count'] %}
-    {% set bamount = b.amount if b.amount is defined else b['amount'] %}
-    {% set n = loop.index %}
-    <a class="live-tile {{ tile_class.get(bkey, 'tile-wip') }}"
-       href="/working-capital/wip?type={{ type_query }}&amp;horizon={{ bkey }}#wip-list">
-      <span class="live-kicker">{{ n }} · {{ blabel }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(bamount) }}</span>
-      <span class="live-sub">{{ bcount }} {% if filter_type == 'Tasks' %}tasks{% else %}jobs{% endif %}</span>
-    </a>
-    {% endfor %}
-  </div>
-  <section class="live-net" aria-label="{{ type_title }} total">
-    <div class="live-net-label">{{ type_title }}</div>
-    <div class="live-net-value">£{{ '{:,.0f}'.format(type_total) }}</div>
-    <div class="live-net-formula">{{ type_count }} open · <a href="/working-capital/wip" style="color:#e2e8f0">All metrics</a></div>
-  </section>
-</div>
-{% endif %}
-
-{# ========== LEVEL 3: horizon switcher + list ========== #}
-{% if show_list %}
-{% if active_horizon_row %}
-{% set row = active_horizon_row %}
-<div class="wip-desk subdash-desk" style="margin-bottom:1rem">
-  <div class="wc-grid wc-grid-compact" aria-label="Switch horizon">
-    {% for b in row.buckets %}
-    {% set bkey = b.key if b.key is defined else b['key'] %}
-    {% set blabel = b.label if b.label is defined else b['label'] %}
-    {% set bcount = b.count if b.count is defined else b['count'] %}
-    {% set bamount = b.amount if b.amount is defined else b['amount'] %}
-    {% set n = loop.index %}
-    <a class="wc-box {{ box_class.get(bkey, 'wc-box-wip') }} wc-touch {% if filter_horizon == bkey %}is-selected{% endif %}"
-       href="/working-capital/wip?type={{ type_query }}&amp;horizon={{ bkey }}#wip-list">
-      <div class="wc-box-head">
-        <span class="wc-box-title">{{ n }} · {{ blabel }}</span>
-        {% if filter_horizon == bkey %}<span class="wc-box-link">Selected</span>{% endif %}
-      </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(bamount) }}</div>
-      <div class="wc-box-meta">{{ bcount }}</div>
-    </a>
-    {% endfor %}
-  </div>
-  <p class="small muted" style="margin:0.35rem 0 0">
-    <a href="{{ back_type_url }}">← Aged columns</a> ·
-    <a href="/working-capital/wip">All metrics</a>
+  {% if filter_type %}
+  <p class="small muted" style="margin-top:0.5rem">
+    <a href="/working-capital/wip?horizon={{ filter_horizon }}#wip-list">Show all types in this band</a>
   </p>
+  {% endif %}
 </div>
-<div class="wip-mobile subdash-mobile" style="margin-bottom:0.75rem">
-  <div class="live-grid" aria-label="Switch horizon">
-    {% for b in row.buckets %}
-    {% set bkey = b.key if b.key is defined else b['key'] %}
-    {% set blabel = b.label if b.label is defined else b['label'] %}
-    {% set bamount = b.amount if b.amount is defined else b['amount'] %}
-    {% set n = loop.index %}
-    <a class="live-tile {{ tile_class.get(bkey, 'tile-wip') }} {% if filter_horizon == bkey %}is-selected{% endif %}"
-       href="/working-capital/wip?type={{ type_query }}&amp;horizon={{ bkey }}#wip-list">
-      <span class="live-kicker">{{ n }} · {{ blabel }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(bamount) }}</span>
+<div class="wip-mobile subdash-mobile">
+  <div class="live-grid">
+    {% for t in type_totals %}
+    {% set tq = 'Accounts' if t.key == 'Accounts' else ('Confirmation+Statement' if t.key == 'Confirmation Statement' else 'Other') %}
+    <a class="live-tile {{ type_tile_class.get(t.key, 'tile-wip') }} {% if filter_type == t.key %}is-selected{% endif %}"
+       href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type={{ tq }}#wip-list">
+      <span class="live-kicker">{{ t.label }}</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(t.amount) }}</span>
+      <span class="live-sub">{{ t.count }} jobs</span>
     </a>
     {% endfor %}
   </div>
 </div>
 {% endif %}
 
-<div class="card" id="wip-list">
+{% if show_list and filter_horizon %}
+<div class="card" id="wip-list" style="margin-top:1rem">
   <div class="page-header" style="margin-bottom:0.75rem">
     <div>
-      <h2 style="margin:0">{{ filter_label or 'Drill-down list' }}</h2>
+      <h2 style="margin:0">{{ filter_label or 'List' }}</h2>
       <p class="muted small" style="margin:0.35rem 0 0">
         {{ filter_count }} · £{{ '{:,.2f}'.format(filter_fee) }}
-        · <a href="{{ back_type_url }}">← Aged columns</a>
-        · <a href="/working-capital/wip">All metrics</a>
+        · <a href="/working-capital/wip">← All WIP ages</a>
       </p>
     </div>
   </div>
 
   <form class="filters" method="get" action="/working-capital/wip" style="margin-bottom:0.85rem">
+    <input type="hidden" name="horizon" value="{{ filter_horizon }}">
     {% if filter_type %}<input type="hidden" name="type" value="{{ filter_type }}">{% endif %}
-    {% if filter_horizon %}<input type="hidden" name="horizon" value="{{ filter_horizon }}">{% endif %}
     <div>
-      <label class="small muted">Status</label><br>
+      <label class="small muted">Filter display status</label><br>
       <select name="status" onchange="this.form.submit()">
-        <option value="">All in this tile</option>
+        <option value="">All in list</option>
         {% for s in list_status_options %}
         <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s }}</option>
         {% endfor %}
       </select>
     </div>
-    {% if filter_type != 'Tasks' and filter_clients %}
+    {% if filter_clients %}
     <div>
       <label class="small muted">Client</label><br>
       <select name="client_id" onchange="this.form.submit()">
@@ -256,51 +187,200 @@
       </select>
     </div>
     {% endif %}
-    <noscript><button class="btn btn-sm" type="submit">Filter</button></noscript>
   </form>
 
-  {% if filter_horizon == 'imminent' and filter_type != 'Tasks' %}
-  <div class="period-toggle" style="margin-bottom:0.85rem" role="group" aria-label="Overdue or imminent">
+  {% if filter_horizon == 'today' %}
+  <div class="period-toggle" style="margin-bottom:0.85rem">
     <a class="period-btn {% if not filter_status %}is-active{% endif %}"
-       href="/working-capital/wip?type={{ type_query }}&horizon=imminent#wip-list">All</a>
+       href="/working-capital/wip?horizon=today{% if type_query %}&type={{ type_query }}{% endif %}#wip-list">All</a>
     <a class="period-btn {% if filter_status == 'Overdue' %}is-active{% endif %}"
-       href="/working-capital/wip?type={{ type_query }}&horizon=imminent&status=Overdue#wip-list">Overdue</a>
+       href="/working-capital/wip?horizon=today&status=Overdue{% if type_query %}&type={{ type_query }}{% endif %}#wip-list">Overdue</a>
     <a class="period-btn {% if filter_status == 'Imminent' %}is-active{% endif %}"
-       href="/working-capital/wip?type={{ type_query }}&horizon=imminent&status=Imminent#wip-list">Imminent</a>
+       href="/working-capital/wip?horizon=today&status=Imminent{% if type_query %}&type={{ type_query }}{% endif %}#wip-list">Imminent</a>
+    <a class="period-btn {% if filter_status == 'Today' %}is-active{% endif %}"
+       href="/working-capital/wip?horizon=today&status=Today{% if type_query %}&type={{ type_query }}{% endif %}#wip-list">Status Today</a>
   </div>
   {% endif %}
 
-  {% if filter_type == 'Tasks' %}
-    {% if task_rows %}
-    <div class="table-wrap">
-      <table class="data">
-        <thead>
-          <tr><th>Task</th><th>Client</th><th>Job</th><th>Due</th><th>Status</th><th class="num">Fee</th></tr>
-        </thead>
-        <tbody>
-          {% for t in task_rows %}
-          <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
-            <td><a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a></td>
-            <td class="small">{% if t.client %}{{ t.client.display_name() }}{% else %}Standalone{% endif %}</td>
-            <td class="small">{% if t.job %}{{ t.job.type }}{% else %}—{% endif %}</td>
-            <td>{{ t.due_on|uk_date }}</td>
-            <td>
-              {% if t.is_overdue() %}
-              <span class="badge badge-overdue">{{ t.display_status() }}</span>
-              {% else %}
-              <span class="badge">{{ t.display_status() }}</span>
-              {% endif %}
-            </td>
-            <td class="num"><strong>£{{ '%.2f'|format(t.fee or 0) }}</strong></td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Type</th>
+          <th>Due</th>
+          <th>Age</th>
+          <th>Display</th>
+          <th>Set status</th>
+          <th class="num">Fee</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set j = r.job %}
+        <tr class="{% if j|job_overdue %}row-overdue{% endif %}">
+          <td>
+            <a href="/jobs/{{ j.id }}">
+              {% if j.client %}{{ j.client.display_name() }}{% else %}—{% endif %}
+            </a>
+            {% if r.is_retainer %}<span class="badge badge-retainer" style="margin-left:0.25rem">Retainer</span>{% endif %}
+          </td>
+          <td class="small">{{ j.type or '—' }}</td>
+          <td>{% if j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
+          <td>{% if r.age_days > 0 %}<span class="badge badge-overdue">{{ r.age_days }}</span>{% else %}0{% endif %}</td>
+          <td>
+            {% if r.list_status in ('Overdue', 'Today') %}
+            <span class="badge badge-overdue">{{ r.list_status }}</span>
+            {% elif r.list_status == 'Imminent' %}
+            <span class="badge badge-progress">Imminent</span>
+            {% else %}
+            <span class="badge">{{ r.list_status }}</span>
+            {% endif %}
+          </td>
+          <td onclick="event.stopPropagation()">
+            <form class="job-status-form" method="post" action="/jobs/{{ j.id }}/status-quick">
+              <input type="hidden" name="next" value="/working-capital/wip?horizon={{ filter_horizon }}{% if type_query %}&type={{ type_query }}{% endif %}{% if filter_status %}&status={{ filter_status }}{% endif %}#wip-list">
+              <select name="status" onchange="this.form.submit()" title="Change workflow status">
+                {% for s in ['Planned','In Progress','Review','Today','On hold','Completed','Cancelled'] %}
+                <option value="{{ s }}" {% if j.status == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </td>
+          <td class="num"><strong>£{{ '%.2f'|format(r.amount) }}</strong></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No jobs in this filter.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ========== PE year drill: 1–2–2–1 (completed · accounts/CS · VAT/other · year) ========== #}
+{% if show_pe_year_home and pe_layout %}
+{% set pe_q = pe_layout.pe_q %}
+{% set pe_mid_box = {
+  'accounts': 'wc-box-wip',
+  'cs': 'wc-box-debtors',
+  'vat': 'wc-box-cash',
+  'other': 'wc-box-creditors'
+} %}
+{% set pe_mid_tile = {
+  'accounts': 'tile-wip',
+  'cs': 'tile-debtors',
+  'vat': 'tile-cash',
+  'other': 'tile-creditors'
+} %}
+
+<p class="small muted" style="margin-bottom:0.75rem">
+  <a href="/working-capital/wip">← WIP home</a>
+  · <strong>{{ pe_layout.label }}</strong>
+  {% if filter_pe_slice %}
+  · {{ filter_label.split(' · ')|last if filter_label else filter_pe_slice }}
+  {% endif %}
+</p>
+
+<div class="wip-desk subdash-desk wc-cycle">
+  {# 1 · Jobs completed (wide) — year shown prominently #}
+  <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch {% if filter_pe_slice == 'completed' %}is-selected{% endif %}"
+     href="{{ pe_layout.completed.href }}">
+    <div class="wc-net-main">
+      <div class="wc-net-label" style="font-size:1.35rem;letter-spacing:0.02em">
+        {{ pe_layout.year_label|default(pe_layout.label) }}
+      </div>
+      <div class="wc-net-formula small" style="margin-top:0.15rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;opacity:0.9">
+        Jobs completed
+      </div>
+      <div class="wc-net-value">£{{ '{:,.0f}'.format(pe_layout.completed.amount) }}</div>
+      <div class="wc-net-formula small">
+        {{ pe_layout.completed.count }} completed
+        {% if (pe_layout.retainer_completed_months|default(0)) > 0 %}
+        · includes {{ pe_layout.retainer_completed_months }} retainer months
+        (£{{ '{:,.0f}'.format(pe_layout.retainer_completed_amount|default(0)) }})
+        {% endif %}
+      </div>
     </div>
-    {% else %}
-    <p class="empty">No tasks match these filters.</p>
-    {% endif %}
-  {% elif rows %}
+    <p class="wc-net-hint small">{% if filter_pe_slice == 'completed' %}Selected{% else %}List →{% endif %}</p>
+  </a>
+
+  {# 2×2 · outstanding by service #}
+  <div class="wc-grid" aria-label="Outstanding by service">
+    {% for m in pe_layout.mid %}
+    <a class="wc-box {{ pe_mid_box.get(m.key, 'wc-box-wip') }} wc-touch {% if filter_pe_slice == m.key %}is-selected{% endif %}"
+       href="{{ m.href }}">
+      <div class="wc-box-head">
+        <span class="wc-box-title">{{ m.label }}</span>
+        <span class="wc-box-link">{% if filter_pe_slice == m.key %}Selected{% else %}List →{% endif %}</span>
+      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(m.amount) }}</div>
+      <div class="wc-box-meta">
+        <span class="wc-box-meta-num">{{ m.count }}</span> open
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  {# 1 · Jobs for the year (wide) #}
+  <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch {% if filter_pe_slice == 'year' %}is-selected{% endif %}"
+     href="{{ pe_layout.year_total.href }}">
+    <div class="wc-net-main">
+      <div class="wc-net-label">Jobs for the year · {{ pe_layout.year_label|default('') }}</div>
+      <div class="wc-net-value">£{{ '{:,.0f}'.format(pe_layout.year_total.amount) }}</div>
+      <div class="wc-net-formula small">
+        {{ pe_layout.year_total.count }} · completed + outstanding
+        {% if (pe_layout.retainer_outstanding_months|default(0)) > 0 or (pe_layout.retainer_completed_months|default(0)) > 0 %}
+        · retainers included
+        {% endif %}
+      </div>
+    </div>
+    <p class="wc-net-hint small">{% if filter_pe_slice == 'year' %}Selected{% else %}Full list →{% endif %}</p>
+  </a>
+</div>
+
+<div class="wip-mobile subdash-mobile">
+  <a class="live-tile live-tile-wide tile-creditors {% if filter_pe_slice == 'completed' %}is-selected{% endif %}"
+     href="{{ pe_layout.completed.href }}">
+    <span class="live-kicker" style="font-size:1.05rem;font-weight:800">{{ pe_layout.year_label|default(pe_layout.label) }}</span>
+    <span class="live-sub" style="font-weight:700;text-transform:uppercase;letter-spacing:0.03em">Jobs completed</span>
+    <span class="live-value">£{{ '{:,.0f}'.format(pe_layout.completed.amount) }}</span>
+    <span class="live-sub">{{ pe_layout.completed.count }} completed</span>
+  </a>
+  <div class="live-grid">
+    {% for m in pe_layout.mid %}
+    <a class="live-tile {{ pe_mid_tile.get(m.key, 'tile-wip') }} {% if filter_pe_slice == m.key %}is-selected{% endif %}"
+       href="{{ m.href }}">
+      <span class="live-kicker">{{ m.label }}</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(m.amount) }}</span>
+      <span class="live-sub">{{ m.count }} open</span>
+    </a>
+    {% endfor %}
+  </div>
+  <a class="live-tile live-tile-wide tile-wip {% if filter_pe_slice == 'year' %}is-selected{% endif %}"
+     href="{{ pe_layout.year_total.href }}">
+    <span class="live-kicker">Jobs for the year</span>
+    <span class="live-value">£{{ '{:,.0f}'.format(pe_layout.year_total.amount) }}</span>
+    <span class="live-sub">{{ pe_layout.year_total.count }} jobs</span>
+  </a>
+</div>
+
+{% if show_list and filter_pe_slice %}
+<div class="card" id="wip-list" style="margin-top:1rem">
+  <div class="page-header" style="margin-bottom:0.75rem">
+    <div>
+      <h2 style="margin:0">{{ filter_label or 'List' }}</h2>
+      <p class="muted small" style="margin:0.35rem 0 0">
+        {{ filter_count }} · £{{ '{:,.2f}'.format(filter_fee) }}
+        · <a href="/working-capital/wip?pe_year={{ pe_q }}">← {{ pe_layout.label }} tiles</a>
+        · <a href="/working-capital/wip">WIP home</a>
+      </p>
+    </div>
+  </div>
+
+  {% if rows %}
   <div class="table-wrap">
     <table class="data">
       <thead>
@@ -309,48 +389,84 @@
           <th>Type</th>
           <th>Period end</th>
           <th>Due</th>
-          <th>Age</th>
           <th>Status</th>
+          <th>Set status</th>
           <th class="num">Fee</th>
         </tr>
       </thead>
       <tbody>
         {% for r in rows %}
         {% set j = r.job %}
-        <tr class="row-link {% if j|job_overdue %}row-overdue{% endif %}" onclick="window.location='/jobs/{{ j.id }}'">
+        <tr class="{% if j|job_overdue %}row-overdue{% endif %}">
           <td>
-            <a href="/jobs/{{ j.id }}" onclick="event.stopPropagation()">
+            <a href="/jobs/{{ j.id }}">
               {% if j.client %}{{ j.client.display_name() }}{% else %}—{% endif %}
             </a>
             {% if r.is_retainer %}<span class="badge badge-retainer" style="margin-left:0.25rem">Retainer</span>{% endif %}
           </td>
           <td class="small">{{ j.type or '—' }}</td>
-          <td>{{ r.period_end_fmt }}</td>
+          <td class="small">{{ r.period_end_fmt }}</td>
           <td>{% if j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
-          <td>{% if r.age_days > 0 %}<span class="badge badge-overdue">{{ r.age_days }}</span>{% else %}0{% endif %}</td>
-          <td>
-            {% if r.list_status == 'Overdue' %}
-            <span class="badge badge-overdue">Overdue</span>
-            {% elif r.list_status == 'Imminent' %}
-            <span class="badge badge-progress">Imminent</span>
-            {% else %}
-            <span class="badge">{{ r.list_status }}</span>
-            {% endif %}
+          <td><span class="badge">{{ r.list_status }}</span></td>
+          <td onclick="event.stopPropagation()">
+            <form class="job-status-form" method="post" action="/jobs/{{ j.id }}/status-quick">
+              <input type="hidden" name="next" value="/working-capital/wip?pe_year={{ pe_q }}&amp;pe_slice={{ filter_pe_slice }}#wip-list">
+              <select name="status" onchange="this.form.submit()" title="Change workflow status">
+                {% for s in ['Planned','In Progress','Review','Today','On hold','Completed','Cancelled','Filed'] %}
+                <option value="{{ s }}" {% if j.status == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </form>
           </td>
-          <td class="num">
-            <strong>£{{ '%.2f'|format(r.amount) }}</strong>
-            {% if r.is_retainer %}
-            <div class="muted small">retainer share</div>
-            {% endif %}
-          </td>
+          <td class="num"><strong>£{{ '%.2f'|format(r.amount) }}</strong></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <p class="empty">No jobs match these filters.</p>
+  <p class="empty">No jobs in this filter.</p>
   {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+{# WIP book only on main WIP home (not age/type/PE drill-downs) #}
+{% if show_age_home and wip_book %}
+<div class="headcount-panel card wip-book-panel" id="wip-book" style="margin-top:1.5rem">
+  <div class="headcount-toolbar">
+    <div>
+      <h2 class="headcount-heading">WIP book</h2>
+      <p class="muted small headcount-hint">
+        Remaining work by period end. <strong>2027</strong> = today’s Total WIP ledger
+        (jobs + retainers) plus any converted clients without PE 2026 Accounts not already in WIP.
+        Earlier years include job fees and retainer months (a month is completed once its start has passed).
+        Remaining total £{{ '{:,.0f}'.format(wip_book.total_value|default(0)) }}
+        of expected £{{ '{:,.0f}'.format(wip_book.total_expected|default(0)) }}.
+      </p>
+    </div>
+  </div>
+  <div class="stat-row stat-row-5">
+    {% for t in wip_book.tiles|default([]) %}
+    <a class="stat-tile {% if t.key == 'prospects' %}stat-tile-wip{% elif t.key == 'pe_2027' %}stat-tile-success{% elif t.key == 'pe_2024_prior' %}stat-tile-danger{% endif %}"
+       href="{{ t.href }}">
+      <div class="stat-name">{{ t.label }}</div>
+      <div class="stat-num" style="font-size:1.55rem;font-weight:800;line-height:1.15;color:#0f172a">
+        £{{ '{:,.0f}'.format(t.amount) }}
+      </div>
+      <div class="stat-sub muted small" style="margin-top:0.35rem">
+        <strong>{{ t.count }}</strong> {{ t.unit }}
+        · <strong>{{ t.pct }}%</strong> remaining
+      </div>
+      <div class="muted small" style="margin-top:0.2rem">
+        of £{{ '{:,.0f}'.format(t.expected|default(t.amount)) }} known
+      </div>
+      <div class="wip-book-pct-bar" aria-hidden="true">
+        <span style="width:{{ t.pct_bar|default(t.pct)|default(0) }}%"></span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
 </div>
 {% endif %}
 {% endblock %}

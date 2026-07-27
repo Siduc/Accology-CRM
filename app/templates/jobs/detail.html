@@ -93,4 +93,67 @@
   <p>{{ job.notes }}</p>
   {% endif %}
 </div>
+
+{% with tasks=job_tasks|default([]), embed_title='Tasks for this job', new_task_href='/tasks/new?client_id=' ~ (job.client_id or '') ~ '&job_id=' ~ job.id, next_url='/jobs/' ~ job.id, empty_msg='No open tasks linked to this job.' %}
+{% include "tasks/_embed.html" %}
+{% endwith %}
+
+<div class="card" id="documents" style="margin-top:1rem">
+  <div class="page-header" style="margin-bottom:0.75rem">
+    <div>
+      <h2 style="margin:0">Documents{% if documents %} ({{ documents|length }}){% endif %}</h2>
+      <p class="muted small" style="margin:0.35rem 0 0">
+        OneDrive · Jobs / JOB-{{ job.id }}
+      </p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-sm wc-touch" href="/documents/new?job_id={{ job.id }}{% if job.client_id %}&amp;client_id={{ job.client_id }}{% endif %}">Upload</a>
+      <a class="btn btn-sm btn-outline wc-touch" href="/documents?job_id={{ job.id }}">Filter list</a>
+    </div>
+  </div>
+  {% if not docs_conn.connected or not docs_conn.fresh %}
+  <div class="chase-banner chase-banner-info" style="margin-bottom:0.75rem">
+    {% if not docs_conn.configured %}
+    Configure Microsoft Graph in Settings to store documents in OneDrive.
+    {% elif not docs_conn.connected %}
+    <a href="/oauth/microsoft/start?return_to=/jobs/{{ job.id }}">Connect Microsoft</a> to upload.
+    {% else %}
+    <a href="/oauth/microsoft/start?return_to=/jobs/{{ job.id }}">Reconnect Microsoft</a>.
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if documents %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Title</th>
+          <th>Category</th>
+          <th>Uploaded</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in documents %}
+        <tr>
+          <td>{% if d.is_key %}<span class="doc-key">★</span>{% endif %}</td>
+          <td>
+            <a href="/documents/{{ d.id }}"><strong>{{ d.title }}</strong></a>
+            <div class="small muted">{{ d.original_filename or '' }}</div>
+          </td>
+          <td class="small">{{ d.category }}</td>
+          <td class="small">{{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '—' }}</td>
+          <td><a class="btn btn-sm btn-outline" href="/documents/{{ d.id }}/download">↓</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No documents linked to this job.
+    <a href="/documents/new?job_id={{ job.id }}{% if job.client_id %}&amp;client_id={{ job.client_id }}{% endif %}">Upload</a>.
+  </p>
+  {% endif %}
+</div>
 {% endblock %}

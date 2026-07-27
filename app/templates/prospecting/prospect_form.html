@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}New prospect · Prospecting{% endblock %}
+{% block minibar_title %}New prospect{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting/prospects">← Prospects</a></p>
+    <h1>New prospect</h1>
+  </div>
+</div>
+<div class="card" style="max-width:40rem">
+  <form class="stack" method="post" action="/prospecting/prospects/new">
+    <div class="form-grid">
+      <div>
+        <label>Company name *</label>
+        <input name="company_name" required>
+      </div>
+      <div>
+        <label>Company number</label>
+        <input name="company_number" placeholder="12345678">
+      </div>
+      <div>
+        <label>Contact</label>
+        <input name="contact_name">
+      </div>
+      <div>
+        <label>Email</label>
+        <input name="email" type="email">
+      </div>
+      <div>
+        <label>Phone</label>
+        <input name="phone">
+      </div>
+      <div>
+        <label>SIC codes</label>
+        <input name="sic_codes" placeholder="62020, 69201">
+      </div>
+      <div>
+        <label>Pipeline value (£)</label>
+        <input name="estimated_value" inputmode="decimal" value="0" placeholder="Expected fee">
+      </div>
+      <div>
+        <label>Address</label>
+        <input name="address_line1">
+      </div>
+      <div>
+        <label>Town</label>
+        <input name="town">
+      </div>
+      <div>
+        <label>Postcode</label>
+        <input name="postcode">
+      </div>
+    </div>
+    <label>Notes</label>
+    <textarea name="notes" rows="3"></textarea>
+    <div class="actions">
+      <button class="btn wc-touch" type="submit">Save prospect</button>
+      <a class="btn btn-outline" href="/prospecting/prospects">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

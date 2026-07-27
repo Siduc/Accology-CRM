@@ -17,15 +17,35 @@
     <input name="fee" type="text" inputmode="decimal" value="{{ '%.2f'|format(task.fee) if task and task.fee is not none else '0.00' }}"
            style="font-size:1.35rem;font-weight:800;letter-spacing:-0.02em">
 
-    <label>Status</label>
-    <select name="status">
-      {% for s in statuses %}
-      <option value="{{ s }}" {% if (task and task.status == s) or (not task and s == 'Planned') %}selected{% endif %}>{{ s }}</option>
-      {% endfor %}
-    </select>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div>
+        <label>Status</label>
+        <select name="status" style="width:100%">
+          {% for s in statuses %}
+          <option value="{{ s }}" {% if (task and task.status == s) or (not task and s == 'Planned') %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Priority</label>
+        <select name="priority" style="width:100%">
+          {% for p in priorities %}
+          <option value="{{ p }}" {% if (task and (task.priority or 'Medium') == p) or (not task and p == 'Medium') %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
 
-    <label>Due date</label>
-    <input name="due_on" type="date" value="{{ task.due_on if task and task.due_on else '' }}">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div>
+        <label>Due date</label>
+        <input name="due_on" type="date" value="{{ task.due_on if task and task.due_on else '' }}" style="width:100%">
+      </div>
+      <div>
+        <label>Source email date</label>
+        <input name="source_email_date" type="date" value="{{ task.source_email_date if task and task.source_email_date else '' }}" style="width:100%">
+      </div>
+    </div>
 
     <label>Period end (optional)</label>
     <input name="period_end" type="date" value="{{ task.period_end if task and task.period_end else '' }}">
@@ -58,6 +78,12 @@
 
     <label>Notes</label>
     <textarea name="notes" rows="2">{{ task.notes if task else '' }}</textarea>
+
+    {% if task and task.import_source %}
+    <p class="small muted">Imported via <code>{{ task.import_source }}</code>
+      {% if task.import_batch_id %} · batch {{ task.import_batch_id }}{% endif %}
+    </p>
+    {% endif %}
 
     <div class="actions">
       <button class="btn wc-touch" type="submit">Save task</button>

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Campaigns · Prospecting{% endblock %}
+{% block minibar_title %}Campaigns{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting">← Prospecting</a></p>
+    <h1>Campaigns</h1>
+    <p class="muted small">Linked to Services Ledger · letter &amp; email fulfilment</p>
+  </div>
+  <div class="actions">
+    <a class="btn wc-touch" href="/prospecting/campaigns/new">New campaign</a>
+  </div>
+</div>
+<div class="wc-grid" style="grid-template-columns:repeat(auto-fill,minmax(16rem,1fr))">
+  {% for c in rows %}
+  <a class="wc-box wc-box-wip wc-touch" href="/prospecting/campaigns/{{ c.id }}">
+    <div class="wc-box-head">
+      <span class="wc-box-title">{{ c.name }}</span>
+      <span class="wc-box-link">{{ c.status }}</span>
+    </div>
+    <div class="wc-box-value">{{ counts.get(c.id, 0) }}</div>
+    <div class="wc-box-meta">
+      members · {{ c.channel }}
+      {% if c.service_label %} · {{ c.service_label }}{% endif %}
+    </div>
+  </a>
+  {% else %}
+  <p class="empty">No campaigns yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

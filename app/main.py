@@ -48,8 +48,11 @@ from app.routers import (
     notes,
     cs,
     ch_oauth,
+    ms_graph_oauth,
+    documents,
     tasks,
     csv_exchange,
+    prospecting,
 )
 
 app = FastAPI(
@@ -74,6 +77,8 @@ _PUBLIC_EXACT = frozenset(
         "/sw.js",
         # CH OAuth redirect (signed state; no CRM session required)
         "/oauth/companies-house/callback",
+        # Microsoft Graph OAuth redirect
+        "/oauth/microsoft/callback",
     }
 )
 _PUBLIC_PREFIXES = ("/static/",)
@@ -97,19 +102,22 @@ async def security_and_auth(request: Request, call_next):
 
     # Security headers
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    # SAMEORIGIN so document PDF preview iframes work on /documents/{id}
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    # Allow self + Chart.js CDN used on client detail charts
+    # Allow self + Chart.js CDN used on client detail charts; frame-src for PDF preview
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; "
+        "img-src 'self' data: blob:; "
         "connect-src 'self' https://cdn.jsdelivr.net; "
+        "frame-src 'self'; "
+        "object-src 'self'; "
         "manifest-src 'self'; "
         "worker-src 'self'; "
-        "frame-ancestors 'none';"
+        "frame-ancestors 'self';"
     )
     if IS_PRODUCTION:
         response.headers["Strict-Transport-Security"] = (
@@ -149,10 +157,13 @@ app.include_router(asana_integration.router)
 app.include_router(notes.router)
 app.include_router(cs.router)
 app.include_router(ch_oauth.router)
+app.include_router(ms_graph_oauth.router)
+app.include_router(documents.router)
 app.include_router(tasks.router)
 app.include_router(csv_exchange.router)
 app.include_router(settings.router)
 app.include_router(sales.router)
+app.include_router(prospecting.router)
 
 
 @app.get("/manifest.webmanifest")
