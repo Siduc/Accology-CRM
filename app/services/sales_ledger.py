@@ -71,7 +71,7 @@ DEFAULT_SERVICES_SEED = [
         "code": "SA",
         "name": "Self Assessment",
         "description": "Personal tax return.",
-        "default_fee": 0.0,
+        "default_fee": 250.0,
         "category": "compliance",
         "unit": "job",
     },
@@ -475,6 +475,91 @@ def debtors_total(db: Session) -> Tuple[float, int]:
     rows = outstanding_invoices(db)
     total = round(sum(float(i.balance or 0) for i in rows), 2)
     return total, len(rows)
+
+
+def sales_day_book(
+    db: Session, *, year: Optional[int] = None, today: Optional[date] = None
+) -> dict:
+    """
+    Sales day book / debtors control roll-forward:
+
+      Debtors b/Fwd + Invoices − Receipts = Debtors c/Fwd
+
+    c/Fwd = current outstanding debtors.
+    Invoices / Receipts = totals for the year (or all time if year is None).
+    b/Fwd is derived so the equation always holds
+    (absorbs write-offs / opening residual).
+    """
+    today = today or date.today()
+    c_fwd, c_count = debtors_total(db)
+
+    inv_q = db.query(Invoice).filter(
+        Invoice.status.notin_(["void", "written_off", "draft"])
+    )
+    pay_q = db.query(Payment)
+    if year:
+        y0 = date(int(year), 1, 1)
+        y1 = date(int(year), 12, 31)
+        inv_q = inv_q.filter(Invoice.issue_date >= y0, Invoice.issue_date <= y1)
+        pay_q = pay_q.filter(Payment.payment_date >= y0, Payment.payment_date <= y1)
+
+    inv_rows = inv_q.all()
+    pay_rows = pay_q.all()
+    invoices = round(sum(float(i.total or 0) for i in inv_rows), 2)
+    receipts = round(sum(float(p.amount or 0) for p in pay_rows), 2)
+    b_fwd = round(float(c_fwd) - invoices + receipts, 2)
+
+    return {
+        "year": year,
+        "label": str(year) if year else "Overall",
+        "b_fwd": b_fwd,
+        "invoices": invoices,
+        "invoice_count": len(inv_rows),
+        "receipts": receipts,
+        "receipt_count": len(pay_rows),
+        "c_fwd": float(c_fwd),
+        "c_count": int(c_count),
+        "formula_check": round(b_fwd + invoices - receipts, 2),
+        "today": today,
+        "tiles": [
+            {
+                "key": "b_fwd",
+                "label": "Debtors b/Fwd",
+                "amount": b_fwd,
+                "count": None,
+                "unit": "",
+                "href": "/sales/ageing",
+                "tone": "",
+            },
+            {
+                "key": "invoices",
+                "label": "Invoices",
+                "amount": invoices,
+                "count": len(inv_rows),
+                "unit": "raised",
+                "href": "/sales/invoices",
+                "tone": "new",
+            },
+            {
+                "key": "receipts",
+                "label": "Receipts",
+                "amount": receipts,
+                "count": len(pay_rows),
+                "unit": "payments",
+                "href": "/sales",
+                "tone": "ok",
+            },
+            {
+                "key": "c_fwd",
+                "label": "Debtors c/Fwd",
+                "amount": float(c_fwd),
+                "count": int(c_count),
+                "unit": "open",
+                "href": "/sales/ageing",
+                "tone": "lost" if c_fwd > 0 else "ok",
+            },
+        ],
+    }
 
 
 def suggested_chase_action(days_overdue: int) -> str:

@@ -36,9 +36,9 @@ def calculate_dates(
 
 JOB_TYPES = [
     "Accounts",
-    "Corporation Tax",
-    "Confirmation Statement",
     "Self Assessment",
+    "Confirmation Statement",
+    "Corporation Tax",
     "VAT Return",
     "Payroll",
     "Bookkeeping",

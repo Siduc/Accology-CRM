@@ -10,6 +10,7 @@
 </div>
 
 <nav class="settings-nav" aria-label="Settings sections">
+  <a href="#settings-demo">Demo mode</a>
   <a href="#settings-system">System</a>
   <a href="#settings-wip">WIP</a>
   <a href="#settings-debtors">Debtors</a>
@@ -17,6 +18,53 @@
   <a href="#settings-creditors">Creditors</a>
   <a href="#settings-other">Other</a>
 </nav>
+
+{# ========== DEMO MODE ========== #}
+<section class="settings-section" id="settings-demo">
+  <h2 class="settings-section-title">Demo / presentation mode</h2>
+  <div class="card settings-card" style="border-left:4px solid {% if demo_mode_on %}#b45309{% else %}#0f766e{% endif %}">
+    <h3>Show the product without real client data</h3>
+    <p class="muted small">
+      When <strong>on</strong>, this browser session anonymises names, addresses, emails, phones,
+      company numbers, credentials, and money figures in the UI. The database is
+      <strong>not</strong> changed. CSV / data exports are blocked while demo mode is on.
+    </p>
+    {% if demo_msg == 'on' %}
+    <div class="chase-banner chase-banner-info">Demo mode is <strong>on</strong> — safe to present.</div>
+    {% elif demo_msg == 'off' %}
+    <div class="chase-banner chase-banner-info">Demo mode is <strong>off</strong> — live data shown.</div>
+    {% elif demo_msg == 'export_blocked' %}
+    <div class="alert alert-error">Exports are blocked while demo mode is on. Turn it off in Settings to export.</div>
+    {% endif %}
+    <p style="margin:0.75rem 0">
+      Status:
+      {% if demo_mode_on %}
+      <span class="badge badge-progress">Demo mode ON</span>
+      {% else %}
+      <span class="badge badge-active">Live data</span>
+      {% endif %}
+    </p>
+    <div class="actions" style="flex-wrap:wrap">
+      {% if demo_mode_on %}
+      <form method="post" action="/settings/demo-mode">
+        <input type="hidden" name="enabled" value="no">
+        <button class="btn" type="submit">Turn demo mode off</button>
+      </form>
+      <a class="btn btn-outline" href="/dashboard">Open dashboard</a>
+      {% else %}
+      <form method="post" action="/settings/demo-mode">
+        <input type="hidden" name="enabled" value="yes">
+        <button class="btn" type="submit">Turn demo mode on</button>
+      </form>
+      <a class="btn btn-outline" href="/demo/on">Quick on → dashboard</a>
+      {% endif %}
+    </div>
+    <p class="small muted" style="margin-top:0.85rem">
+      Tip: turn it on before a screen share, walk through the practice book and WIP,
+      then turn it off when you are done. Only this browser session is affected.
+    </p>
+  </div>
+</section>
 
 {# ========== SYSTEM ========== #}
 <section class="settings-section" id="settings-system">

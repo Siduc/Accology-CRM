@@ -34,7 +34,9 @@
 {% elif msg == 'unlinked' %}
 <div class="chase-banner chase-banner-info">Contact unlinked from this client.</div>
 {% elif msg == 'contact_created' %}
-<div class="chase-banner chase-banner-info">Contact created from CH officer and linked to this client.</div>
+<div class="chase-banner chase-banner-info">Contact created from CH officer and linked to this client (or existing person matched by name).</div>
+{% elif msg == 'contact_linked' %}
+<div class="chase-banner chase-banner-info">Existing person linked to this client from the CH officer match.</div>
 {% elif msg == 'accounts_synced' %}
 <div class="chase-banner chase-banner-info">Accounts job period / due dates updated from Companies House.</div>
 {% elif msg == 'job_title_fixed' %}
@@ -71,8 +73,13 @@
     <div class="label">CH officers not in CRM</div>
     <div class="value">{{ compare.summary.officer_unmatched }}</div>
   </div>
+  <div class="metric-card {% if compare.summary.psc_unmatched %}warning{% else %}success{% endif %}">
+    <div class="label">CH PSCs not in CRM</div>
+    <div class="value">{{ compare.summary.psc_unmatched|default(0) }}</div>
+    <div class="small muted">{{ compare.summary.psc_count|default(0) }} on CH</div>
+  </div>
   <div class="metric-card {% if compare.summary.crm_only_contacts %}warning{% else %}success{% endif %}">
-    <div class="label">CRM contacts not officers</div>
+    <div class="label">CRM contacts not officers/PSCs</div>
     <div class="value">{{ compare.summary.crm_only_contacts }}</div>
   </div>
   <div class="metric-card">
@@ -238,7 +245,10 @@
 {# ========== OFFICERS ========== #}
 <div class="card" style="margin-bottom:1rem">
   <h2 style="margin-top:0">Officers (CH) vs contacts (CRM)</h2>
-  <p class="small muted">Active officers from CH download matched by name to people linked on this client.</p>
+  <p class="small muted">
+    Active officers matched first to people on this client, then to the whole People list
+    (so a director already set up for another company can be linked here).
+  </p>
   <div class="table-wrap">
     <table class="data cs-compare-table">
       <thead>
@@ -259,25 +269,56 @@
             {% if o.practice_id %}
             <a href="/people/{{ o.practice_id }}/edit">{{ o.practice_name }}</a>
             {% if o.practice_role %}<span class="muted small"> · {{ o.practice_role }}</span>{% endif %}
+            {% elif o.candidates %}
+              {% for c in o.candidates %}
+              <div {% if not loop.first %}style="margin-top:0.35rem"{% endif %}>
+                <a href="/people/{{ c.id }}/edit"><strong>{{ c.name }}</strong></a>
+                {% if c.role %}<span class="muted small"> · {{ c.role }}</span>{% endif %}
+                {% if c.other_companies %}
+                <div class="muted small">Also: {{ c.other_companies }}</div>
+                {% endif %}
+              </div>
+              {% endfor %}
             {% else %}
             <span class="muted">{{ o.practice_name }}</span>
             {% endif %}
           </td>
           <td>
-            {% if not o.match %}
-            <span class="muted small">—</span>
-            {% elif o.ch_code_on_file %}
-            <span class="badge badge-active" title="Personal identification code on person record">On file</span>
+            {% if o.match %}
+              {% if o.ch_code_on_file %}
+              <span class="badge badge-active" title="Personal identification code on person record">On file</span>
+              {% else %}
+              <span class="badge badge-progress" title="Add on person edit">Missing</span>
+              {% if o.practice_id %}
+              <a class="btn btn-sm btn-outline" href="/people/{{ o.practice_id }}/edit#ch_code" style="margin-left:0.25rem">Add</a>
+              {% endif %}
+              {% endif %}
+            {% elif o.candidates and o.candidates|length == 1 and o.candidates[0].ch_code_on_file %}
+            <span class="badge badge-active" title="PIC already on this person">On file</span>
             {% else %}
-            <span class="badge badge-progress" title="Add on person edit">Missing</span>
-            {% if o.practice_id %}
-            <a class="btn btn-sm btn-outline" href="/people/{{ o.practice_id }}/edit#ch_code" style="margin-left:0.25rem">Add</a>
-            {% endif %}
+            <span class="muted small">—</span>
             {% endif %}
           </td>
           <td class="actions-cell">
             {% if o.match %}
             <span class="badge badge-active">Linked</span>
+            {% elif o.candidates %}
+            <span class="badge badge-progress">Match in People</span>
+            {% for c in o.candidates %}
+            <form method="post" action="/cs/{{ pack.id }}/fix/link-contact" style="display:inline-block;margin:0.2rem 0 0 0.25rem">
+              <input type="hidden" name="person_id" value="{{ c.id }}">
+              <input type="hidden" name="officer_role" value="{{ o.ch_role }}">
+              <button class="btn btn-sm" type="submit" title="Link {{ c.name }} to this company">
+                Link{% if o.candidates|length > 1 %} {{ c.name.split(' ')[0] }}{% endif %}
+              </button>
+            </form>
+            {% endfor %}
+            <form method="post" action="/cs/{{ pack.id }}/fix/create-contact" style="display:inline-block;margin:0.2rem 0 0 0.25rem"
+                  onsubmit="return confirm('Create a new person instead of linking an existing match?');">
+              <input type="hidden" name="officer_name" value="{{ o.ch_name }}">
+              <input type="hidden" name="officer_role" value="{{ o.ch_role }}">
+              <button class="btn btn-sm btn-outline" type="submit">Create new</button>
+            </form>
             {% else %}
             <span class="badge badge-progress">CH only</span>
             <form method="post" action="/cs/{{ pack.id }}/fix/create-contact" style="display:inline;margin-left:0.35rem">
@@ -338,22 +379,99 @@
   {% endif %}
 </div>
 
-{# ========== PSCs (CH only reference) ========== #}
+{# ========== PSCs (matched like officers) ========== #}
 <div class="card" style="margin-bottom:1rem">
-  <h2 style="margin-top:0">PSCs (Companies House)</h2>
-  <p class="small muted">Public register — Accologise does not store PSC records separately.</p>
-  {% if form.pscs %}
-  <ul class="chase-history">
-    {% for p in form.pscs %}
-    <li>
-      <strong>{{ p.name }}</strong>
-      {% if p.natures_of_control %}<div class="small muted">{{ p.natures_of_control|join(', ') }}</div>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p class="empty">No PSC data in pack.</p>
-  {% endif %}
+  <h2 style="margin-top:0">PSCs (CH) vs contacts (CRM)</h2>
+  <p class="small muted">
+    Persons with Significant Control from the CH download.
+    Often the same people as directors, but not always — matched separately to People
+    (this client first, then the whole practice directory).
+  </p>
+  <div class="table-wrap">
+    <table class="data cs-compare-table">
+      <thead>
+        <tr>
+          <th>CH PSC</th>
+          <th>Control / notified</th>
+          <th>Accologise contact</th>
+          <th>Also officer?</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in compare.pscs|default([]) %}
+        <tr class="{% if p.is_individual and not p.match %}cs-row-warn{% endif %}">
+          <td>
+            <strong>{{ p.ch_name }}</strong>
+            <div class="small muted">{{ p.ch_kind or 'PSC' }}</div>
+          </td>
+          <td class="small">
+            {{ p.ch_natures or '—' }}
+            {% if p.ch_notified %}<div class="muted">from {{ p.ch_notified|uk_date }}</div>{% endif %}
+          </td>
+          <td>
+            {% if p.practice_id %}
+            <a href="/people/{{ p.practice_id }}/edit">{{ p.practice_name }}</a>
+            {% if p.practice_role %}<span class="muted small"> · {{ p.practice_role }}</span>{% endif %}
+            {% elif p.candidates %}
+              {% for c in p.candidates %}
+              <div {% if not loop.first %}style="margin-top:0.35rem"{% endif %}>
+                <a href="/people/{{ c.id }}/edit"><strong>{{ c.name }}</strong></a>
+                {% if c.role %}<span class="muted small"> · {{ c.role }}</span>{% endif %}
+                {% if c.other_companies %}
+                <div class="muted small">Also: {{ c.other_companies }}</div>
+                {% endif %}
+              </div>
+              {% endfor %}
+            {% else %}
+            <span class="muted">{{ p.practice_name }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if p.also_officer %}
+            <span class="badge badge-active">Yes · also director</span>
+            {% else %}
+            <span class="badge">PSC only</span>
+            {% endif %}
+          </td>
+          <td class="actions-cell">
+            {% if not p.is_individual %}
+            <span class="badge">Entity</span>
+            {% elif p.match %}
+            <span class="badge badge-active">Linked</span>
+            {% elif p.candidates %}
+            <span class="badge badge-progress">Match in People</span>
+            {% for c in p.candidates %}
+            <form method="post" action="/cs/{{ pack.id }}/fix/link-contact" style="display:inline-block;margin:0.2rem 0 0 0.25rem">
+              <input type="hidden" name="person_id" value="{{ c.id }}">
+              <input type="hidden" name="officer_role" value="PSC">
+              <button class="btn btn-sm" type="submit" title="Link {{ c.name }} to this company">
+                Link{% if p.candidates|length > 1 %} {{ c.name.split(' ')[0] }}{% endif %}
+              </button>
+            </form>
+            {% endfor %}
+            <form method="post" action="/cs/{{ pack.id }}/fix/create-contact" style="display:inline-block;margin:0.2rem 0 0 0.25rem"
+                  onsubmit="return confirm('Create a new person instead of linking an existing match?');">
+              <input type="hidden" name="officer_name" value="{{ p.ch_name }}">
+              <input type="hidden" name="officer_role" value="PSC">
+              <button class="btn btn-sm btn-outline" type="submit">Create new</button>
+            </form>
+            {% else %}
+            <span class="badge badge-progress">CH only</span>
+            <form method="post" action="/cs/{{ pack.id }}/fix/create-contact" style="display:inline;margin-left:0.35rem">
+              <input type="hidden" name="officer_name" value="{{ p.ch_name }}">
+              <input type="hidden" name="officer_role" value="PSC">
+              <button class="btn btn-sm" type="submit">Create contact</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">No active PSCs in pack — refresh from CH (or company has none on the public register).</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
 {# ========== PRACTICE-ONLY CODES ========== #}

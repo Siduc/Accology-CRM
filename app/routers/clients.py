@@ -1,4 +1,5 @@
 from datetime import datetime, date
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -11,6 +12,7 @@ from app.models import Client, Job, Person
 from app.models.person import person_clients
 from app.services.import_csv import normalize_company_number
 from app.services.company_numbers import normalize_company_number as norm_cn
+from app.services.individuals import filter_company_clients
 from app.services.prior_import import client_fee_history
 from app.templating import render
 
@@ -64,15 +66,18 @@ async def list_clients(
     cohort: str = Query(""),
     db: Session = Depends(get_db),
 ):
-    """Live clients — excludes Inactive (those appear under Lost Clients).
+    """Live **companies** — excludes Inactive and individual/person shells.
+
+    Individual clients (IND-… / client_type Individual) belong on People, not here.
 
     book=closing — dashboard Clients tile (joined, not lost) = New − Lost set.
     book=on&as_of= — on the book at a date (engagement/invoice stock).
     cohort=all|YYYY — New tile (ever joined, or joined in year).
     """
     query = db.query(Client)
+    query = filter_company_clients(query)
     query = _client_search(query, q)
-    page_title = "Clients"
+    page_title = "Companies"
     book_note = ""
     book_key = (book or "").strip().lower()
     cohort_key = (cohort or "").strip().lower()
@@ -85,10 +90,11 @@ async def list_clients(
             query = query.filter(Client.id.in_(ids))
         else:
             query = query.filter(Client.id == -1)
-        page_title = "Clients · closing stock"
+        page_title = "Companies · closing stock"
         book_note = (
-            f"{len(ids)} clients = New − Lost (joined via engagement/first invoice, "
-            "not currently lost). Matches the dashboard Clients tile on Overall."
+            f"{len(ids)} companies = New − Lost (joined via engagement/first invoice, "
+            "not currently lost). Matches the dashboard Clients tile on Overall. "
+            "Individual tax clients are under People."
         )
     elif book_key in ("on", "1", "true", "yes"):
         from app.routers.dashboard import _on_books_client_ids
@@ -99,10 +105,11 @@ async def list_clients(
             query = query.filter(Client.id.in_(ids))
         else:
             query = query.filter(Client.id == -1)
-        page_title = f"On books · {as_of_d.strftime('%d-%m-%Y')}"
+        page_title = f"Companies on books · {as_of_d.strftime('%d-%m-%Y')}"
         book_note = (
             f"Practice book at {as_of_d.strftime('%d-%m-%Y')} — "
-            f"engagement/first invoice through before leave/disengagement."
+            f"engagement/first invoice through before leave/disengagement. "
+            "Companies only (no individual shells)."
         )
     elif cohort_key:
         from app.routers.dashboard import _new_client_ids
@@ -114,10 +121,10 @@ async def list_clients(
         else:
             query = query.filter(Client.id == -1)
         page_title = (
-            f"New clients · {year}" if year else "New clients · all time"
+            f"New companies · {year}" if year else "New companies · all time"
         )
         book_note = (
-            f"{len(ids)} clients with a join date"
+            f"{len(ids)} companies with a join date"
             + (f" in {year}" if year else " (engagement or first invoice).")
             + " Matches the dashboard New tile."
         )
@@ -125,13 +132,18 @@ async def list_clients(
         if status == "Inactive":
             return RedirectResponse("/lost/clients", status_code=303)
         query = query.filter(Client.overall_status == status)
+        if status == "Prospect":
+            page_title = "Prospect companies"
     else:
-        # Default: everything except lost/inactive
+        # Default: companies except lost/inactive
         query = query.filter(
             (Client.overall_status.is_(None))
             | (Client.overall_status != "Inactive")
         )
     clients = query.order_by(Client.company_name).all()
+    lost_q = filter_company_clients(
+        db.query(Client).filter(Client.overall_status == "Inactive")
+    )
     return render(
         request,
         "clients/list.html",
@@ -146,9 +158,7 @@ async def list_clients(
             "page_title": page_title,
             "view": "live",
             "all_statuses": STATUSES,
-            "lost_count": db.query(Client)
-            .filter(Client.overall_status == "Inactive")
-            .count(),
+            "lost_count": lost_q.count(),
         },
     )
 
@@ -166,23 +176,204 @@ async def list_lost_clients_legacy(
     )
 
 
+def _new_client_form_ctx(
+    *,
+    default_status: str = "Active",
+    error: Optional[str] = None,
+    draft: Optional[dict] = None,
+    ch_msg: str = "",
+    ch_error: str = "",
+    ch_search_q: str = "",
+    ch_search_items: Optional[list] = None,
+    create_jobs_from_ch: bool = True,
+):
+    from app.services.companies_house import has_api_key
+
+    return {
+        "client": None,
+        "statuses": STATUSES,
+        "client_types": CLIENT_TYPES,
+        "default_status": default_status,
+        "error": error,
+        "draft": draft or {},
+        "ch_key": has_api_key(),
+        "ch_msg": ch_msg,
+        "ch_error": ch_error,
+        "ch_search_q": ch_search_q,
+        "ch_search_items": ch_search_items or [],
+        "create_jobs_from_ch": create_jobs_from_ch,
+    }
+
+
 @router.get("/new", response_class=HTMLResponse)
 async def new_client_form(
     request: Request,
     status: str = Query(""),
+    cn: str = Query(""),
+    db: Session = Depends(get_db),
 ):
     # Allow /clients/new?status=Prospect for hub “New Prospect” action
     default_status = status if status in STATUSES else "Active"
+    draft = {}
+    ch_msg = ""
+    ch_error = ""
+    # Optional deep-link: /clients/new?cn=12345678 pulls profile immediately
+    raw_cn = (cn or "").strip()
+    if raw_cn:
+        from app.services.companies_house import (
+            client_fields_from_profile,
+            fetch_company_profile,
+            has_api_key,
+        )
+
+        if not has_api_key():
+            ch_error = "Companies House API key not configured (Settings)."
+        else:
+            num = normalize_company_number(raw_cn) or raw_cn
+            fetch = fetch_company_profile(num)
+            if fetch.ok and fetch.profile:
+                draft = client_fields_from_profile(fetch.profile)
+                default_status = draft.get("overall_status") or default_status
+                existing = (
+                    db.query(Client)
+                    .filter(Client.company_number == (draft.get("company_number") or num))
+                    .first()
+                )
+                if existing:
+                    ch_error = (
+                        f"Already a client: #{existing.id} "
+                        f"{existing.company_name or existing.company_number}. "
+                        f"Open that record instead of creating a duplicate."
+                    )
+                else:
+                    ch_msg = (
+                        f"Pulled from Companies House: {draft.get('company_name') or num}"
+                    )
+            else:
+                ch_error = fetch.error or "Companies House lookup failed."
+                draft = {"company_number": num}
+
     return render(
         request,
         "clients/form.html",
-        {
-            "client": None,
-            "statuses": STATUSES,
-            "client_types": CLIENT_TYPES,
-            "default_status": default_status,
-            "error": None,
-        },
+        _new_client_form_ctx(
+            default_status=default_status,
+            draft=draft,
+            ch_msg=ch_msg,
+            ch_error=ch_error,
+        ),
+    )
+
+
+@router.post("/new/from-ch", response_class=HTMLResponse)
+async def new_client_from_ch(
+    request: Request,
+    company_number: str = Form(""),
+    overall_status: str = Form("Active"),
+    db: Session = Depends(get_db),
+):
+    """Pull company profile from CH and re-show New Client form pre-filled."""
+    from app.services.companies_house import (
+        client_fields_from_profile,
+        fetch_company_profile,
+        has_api_key,
+    )
+
+    if not has_api_key():
+        return render(
+            request,
+            "clients/form.html",
+            _new_client_form_ctx(
+                default_status=overall_status or "Active",
+                ch_error="Companies House API key not configured (Settings).",
+                draft={"company_number": company_number},
+            ),
+            status_code=400,
+        )
+
+    cn = normalize_company_number(company_number) or (company_number or "").strip()
+    if not cn:
+        return render(
+            request,
+            "clients/form.html",
+            _new_client_form_ctx(
+                default_status=overall_status or "Active",
+                ch_error="Enter a company number to pull from Companies House.",
+            ),
+            status_code=400,
+        )
+
+    fetch = fetch_company_profile(cn)
+    if not fetch.ok or not fetch.profile:
+        return render(
+            request,
+            "clients/form.html",
+            _new_client_form_ctx(
+                default_status=overall_status or "Active",
+                draft={"company_number": cn},
+                ch_error=fetch.error or "Companies House lookup failed.",
+            ),
+            status_code=400,
+        )
+
+    draft = client_fields_from_profile(fetch.profile)
+    existing = (
+        db.query(Client)
+        .filter(Client.company_number == (draft.get("company_number") or cn))
+        .first()
+    )
+    ch_error = ""
+    ch_msg = f"Pulled from Companies House: {draft.get('company_name') or cn}"
+    if existing:
+        ch_error = (
+            f"Already a client: #{existing.id} {existing.company_name or existing.company_number}. "
+            "Open that record instead of creating a duplicate."
+        )
+        ch_msg = ""
+
+    return render(
+        request,
+        "clients/form.html",
+        _new_client_form_ctx(
+            default_status=draft.get("overall_status") or overall_status or "Active",
+            draft=draft,
+            ch_msg=ch_msg,
+            ch_error=ch_error,
+        ),
+    )
+
+
+@router.get("/new/ch-search", response_class=HTMLResponse)
+async def new_client_ch_search(
+    request: Request,
+    q: str = Query(""),
+    status: str = Query("Active"),
+):
+    """Search Companies House by name/number for the new-client flow."""
+    from app.services.companies_house import has_api_key, search_companies
+
+    items = []
+    ch_error = ""
+    if not (q or "").strip():
+        ch_error = "Enter a company name or number to search."
+    elif not has_api_key():
+        ch_error = "Companies House API key not configured (Settings)."
+    else:
+        res = search_companies(q.strip())
+        if not res.ok:
+            ch_error = res.error or "Search failed."
+        else:
+            items = (res.profile or {}).get("items") or []
+
+    return render(
+        request,
+        "clients/form.html",
+        _new_client_form_ctx(
+            default_status=status if status in STATUSES else "Active",
+            ch_search_q=q,
+            ch_search_items=items,
+            ch_error=ch_error,
+        ),
     )
 
 
@@ -205,6 +396,8 @@ async def create_client(
     vat_number: str = Form(""),
     utr: str = Form(""),
     notes: str = Form(""),
+    create_jobs_from_ch: str = Form(""),
+    source: str = Form(""),
     db: Session = Depends(get_db),
 ):
     cn = normalize_company_number(company_number)
@@ -212,13 +405,25 @@ async def create_client(
         return render(
             request,
             "clients/form.html",
-            {
-                "client": None,
-                "statuses": STATUSES,
-                "client_types": CLIENT_TYPES,
-                "default_status": overall_status or "Active",
-                "error": "Company number is required.",
-            },
+            _new_client_form_ctx(
+                default_status=overall_status or "Active",
+                error="Company number is required.",
+                draft={
+                    "company_name": company_name,
+                    "company_number": company_number,
+                    "contact_name": contact_name,
+                    "email": email,
+                    "phone": phone,
+                    "address_line1": address_line1,
+                    "address_line2": address_line2,
+                    "town": town,
+                    "postcode": postcode,
+                    "client_type": client_type,
+                    "notes": notes,
+                    "vat_number": vat_number,
+                    "utr": utr,
+                },
+            ),
             status_code=400,
         )
     existing = db.query(Client).filter(Client.company_number == cn).first()
@@ -226,13 +431,23 @@ async def create_client(
         return render(
             request,
             "clients/form.html",
-            {
-                "client": None,
-                "statuses": STATUSES,
-                "client_types": CLIENT_TYPES,
-                "default_status": overall_status or "Active",
-                "error": f"Company number {cn} already exists (client #{existing.id}).",
-            },
+            _new_client_form_ctx(
+                default_status=overall_status or "Active",
+                error=f"Company number {cn} already exists (client #{existing.id}).",
+                draft={
+                    "company_name": company_name,
+                    "company_number": cn,
+                    "contact_name": contact_name,
+                    "email": email,
+                    "phone": phone,
+                    "address_line1": address_line1,
+                    "address_line2": address_line2,
+                    "town": town,
+                    "postcode": postcode,
+                    "client_type": client_type,
+                    "notes": notes,
+                },
+            ),
             status_code=400,
         )
 
@@ -242,6 +457,12 @@ async def create_client(
     # Completing disengagement marks the client lost unless already a prospect
     if dis and status not in ("Prospect", "Inactive"):
         status = "Inactive"
+
+    src = (source or "").strip() or "manual"
+    if src not in ("manual", "companies_house", "ch"):
+        src = "manual"
+    if src == "ch":
+        src = "companies_house"
 
     client = Client(
         company_name=company_name or None,
@@ -260,12 +481,23 @@ async def create_client(
         vat_number=vat_number or None,
         utr=utr or None,
         notes=notes or None,
-        source="manual",
+        source=src,
         created_at=datetime.utcnow(),
     )
     db.add(client)
     db.commit()
     db.refresh(client)
+
+    # Optional: create Accounts + CS jobs from CH dates (same as client detail)
+    if (create_jobs_from_ch or "").strip().lower() in ("1", "yes", "on", "true"):
+        try:
+            from app.services.ch_jobs import create_jobs_for_client_from_ch
+
+            create_jobs_for_client_from_ch(db, client)
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
     return RedirectResponse(f"/clients/{client.id}", status_code=303)
 
 
@@ -371,6 +603,15 @@ async def client_detail(
     except Exception:
         client_tasks = []
 
+    client_emails = []
+    try:
+        from app.services import practice_emails as practice_mail
+
+        practice_mail.seed_email_templates(db)
+        client_emails = practice_mail.list_messages(db, client_id=client_id, limit=40)
+    except Exception:
+        client_emails = []
+
     # Pre-serialize chart JSON so template never fails on tojson edge cases
     import json
 
@@ -403,6 +644,8 @@ async def client_detail(
             "documents": documents,
             "docs_conn": docs_conn,
             "client_tasks": client_tasks,
+            "client_emails": client_emails,
+            "msg": request.query_params.get("msg", ""),
         },
     )
 

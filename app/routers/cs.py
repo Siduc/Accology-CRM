@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models import Client, Job
 from app.services.ch_filing import prepare_cs_filing, prep_dict, readiness_for_pack
 from app.services.ch_oauth import latest_token_for_client, oauth_is_ready, token_is_fresh
+from app.models.person import Person
 from app.services.cs_automation import (
     apply_ch_address_to_client,
     build_cs_comparison,
@@ -23,6 +24,7 @@ from app.services.cs_automation import (
     form_dict,
     get_pack,
     latest_pack_for_client,
+    link_person_to_client,
     mark_filed,
     mark_ready,
     save_review,
@@ -76,8 +78,15 @@ async def cs_review(
         )
     form = form_dict(pack)
     people = list(client.people) if client and client.people is not None else []
+    # Full practice directory so multi-company directors can be offered as Link
+    directory_people = db.query(Person).order_by(Person.full_name).all()
     compare = build_cs_comparison(
-        pack, client, people=people, job=job, accounts_job=accounts_job
+        pack,
+        client,
+        people=people,
+        directory_people=directory_people,
+        job=job,
+        accounts_job=accounts_job,
     )
     oauth_token = (
         latest_token_for_client(db, pack.client_id) if pack.client_id else None
@@ -154,9 +163,23 @@ async def cs_fix(
             )
             if person:
                 db.commit()
+                # create_contact_from_officer also reuses existing people by name
                 msg = "contact_created"
             else:
                 err = "Officer name missing."
+        elif action == "link-contact":
+            pid = int(person_id) if (person_id or "").isdigit() else 0
+            person = link_person_to_client(
+                db,
+                client,
+                pid,
+                officer_role=officer_role,
+            )
+            if person:
+                db.commit()
+                msg = "contact_linked"
+            else:
+                err = "Could not link that person — not found."
         elif action == "accounts-dates":
             aj = sync_accounts_job_from_ch(db, client, pack)
             if aj:

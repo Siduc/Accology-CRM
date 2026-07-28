@@ -39,8 +39,15 @@ templates.env.filters["job_status"] = _job_display_status
 
 def render(request, name: str, context: dict | None = None, status_code: int = 200):
     """Render a Jinja2 template with the current Starlette TemplateResponse API."""
+    from app.services.demo_mode import anonymize_context, is_demo_request
+
     ctx = dict(context or {})
     ctx.setdefault("today", date.today())
+    demo = is_demo_request(request)
+    ctx["demo_mode"] = demo
+    if demo:
+        # Anonymise confidential fields for presentation; DB is unchanged
+        ctx = anonymize_context(ctx)
     return templates.TemplateResponse(
         request, name, ctx, status_code=status_code
     )

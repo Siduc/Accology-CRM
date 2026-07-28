@@ -49,6 +49,8 @@ PERSON_FIELDS = (
     "utr",
     "ni_number",
     "ch_code",
+    "gov_gateway_username",
+    "gov_gateway_password",
     "person_status",
     "is_primary",
     "is_individual_client",

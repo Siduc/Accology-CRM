@@ -20,6 +20,9 @@
   </div>
   <div class="actions">
     <a class="btn btn-sm" href="/jobs/{{ job.id }}/edit">Edit</a>
+    {% if job.client_id %}
+    <a class="btn btn-sm btn-outline wc-touch" href="/emails/compose?client_id={{ job.client_id }}&amp;job_id={{ job.id }}&amp;return_to=/jobs/{{ job.id }}">Send email</a>
+    {% endif %}
     {% if asana_enabled or job.asana_task_gid %}
     <form method="post" action="/asana/jobs/{{ job.id }}/push" style="display:inline">
       <button class="btn btn-sm btn-secondary wc-touch" type="submit" {% if not asana_enabled %}disabled title="Enable Asana on client Connections"{% endif %}>
@@ -40,6 +43,9 @@
 
 {% if asana_msg %}
 <div class="chase-banner chase-banner-info">{{ asana_msg }}</div>
+{% endif %}
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
 {% endif %}
 {% if asana_error %}
 <div class="alert alert-error">{{ asana_error }}</div>
@@ -97,6 +103,12 @@
 {% with tasks=job_tasks|default([]), embed_title='Tasks for this job', new_task_href='/tasks/new?client_id=' ~ (job.client_id or '') ~ '&job_id=' ~ job.id, next_url='/jobs/' ~ job.id, empty_msg='No open tasks linked to this job.' %}
 {% include "tasks/_embed.html" %}
 {% endwith %}
+
+{% if job.client_id %}
+{% with emails=job_emails|default([]), embed_title='Email for this job', compose_href='/emails/compose?client_id=' ~ job.client_id ~ '&job_id=' ~ job.id ~ '&return_to=/jobs/' ~ job.id, next_url='/jobs/' ~ job.id, empty_msg='No structured emails for this job yet.' %}
+{% include "emails/_history.html" %}
+{% endwith %}
+{% endif %}
 
 <div class="card" id="documents" style="margin-top:1rem">
   <div class="page-header" style="margin-bottom:0.75rem">

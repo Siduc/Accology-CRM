@@ -70,7 +70,8 @@
     {% endfor %}
   </div>
 
-  <section class="wc-net-banner wc-net-result wc-total-banner wc-net-pos">
+  <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch"
+     href="/working-capital/wip?horizon=all">
     <div class="wc-net-main">
       <div class="wc-net-label">Total WIP</div>
       <div class="wc-net-value">£{{ '{:,.0f}'.format(total) }}</div>
@@ -80,7 +81,8 @@
         {% if (tasks_value|default(0)) > 0 %}+ tasks £{{ '{:,.0f}'.format(tasks_value) }}{% endif %}
       </div>
     </div>
-  </section>
+    <p class="wc-net-hint small">Types + full list →</p>
+  </a>
 </div>
 
 <div class="wip-mobile subdash-mobile">
@@ -99,11 +101,11 @@
     </a>
     {% endfor %}
   </div>
-  <section class="live-net">
-    <div class="live-net-label">Total WIP</div>
-    <div class="live-net-value">£{{ '{:,.0f}'.format(total) }}</div>
-    <div class="live-net-formula">Jobs + retainers + tasks</div>
-  </section>
+  <a class="live-tile live-tile-wide tile-wip" href="/working-capital/wip?horizon=all">
+    <span class="live-kicker">Total WIP</span>
+    <span class="live-value">£{{ '{:,.0f}'.format(total) }}</span>
+    <span class="live-sub">Jobs + retainers + tasks · list →</span>
+  </a>
 </div>
 {% endif %}
 
@@ -115,9 +117,17 @@
 </p>
 
 <div class="wip-desk subdash-desk">
-  <div class="wc-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+  <div class="wc-grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
     {% for t in type_totals %}
-    {% set tq = 'Accounts' if t.key == 'Accounts' else ('Confirmation+Statement' if t.key == 'Confirmation Statement' else 'Other') %}
+    {% if t.key == 'Accounts' %}
+      {% set tq = 'Accounts' %}
+    {% elif t.key == 'Self Assessment' %}
+      {% set tq = 'Self+Assessment' %}
+    {% elif t.key == 'Confirmation Statement' %}
+      {% set tq = 'Confirmation+Statement' %}
+    {% else %}
+      {% set tq = 'Other' %}
+    {% endif %}
     <a class="wc-box {{ type_box_class.get(t.key, 'wc-box-wip') }} wc-touch {% if filter_type == t.key %}is-selected{% endif %}"
        href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type={{ tq }}#wip-list">
       <div class="wc-box-head">
@@ -140,7 +150,15 @@
 <div class="wip-mobile subdash-mobile">
   <div class="live-grid">
     {% for t in type_totals %}
-    {% set tq = 'Accounts' if t.key == 'Accounts' else ('Confirmation+Statement' if t.key == 'Confirmation Statement' else 'Other') %}
+    {% if t.key == 'Accounts' %}
+      {% set tq = 'Accounts' %}
+    {% elif t.key == 'Self Assessment' %}
+      {% set tq = 'Self+Assessment' %}
+    {% elif t.key == 'Confirmation Statement' %}
+      {% set tq = 'Confirmation+Statement' %}
+    {% else %}
+      {% set tq = 'Other' %}
+    {% endif %}
     <a class="live-tile {{ type_tile_class.get(t.key, 'tile-wip') }} {% if filter_type == t.key %}is-selected{% endif %}"
        href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type={{ tq }}#wip-list">
       <span class="live-kicker">{{ t.label }}</span>
@@ -164,19 +182,11 @@
     </div>
   </div>
 
+  {% if filter_clients %}
   <form class="filters" method="get" action="/working-capital/wip" style="margin-bottom:0.85rem">
     <input type="hidden" name="horizon" value="{{ filter_horizon }}">
     {% if filter_type %}<input type="hidden" name="type" value="{{ filter_type }}">{% endif %}
-    <div>
-      <label class="small muted">Filter display status</label><br>
-      <select name="status" onchange="this.form.submit()">
-        <option value="">All in list</option>
-        {% for s in list_status_options %}
-        <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    {% if filter_clients %}
+    {% if filter_status %}<input type="hidden" name="status" value="{{ filter_status }}">{% endif %}
     <div>
       <label class="small muted">Client</label><br>
       <select name="client_id" onchange="this.form.submit()">
@@ -186,8 +196,8 @@
         {% endfor %}
       </select>
     </div>
-    {% endif %}
   </form>
+  {% endif %}
 
   {% if filter_horizon == 'today' %}
   <div class="period-toggle" style="margin-bottom:0.85rem">
@@ -212,7 +222,6 @@
           <th>Due</th>
           <th>Age</th>
           <th>Display</th>
-          <th>Set status</th>
           <th class="num">Fee</th>
         </tr>
       </thead>
@@ -238,16 +247,6 @@
             <span class="badge">{{ r.list_status }}</span>
             {% endif %}
           </td>
-          <td onclick="event.stopPropagation()">
-            <form class="job-status-form" method="post" action="/jobs/{{ j.id }}/status-quick">
-              <input type="hidden" name="next" value="/working-capital/wip?horizon={{ filter_horizon }}{% if type_query %}&type={{ type_query }}{% endif %}{% if filter_status %}&status={{ filter_status }}{% endif %}#wip-list">
-              <select name="status" onchange="this.form.submit()" title="Change workflow status">
-                {% for s in ['Planned','In Progress','Review','Today','On hold','Completed','Cancelled'] %}
-                <option value="{{ s }}" {% if j.status == s %}selected{% endif %}>{{ s }}</option>
-                {% endfor %}
-              </select>
-            </form>
-          </td>
           <td class="num"><strong>£{{ '%.2f'|format(r.amount) }}</strong></td>
         </tr>
         {% endfor %}
@@ -265,12 +264,14 @@
 {% set pe_q = pe_layout.pe_q %}
 {% set pe_mid_box = {
   'accounts': 'wc-box-wip',
+  'sa': 'wc-box-cash',
   'cs': 'wc-box-debtors',
   'vat': 'wc-box-cash',
   'other': 'wc-box-creditors'
 } %}
 {% set pe_mid_tile = {
   'accounts': 'tile-wip',
+  'sa': 'tile-cash',
   'cs': 'tile-debtors',
   'vat': 'tile-cash',
   'other': 'tile-creditors'
@@ -390,7 +391,6 @@
           <th>Period end</th>
           <th>Due</th>
           <th>Status</th>
-          <th>Set status</th>
           <th class="num">Fee</th>
         </tr>
       </thead>
@@ -408,16 +408,6 @@
           <td class="small">{{ r.period_end_fmt }}</td>
           <td>{% if j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
           <td><span class="badge">{{ r.list_status }}</span></td>
-          <td onclick="event.stopPropagation()">
-            <form class="job-status-form" method="post" action="/jobs/{{ j.id }}/status-quick">
-              <input type="hidden" name="next" value="/working-capital/wip?pe_year={{ pe_q }}&amp;pe_slice={{ filter_pe_slice }}#wip-list">
-              <select name="status" onchange="this.form.submit()" title="Change workflow status">
-                {% for s in ['Planned','In Progress','Review','Today','On hold','Completed','Cancelled','Filed'] %}
-                <option value="{{ s }}" {% if j.status == s %}selected{% endif %}>{{ s }}</option>
-                {% endfor %}
-              </select>
-            </form>
-          </td>
           <td class="num"><strong>£{{ '%.2f'|format(r.amount) }}</strong></td>
         </tr>
         {% endfor %}
@@ -433,7 +423,8 @@
 
 {# WIP book only on main WIP home (not age/type/PE drill-downs) #}
 {% if show_age_home and wip_book %}
-<div class="headcount-panel card wip-book-panel" id="wip-book" style="margin-top:1.5rem">
+{# —— Desk: practice-style headcount panel —— #}
+<div class="headcount-panel card wip-book-panel wip-book-desk" id="wip-book" style="margin-top:1.5rem">
   <div class="headcount-toolbar">
     <div>
       <h2 class="headcount-heading">WIP book</h2>
@@ -468,5 +459,29 @@
     {% endfor %}
   </div>
 </div>
+
+{# —— Phone: same layout language as dashboard Practice book —— #}
+<section class="hub-practice wip-book-mobile" id="wip-book-mobile" aria-label="WIP book">
+  <div class="hub-practice-head">
+    <h2>WIP book</h2>
+  </div>
+  <p class="muted small hub-practice-note" style="margin-bottom:0.55rem">
+    Remaining £{{ '{:,.0f}'.format(wip_book.total_value|default(0)) }}
+    of £{{ '{:,.0f}'.format(wip_book.total_expected|default(0)) }} known
+  </p>
+  <div class="practice-tiles">
+    {% for t in wip_book.tiles|default([]) %}
+    <a class="practice-tile {% if t.key == 'prospects' %}practice-new{% elif t.key == 'pe_2027' %}practice-ok{% elif t.key == 'pe_2024_prior' %}practice-lost{% endif %}"
+       href="{{ t.href }}">
+      <span class="practice-num">£{{ '{:,.0f}'.format(t.amount) }}</span>
+      <span class="practice-lab">{{ t.label }}</span>
+      <span class="practice-sub">{{ t.count }} · {{ t.pct }}%</span>
+    </a>
+    {% endfor %}
+  </div>
+  <p class="muted small hub-practice-note">
+    Tap a year for completed / outstanding tiles
+  </p>
+</section>
 {% endif %}
 {% endblock %}

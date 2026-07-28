@@ -10,7 +10,11 @@ from app.services.import_csv import (
     excel_bytes_to_csv_text,
     PERSON_HEADER_MAP,
 )
-from app.services.individuals import ensure_individual_client
+from app.services.individuals import (
+    delete_person as delete_person_record,
+    ensure_individual_client,
+    person_delete_impact,
+)
 from app.templating import render
 
 router = APIRouter(prefix="/people", tags=["people"])
@@ -73,6 +77,7 @@ def _person_row(person: Person) -> dict:
 async def list_people(
     request: Request,
     filter: str = Query(""),
+    msg: str = Query(""),
     db: Session = Depends(get_db),
 ):
     people = (
@@ -103,6 +108,7 @@ async def list_people(
             "linked_count": linked,
             "individual_count": individual,
             "unlinked_count": needs_link,
+            "msg": msg,
         },
     )
 
@@ -399,6 +405,8 @@ async def create_person(
     utr: str = Form(""),
     ni_number: str = Form(""),
     ch_code: str = Form(""),
+    gov_gateway_username: str = Form(""),
+    gov_gateway_password: str = Form(""),
     db: Session = Depends(get_db),
 ):
     form = await request.form()
@@ -421,6 +429,8 @@ async def create_person(
         utr=(utr or "").strip() or None,
         ni_number=(ni_number or "").strip() or None,
         ch_code=(ch_code or "").strip() or None,
+        gov_gateway_username=(gov_gateway_username or "").strip() or None,
+        gov_gateway_password=(gov_gateway_password or "").strip() or None,
     )
     person.clients = _resolve_clients_from_ids(db, client_ids)
     db.add(person)
@@ -475,6 +485,8 @@ async def update_person(
     utr: str = Form(""),
     ni_number: str = Form(""),
     ch_code: str = Form(""),
+    gov_gateway_username: str = Form(""),
+    gov_gateway_password: str = Form(""),
     db: Session = Depends(get_db),
 ):
     person = (
@@ -500,6 +512,8 @@ async def update_person(
     person.utr = (utr or "").strip() or None
     person.ni_number = (ni_number or "").strip() or None
     person.ch_code = (ch_code or "").strip() or None
+    person.gov_gateway_username = (gov_gateway_username or "").strip() or None
+    person.gov_gateway_password = (gov_gateway_password or "").strip() or None
     # Keep company links from form; preserve any Individual shell client
     company_clients = _resolve_clients_from_ids(db, client_ids)
     individual_shells = [
@@ -524,3 +538,96 @@ async def update_person(
     if person.clients:
         return RedirectResponse(f"/clients/{person.clients[0].id}", status_code=303)
     return RedirectResponse("/people", status_code=303)
+
+
+@router.get("/{person_id:int}/delete", response_class=HTMLResponse)
+async def delete_person_confirm(
+    person_id: int, request: Request, db: Session = Depends(get_db)
+):
+    """Confirm delete — shows companies, individual shell jobs, and same-name duplicates."""
+    person = (
+        db.query(Person)
+        .options(joinedload(Person.clients))
+        .filter(Person.id == person_id)
+        .first()
+    )
+    if not person:
+        return RedirectResponse("/people", status_code=303)
+    impact = person_delete_impact(db, person)
+    return render(
+        request,
+        "people/delete.html",
+        {
+            "person": person,
+            "impact": impact,
+            "error": None,
+        },
+    )
+
+
+@router.post("/{person_id:int}/delete", response_class=HTMLResponse)
+async def delete_person_action(
+    person_id: int,
+    request: Request,
+    confirm_name: str = Form(""),
+    delete_empty_shell: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    person = (
+        db.query(Person)
+        .options(joinedload(Person.clients))
+        .filter(Person.id == person_id)
+        .first()
+    )
+    if not person:
+        return RedirectResponse("/people", status_code=303)
+
+    impact = person_delete_impact(db, person)
+    expected = (person.full_name or "").strip()
+    typed = (confirm_name or "").strip()
+    if not typed or typed.casefold() != expected.casefold():
+        return render(
+            request,
+            "people/delete.html",
+            {
+                "person": person,
+                "impact": impact,
+                "error": (
+                    "Type the person’s full name exactly to confirm delete "
+                    f"(expected “{expected}”)."
+                ),
+            },
+            status_code=400,
+        )
+
+    try:
+        result = delete_person_record(
+            db,
+            person,
+            delete_empty_shell=(delete_empty_shell or "").strip().lower()
+            in ("1", "yes", "on", "true"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        return render(
+            request,
+            "people/delete.html",
+            {
+                "person": person,
+                "impact": impact,
+                "error": f"Delete failed: {exc}",
+            },
+            status_code=500,
+        )
+
+    from urllib.parse import quote
+
+    msg = f"Deleted {result.get('full_name') or 'person'}"
+    if result.get("deleted_shell_ids"):
+        msg += f" · removed empty individual shell(s) {result['deleted_shell_ids']}"
+    if result.get("kept_shells"):
+        msg += " · individual shell kept (jobs/invoices remain)"
+    return RedirectResponse(
+        f"/people?msg={quote(msg)}",
+        status_code=303,
+    )

@@ -15,11 +15,18 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
   <title>{% block title %}Accologise{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=wip-book2">
+  <link rel="stylesheet" href="/static/style.css?v=demo1">
   <script src="/static/dashboard_view.js?v=dual1" defer></script>
   <script src="/static/pwa.js?v=2" defer></script>
 </head>
-<body class="dash-auto {% if hide_nav %}body-hub{% else %}body-page{% endif %}">
+<body class="dash-auto {% if hide_nav %}body-hub{% else %}body-page{% endif %} {% if demo_mode %}is-demo-mode{% endif %}">
+  {% if demo_mode %}
+  <div class="demo-banner" role="status">
+    <strong>Demo mode</strong>
+    <span>— names, contacts, credentials and figures are anonymised for presentation. Database unchanged.</span>
+    <a class="demo-banner-exit" href="/demo/off">Exit demo</a>
+  </div>
+  {% endif %}
   {% if not hide_nav %}
   <header class="minibar">
     <a class="minibar-title" href="/dashboard" title="Dashboard home">Accologise</a>
@@ -37,9 +44,19 @@
       <a class="minibar-logout" href="/documents">Documents</a>
       <a class="minibar-logout" href="/asana">Asana</a>
       <a class="minibar-logout" href="/settings">Settings</a>
+      {% if demo_mode %}
+      <a class="minibar-logout demo-toggle-on" href="/demo/off" title="Show live data">Demo on</a>
+      {% else %}
+      <a class="minibar-logout" href="/demo/on" title="Anonymise for presentation">Demo</a>
+      {% endif %}
       <a class="minibar-logout" href="/logout">Logout</a>
     </div>
     <div class="minibar-right minibar-nav-phone">
+      {% if demo_mode %}
+      <a class="minibar-logout demo-toggle-on" href="/demo/off">Demo on</a>
+      {% else %}
+      <a class="minibar-logout" href="/demo/on">Demo</a>
+      {% endif %}
       <a class="minibar-logout" href="/settings">Settings</a>
       <a class="minibar-logout" href="/logout">Logout</a>
     </div>

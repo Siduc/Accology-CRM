@@ -67,6 +67,7 @@
     <select name="type" onchange="this.form.submit()">
       <option value="" {% if not job_type %}selected{% endif %}>All types</option>
       <option value="Accounts" {% if job_type == 'Accounts' %}selected{% endif %}>Accounts</option>
+      <option value="Self Assessment" {% if job_type == 'Self Assessment' %}selected{% endif %}>Self Assessment</option>
       <option value="Confirmation Statement" {% if job_type == 'Confirmation Statement' %}selected{% endif %}>Confirmation Statement</option>
     </select>
   </div>

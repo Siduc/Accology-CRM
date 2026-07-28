@@ -1,28 +1,47 @@
 {% extends "base.html" %}
 {% block title %}{{ page_title or 'Clients' }} · Accountant CRM{% endblock %}
-{% block apple_title %}Clients{% endblock %}
+{% block apple_title %}Companies{% endblock %}
 {% block apple_touch_icon %}/static/icons/home/clients.png?v=home1{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
-    <h1>{{ page_title or 'Clients' }}</h1>
-    <p class="muted small">{{ clients|length }} matching</p>
+    <h1>{{ page_title or 'Companies' }}</h1>
+    <p class="muted small">{{ clients|length }} matching · companies only (people are under People)</p>
     {% if book_note %}
     <p class="muted small">{{ book_note }}</p>
     {% endif %}
   </div>
-  <div class="actions">
+  {# Desk: primary actions (phone uses action tiles below) #}
+  <div class="actions page-actions-desk">
     <a class="btn btn-sm" href="/clients/new">Add Client</a>
+    <a class="btn btn-sm btn-secondary" href="/clients">Companies</a>
+    <a class="btn btn-sm btn-outline" href="/people">People</a>
     <a class="btn btn-sm btn-outline" href="/export/clients{% if status %}?status={{ status }}{% endif %}">Export CSV</a>
     <a class="btn btn-sm btn-outline" href="/import/csv?dataset=clients">Reimport CSV</a>
-    <a class="btn btn-sm btn-outline" href="/import-clients">Import (legacy)</a>
   </div>
 </div>
 
-<div class="actions" style="margin-bottom:1rem">
-  <a class="btn btn-sm {% if view != 'lost' %}{% else %}btn-outline{% endif %}" href="/clients">Live clients</a>
+{# Phone: action tiles like dashboard / WIP #}
+<div class="action-tiles page-action-tiles" role="navigation" aria-label="Client book actions">
+  <a class="action-tile action-client" href="/clients/new">
+    <span class="action-plus">+</span>
+    <span class="action-label">Add Client</span>
+  </a>
+  <a class="action-tile action-companies" href="/clients">
+    <span class="action-plus">◎</span>
+    <span class="action-label">Companies</span>
+  </a>
+  <a class="action-tile action-people" href="/people">
+    <span class="action-plus">◎</span>
+    <span class="action-label">People</span>
+  </a>
+</div>
+
+<div class="actions page-subnav-desk" style="margin-bottom:1rem">
+  <a class="btn btn-sm {% if view != 'lost' %}{% else %}btn-outline{% endif %}" href="/clients">Companies</a>
+  <a class="btn btn-sm btn-outline" href="/people">People</a>
   <a class="btn btn-sm {% if view == 'lost' %}{% else %}btn-outline{% endif %}" href="/lost/clients">
-    Lost clients{% if lost_count is defined and view != 'lost' and lost_count %} ({{ lost_count }}){% endif %}
+    Lost{% if lost_count is defined and view != 'lost' and lost_count %} ({{ lost_count }}){% endif %}
   </a>
 </div>
 

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import Client, Job
+from app.services.individuals import filter_company_clients
 from app.services.lost_analysis import analyse_lost_jobs, apply_lost_filters
 from app.templating import render
 
@@ -31,6 +32,7 @@ async def lost_clients(
     db: Session = Depends(get_db),
 ):
     query = db.query(Client).filter(Client.overall_status == "Inactive")
+    query = filter_company_clients(query)
     query = _client_search(query, q)
     clients = query.order_by(Client.company_name).all()
     return render(
@@ -41,7 +43,7 @@ async def lost_clients(
             "q": q,
             "status": "Inactive",
             "statuses": ["Inactive"],
-            "page_title": "Lost clients",
+            "page_title": "Lost companies",
             "view": "lost",
             "all_statuses": ["Active", "Inactive", "Prospect", "Former"],
             "lost_count": len(clients),

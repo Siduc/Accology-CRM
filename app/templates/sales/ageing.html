@@ -95,6 +95,95 @@
   </p>
 </div>
 
+{# ========== Sales day book (practice-book format) ========== #}
+{% if day_book %}
+{# Desk #}
+<div class="headcount-panel card sales-daybook-panel sales-daybook-desk" id="sales-day-book" style="margin-top:1.5rem">
+  <div class="headcount-toolbar">
+    <div>
+      <h2 class="headcount-heading">Sales day book</h2>
+      <p class="muted small headcount-hint">
+        Debtors b/Fwd + Invoices − Receipts = Debtors c/Fwd.
+        {% if day_year %}
+        Year {{ day_year }}: invoices raised and receipts banked in the year;
+        c/Fwd is outstanding debtors today; b/Fwd is derived so the equation holds.
+        {% else %}
+        Overall: all invoices and receipts; c/Fwd is outstanding debtors today.
+        {% endif %}
+      </p>
+    </div>
+    <div class="period-toggle period-toggle-years" role="group" aria-label="Day book year">
+      {% for y in day_years|default([]) %}
+      <a class="period-btn {% if day_year == y %}is-active{% endif %}"
+         href="/sales/ageing?day_period={{ y }}{% if filter_bucket %}&amp;bucket={{ filter_bucket }}{% endif %}#sales-day-book">{{ y }}</a>
+      {% endfor %}
+      <a class="period-btn {% if day_period == 'overall' %}is-active{% endif %}"
+         href="/sales/ageing?day_period=overall{% if filter_bucket %}&amp;bucket={{ filter_bucket }}{% endif %}#sales-day-book">Overall</a>
+    </div>
+  </div>
+  <div class="stat-row stat-row-4">
+    {% for t in day_book.tiles %}
+    <a class="stat-tile {% if t.tone == 'ok' %}stat-tile-success{% elif t.tone == 'lost' %}stat-tile-danger{% elif t.tone == 'new' %}stat-tile-wip{% endif %}"
+       href="{{ t.href }}">
+      <div class="stat-name">{{ t.label }}</div>
+      <div class="stat-num" style="font-size:1.55rem;font-weight:800;line-height:1.15;color:#0f172a">
+        £{{ '{:,.0f}'.format(t.amount) }}
+      </div>
+      {% if t.count is not none %}
+      <div class="stat-sub muted small" style="margin-top:0.35rem">
+        <strong>{{ t.count }}</strong> {{ t.unit }}
+      </div>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  <p class="muted small" style="margin:0.85rem 0 0">
+    £{{ '{:,.0f}'.format(day_book.b_fwd) }}
+    + £{{ '{:,.0f}'.format(day_book.invoices) }}
+    − £{{ '{:,.0f}'.format(day_book.receipts) }}
+    = <strong>£{{ '{:,.0f}'.format(day_book.c_fwd) }}</strong>
+    · showing <strong>{{ day_book.label }}</strong>
+  </p>
+</div>
+
+{# Phone — same practice-book tiles as dashboard #}
+<section class="hub-practice sales-daybook-mobile" id="sales-day-book-mobile" aria-label="Sales day book">
+  <div class="hub-practice-head">
+    <h2>Sales day book</h2>
+    <div class="period-toggle period-toggle-years" role="group" aria-label="Day book year">
+      {% for y in day_years|default([]) %}
+      <a class="period-btn {% if day_year == y %}is-active{% endif %}"
+         href="/sales/ageing?day_period={{ y }}#sales-day-book-mobile">{{ y }}</a>
+      {% endfor %}
+      <a class="period-btn {% if day_period == 'overall' %}is-active{% endif %}"
+         href="/sales/ageing?day_period=overall#sales-day-book-mobile">All</a>
+    </div>
+  </div>
+  <p class="muted small hub-practice-note" style="margin-bottom:0.55rem">
+    b/Fwd + Invoices − Receipts = c/Fwd
+  </p>
+  <div class="practice-tiles practice-tiles-4">
+    {% for t in day_book.tiles %}
+    <a class="practice-tile {% if t.tone == 'ok' %}practice-ok{% elif t.tone == 'lost' %}practice-lost{% elif t.tone == 'new' %}practice-new{% endif %}"
+       href="{{ t.href }}">
+      <span class="practice-num">£{{ '{:,.0f}'.format(t.amount) }}</span>
+      <span class="practice-lab">{{ t.label }}</span>
+      {% if t.count is not none %}
+      <span class="practice-sub">{{ t.count }} {{ t.unit }}</span>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  <p class="muted small hub-practice-note">
+    £{{ '{:,.0f}'.format(day_book.b_fwd) }}
+    + £{{ '{:,.0f}'.format(day_book.invoices) }}
+    − £{{ '{:,.0f}'.format(day_book.receipts) }}
+    = £{{ '{:,.0f}'.format(day_book.c_fwd) }}
+    · {{ day_book.label }}
+  </p>
+</section>
+{% endif %}
+
 {% if show_list %}
 <div class="card" id="debtors-list" style="margin-top:1rem">
   <div class="page-header" style="margin-bottom:0.75rem">

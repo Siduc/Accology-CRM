@@ -31,6 +31,13 @@ class PracticeTask(Base):
     import_source = Column(String, nullable=True)  # e.g. outlook_grok
     import_hash = Column(String, nullable=True, index=True)
     import_batch_id = Column(String, nullable=True, index=True)
+    # Graph Outlook message linkage (archive-on-complete)
+    outlook_message_id = Column(String, nullable=True, index=True)
+    outlook_conversation_id = Column(String, nullable=True)
+    outlook_web_link = Column(String, nullable=True)
+    outlook_archived_at = Column(DateTime, nullable=True)
+    # none | pending | archived | failed
+    outlook_archive_status = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

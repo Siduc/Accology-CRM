@@ -79,6 +79,18 @@
     <label>Notes</label>
     <textarea name="notes" rows="2">{{ task.notes if task else '' }}</textarea>
 
+    <label>Outlook message id (optional)</label>
+    <input name="outlook_message_id" type="text"
+           value="{{ task.outlook_message_id if task and task.outlook_message_id else '' }}"
+           placeholder="Graph message id — archive on complete"
+           style="width:100%">
+    <p class="small muted">When set, completing this task moves the message to Archive in Outlook (Microsoft Graph).</p>
+    {% if task and task.outlook_archive_status %}
+    <p class="small muted">Archive status: <strong>{{ task.outlook_archive_status }}</strong>
+      {% if task.outlook_archived_at %} · {{ task.outlook_archived_at.strftime('%d-%m-%Y %H:%M') }}{% endif %}
+    </p>
+    {% endif %}
+
     {% if task and task.import_source %}
     <p class="small muted">Imported via <code>{{ task.import_source }}</code>
       {% if task.import_batch_id %} · batch {{ task.import_batch_id }}{% endif %}

@@ -3,46 +3,130 @@
 {% block apple_title %}Clients{% endblock %}
 {% block apple_touch_icon %}/static/icons/home/clients.png?v=home1{% endblock %}
 {% block content %}
+{% set d = draft or {} %}
 <div class="page-header">
   <div>
-    <p class="small muted"><a href="{% if client %}/clients/{{ client.id }}{% else %}/dashboard{% endif %}">← Accologise</a></p>
+    <p class="small muted"><a href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}">← Companies</a></p>
     <h1>{% if client %}Edit Client{% else %}New Client{% endif %}</h1>
+    {% if not client %}
+    <p class="muted small">Pull company details from Companies House, then add contact / tax refs as needed.</p>
+    {% endif %}
   </div>
 </div>
 
 {% if error %}
 <div class="alert alert-error">{{ error }}</div>
 {% endif %}
+{% if ch_error %}
+<div class="alert alert-error">{{ ch_error }}</div>
+{% endif %}
+{% if ch_msg %}
+<div class="chase-banner chase-banner-info">{{ ch_msg }}</div>
+{% endif %}
+
+{% if not client %}
+{# ——— Companies House pull (new client only) ——— #}
+<div class="card" style="margin-bottom:1rem;border-left:4px solid #0f766e">
+  <h2 style="margin-top:0">Companies House</h2>
+  {% if not ch_key %}
+  <p class="muted small">
+    No API key configured.
+    <a href="/settings">Settings → Companies House</a> to enable lookup.
+  </p>
+  {% else %}
+  <p class="muted small" style="margin-top:0">
+    Enter a company number to fill name, address and type from the public register.
+    Or search by name below.
+  </p>
+  <form class="filters" method="post" action="/clients/new/from-ch" style="margin-bottom:0.75rem">
+    <div>
+      <label class="small muted" for="ch_company_number">Company number</label><br>
+      <input id="ch_company_number" name="company_number" value="{{ d.company_number or '' }}"
+             placeholder="e.g. 12345678" style="min-width:12rem" autocomplete="off">
+    </div>
+    <div style="align-self:end">
+      <button class="btn" type="submit">Pull from Companies House</button>
+    </div>
+  </form>
+  <form class="filters" method="get" action="/clients/new/ch-search">
+    <div style="flex:1">
+      <label class="small muted" for="ch_q">Or search by name</label><br>
+      <input id="ch_q" name="q" value="{{ ch_search_q or '' }}" placeholder="Company name…" style="min-width:16rem">
+    </div>
+    <div style="align-self:end">
+      <button class="btn btn-outline" type="submit">Search CH</button>
+    </div>
+  </form>
+  {% if ch_search_items %}
+  <div class="table-wrap" style="margin-top:0.85rem">
+    <table class="data">
+      <thead>
+        <tr><th>Name</th><th>Number</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for it in ch_search_items %}
+        <tr>
+          <td>{{ it.company_name or it.title or '—' }}</td>
+          <td class="small">{{ it.company_number or '—' }}</td>
+          <td class="small">{{ it.company_status or '—' }}</td>
+          <td>
+            <form method="post" action="/clients/new/from-ch" style="display:inline">
+              <input type="hidden" name="company_number" value="{{ it.company_number }}">
+              <button class="btn btn-sm" type="submit">Use this company</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif ch_search_q and not ch_error %}
+  <p class="empty" style="margin-top:0.75rem">No Companies House results for “{{ ch_search_q }}”.</p>
+  {% endif %}
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="card">
   <form class="stack" method="post" action="{% if client %}/clients/{{ client.id }}/edit{% else %}/clients/new{% endif %}">
+    {% if not client and (d.company_number or ch_msg) %}
+    <input type="hidden" name="source" value="companies_house">
+    {% endif %}
     <div class="form-grid">
       <div>
         <label for="company_name">Company name</label>
-        <input id="company_name" name="company_name" value="{{ client.company_name if client else '' }}">
+        <input id="company_name" name="company_name"
+               value="{{ client.company_name if client else (d.company_name or '') }}">
       </div>
       <div>
         <label for="company_number">Company number *</label>
-        <input id="company_number" name="company_number" required value="{{ client.company_number if client else '' }}">
+        <input id="company_number" name="company_number" required
+               value="{{ client.company_number if client else (d.company_number or '') }}">
       </div>
       <div>
         <label for="contact_name">Contact name</label>
-        <input id="contact_name" name="contact_name" value="{{ client.contact_name if client else '' }}">
+        <input id="contact_name" name="contact_name"
+               value="{{ client.contact_name if client else (d.contact_name or '') }}">
       </div>
       <div>
         <label for="email">Email</label>
-        <input id="email" type="email" name="email" value="{{ client.email if client else '' }}">
+        <input id="email" type="email" name="email"
+               value="{{ client.email if client else (d.email or '') }}">
       </div>
       <div>
         <label for="phone">Phone</label>
-        <input id="phone" name="phone" value="{{ client.phone if client else '' }}">
+        <input id="phone" name="phone"
+               value="{{ client.phone if client else (d.phone or '') }}">
       </div>
       <div>
         <label for="client_type">Client type</label>
         <select id="client_type" name="client_type">
           <option value="">—</option>
           {% for t in client_types %}
-          <option value="{{ t }}" {% if client and client.client_type == t %}selected{% endif %}>{{ t }}</option>
+          <option value="{{ t }}"
+            {% if client and client.client_type == t %}selected
+            {% elif not client and d.client_type == t %}selected
+            {% endif %}>{{ t }}</option>
           {% endfor %}
         </select>
       </div>
@@ -50,14 +134,17 @@
         <label for="overall_status">Status</label>
         <select id="overall_status" name="overall_status">
           {% for s in statuses %}
-          <option value="{{ s }}" {% if (client and client.overall_status == s) or (not client and s == (default_status or 'Active')) %}selected{% endif %}>{{ s }}</option>
+          <option value="{{ s }}"
+            {% if client and client.overall_status == s %}selected
+            {% elif not client and s == (d.overall_status or default_status or 'Active') %}selected
+            {% endif %}>{{ s }}</option>
           {% endfor %}
         </select>
       </div>
       <div>
         <label for="engagement_date">Date of engagement</label>
         <input id="engagement_date" type="date" name="engagement_date"
-          value="{{ client.engagement_date.isoformat() if client and client.engagement_date else '' }}">
+          value="{{ client.engagement_date.isoformat() if client and client.engagement_date else (d.engagement_date or '') }}">
         <p class="small muted" style="margin:0.25rem 0 0">Overrides first invoice for practice book “New”.</p>
       </div>
       <div>
@@ -68,27 +155,33 @@
       </div>
       <div>
         <label for="vat_number">VAT number</label>
-        <input id="vat_number" name="vat_number" value="{{ client.vat_number if client else '' }}">
+        <input id="vat_number" name="vat_number"
+               value="{{ client.vat_number if client else (d.vat_number or '') }}">
       </div>
       <div>
         <label for="utr">UTR</label>
-        <input id="utr" name="utr" value="{{ client.utr if client else '' }}">
+        <input id="utr" name="utr"
+               value="{{ client.utr if client else (d.utr or '') }}">
       </div>
       <div>
         <label for="address_line1">Address line 1</label>
-        <input id="address_line1" name="address_line1" value="{{ client.address_line1 if client else '' }}">
+        <input id="address_line1" name="address_line1"
+               value="{{ client.address_line1 if client else (d.address_line1 or '') }}">
       </div>
       <div>
         <label for="address_line2">Address line 2</label>
-        <input id="address_line2" name="address_line2" value="{{ client.address_line2 if client else '' }}">
+        <input id="address_line2" name="address_line2"
+               value="{{ client.address_line2 if client else (d.address_line2 or '') }}">
       </div>
       <div>
         <label for="town">Town</label>
-        <input id="town" name="town" value="{{ client.town if client else '' }}">
+        <input id="town" name="town"
+               value="{{ client.town if client else (d.town or '') }}">
       </div>
       <div>
         <label for="postcode">Postcode</label>
-        <input id="postcode" name="postcode" value="{{ client.postcode if client else '' }}">
+        <input id="postcode" name="postcode"
+               value="{{ client.postcode if client else (d.postcode or '') }}">
       </div>
       {% if client %}
       <div>
@@ -102,7 +195,17 @@
       {% endif %}
     </div>
     <label for="notes">Notes</label>
-    <textarea id="notes" name="notes">{{ client.notes if client and client.notes else '' }}</textarea>
+    <textarea id="notes" name="notes">{{ client.notes if client and client.notes else (d.notes or '') }}</textarea>
+
+    {% if not client and ch_key %}
+    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;margin-top:0.5rem">
+      <input type="checkbox" name="create_jobs_from_ch" value="yes"
+             {% if create_jobs_from_ch is not defined or create_jobs_from_ch %}checked{% endif %}>
+      Also create Accounts &amp; Confirmation Statement jobs from CH dates
+    </label>
+    <p class="small muted" style="margin:0.2rem 0 0">Uses next accounts / CS dates from the public register (same as “From Companies House” jobs).</p>
+    {% endif %}
+
     <div class="form-actions">
       <button class="btn" type="submit">Save</button>
       <a class="btn btn-outline" href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}">Cancel</a>

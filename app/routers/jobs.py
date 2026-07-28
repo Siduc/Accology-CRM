@@ -48,6 +48,8 @@ def _list_jobs_page(
         query = query.filter(Job.status == status)
     if job_type == "Accounts":
         query = query.filter(Job.type == "Accounts")
+    elif job_type == "Self Assessment":
+        query = query.filter(Job.type == "Self Assessment")
     elif job_type == "Confirmation Statement":
         query = query.filter(Job.type == "Confirmation Statement")
     jobs = query.order_by(Job.statutory_due_date.asc()).all()
@@ -127,6 +129,24 @@ async def list_accounts_jobs(
         job_type="Accounts",
         title="Accounts jobs",
         view="accounts",
+    )
+
+
+@router.get("/self-assessment", response_class=HTMLResponse)
+async def list_sa_jobs(
+    request: Request,
+    status: str = Query(""),
+    filter: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    return _list_jobs_page(
+        request,
+        db,
+        status=status,
+        filter=filter,
+        job_type="Self Assessment",
+        title="Self Assessment jobs",
+        view="sa",
     )
 
 
@@ -391,6 +411,14 @@ async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db
         job_tasks = list_tasks(db, job_id=job_id, include_closed=False, limit=50)
     except Exception:
         job_tasks = []
+    job_emails = []
+    try:
+        from app.services import practice_emails as practice_mail
+
+        practice_mail.seed_email_templates(db)
+        job_emails = practice_mail.list_messages(db, job_id=job_id, limit=40)
+    except Exception:
+        job_emails = []
     return render(
         request,
         "jobs/detail.html",
@@ -403,6 +431,8 @@ async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db
             "documents": documents,
             "docs_conn": docs_conn,
             "job_tasks": job_tasks,
+            "job_emails": job_emails,
+            "msg": request.query_params.get("msg", ""),
         },
     )
 

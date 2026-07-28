@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from urllib.parse import quote as url_quote
-
 from typing import Optional
+from urllib.parse import quote as url_quote
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -311,12 +310,13 @@ async def task_create_route(
     notes: str = Form(""),
     priority: str = Form("Medium"),
     source_email_date: str = Form(""),
+    outlook_message_id: str = Form(""),
     next: str = Form("/tasks"),
     db: Session = Depends(get_db),
 ):
     cid = int(client_id) if (client_id or "").isdigit() else None
     jid = int(job_id) if (job_id or "").isdigit() else None
-    create_task(
+    task = create_task(
         db,
         title=(title or "").strip() or "Task",
         description=(description or "").strip() or None,
@@ -330,6 +330,11 @@ async def task_create_route(
         priority=priority if priority in TASK_PRIORITIES else "Medium",
         source_email_date=_parse_date(source_email_date),
     )
+    oid = (outlook_message_id or "").strip()
+    if oid:
+        task.outlook_message_id = oid
+        task.outlook_archive_status = "none"
+        db.commit()
     dest = (next or "/tasks").strip() or "/tasks"
     return RedirectResponse(dest, status_code=303)
 
@@ -381,6 +386,7 @@ async def task_update(
     notes: str = Form(""),
     priority: str = Form("Medium"),
     source_email_date: str = Form(""),
+    outlook_message_id: str = Form(""),
     next: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -398,6 +404,11 @@ async def task_update(
     task.notes = (notes or "").strip() or None
     task.priority = priority if priority in TASK_PRIORITIES else (task.priority or "Medium")
     task.source_email_date = _parse_date(source_email_date)
+    oid = (outlook_message_id or "").strip()
+    if oid != (task.outlook_message_id or ""):
+        task.outlook_message_id = oid or None
+        task.outlook_archive_status = "none" if oid else None
+        task.outlook_archived_at = None
     task.updated_at = datetime.utcnow()
     db.commit()
     dest = (next or f"/tasks/{task_id}/edit").strip()
@@ -408,12 +419,25 @@ async def task_update(
 async def task_complete(
     task_id: int,
     next: str = Form("/tasks"),
+    archive_outlook: str = Form("1"),
     db: Session = Depends(get_db),
 ):
     task = db.query(PracticeTask).filter(PracticeTask.id == task_id).first()
+    archive_note = ""
     if task:
-        complete_task(db, task)
-    return RedirectResponse((next or "/tasks").strip(), status_code=303)
+        _t, archive_note = complete_task(
+            db,
+            task,
+            archive_outlook=archive_outlook not in ("0", "false", "no", "off"),
+        )
+    dest = (next or "/tasks").strip()
+    if archive_note:
+        sep = "&" if "?" in dest else "?"
+        dest = f"{dest}{sep}msg={url_quote('Completed · ' + archive_note)}"
+    elif task:
+        sep = "&" if "?" in dest else "?"
+        dest = f"{dest}{sep}msg={url_quote('Task completed')}"
+    return RedirectResponse(dest, status_code=303)
 
 
 @router.post("/tasks/{task_id:int}/priority")

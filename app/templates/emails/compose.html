@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Send email · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted" style="margin:0 0 0.35rem">
+      <a href="{{ return_to }}">← Back</a>
+    </p>
+    <h1 class="desk-page-title" style="font-size:clamp(1.35rem,3vw,1.75rem)">Send email</h1>
+    <p class="desk-page-sub muted small">
+      Template-driven · logged to
+      <strong>{{ client.display_name() }}</strong>
+      {% if job %} · <a href="/jobs/{{ job.id }}">JOB-{{ job.id }}</a> ({{ job.type or 'job' }}){% endif %}
+    </p>
+  </div>
+</div>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+{% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
+
+{% if not cap.can_send %}
+<div class="chase-banner chase-banner-info" style="margin-bottom:1rem">
+  <strong>Send path:</strong> dry-run / log only.
+  {% if not cap.graph_connected %}
+  <a href="/oauth/microsoft/start?return_to=/settings/microsoft-graph">Connect Microsoft</a>
+  with Mail.Send (and reconnect if you only had OneDrive scopes),
+  {% endif %}
+  or set <code>PRACTICE_EMAIL_LIVE=true</code> with SMTP for live send.
+</div>
+{% else %}
+<div class="chase-banner chase-banner-info" style="margin-bottom:1rem">
+  Live send via <strong>{{ cap.mode|upper }}</strong>
+  {% if cap.mode == 'graph' %}· {{ cap.graph_error or 'Microsoft connected' }}{% endif %}
+</div>
+{% endif %}
+
+<div class="card" style="max-width:40rem">
+  <form class="stack" method="get" action="/emails/compose" style="margin-bottom:1rem">
+    <input type="hidden" name="client_id" value="{{ client.id }}">
+    {% if job %}<input type="hidden" name="job_id" value="{{ job.id }}">{% endif %}
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    <label>Template</label>
+    <select name="template_id" onchange="this.form.submit()" style="width:100%">
+      {% for t in templates %}
+      <option value="{{ t.id }}" {% if template_id == t.id %}selected{% endif %}>
+        {{ t.category }} · {{ t.name }}
+      </option>
+      {% endfor %}
+    </select>
+    <p class="small muted" style="margin:0.35rem 0 0">Changing template reloads subject and body (you can still edit before send).</p>
+  </form>
+
+  <form class="stack" method="post" action="/emails/compose">
+    <input type="hidden" name="client_id" value="{{ client.id }}">
+    <input type="hidden" name="job_id" value="{{ job.id if job else '' }}">
+    <input type="hidden" name="template_id" value="{{ template_id or '' }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+
+    <label>To</label>
+    <input type="email" name="to_address" value="{{ to_address }}" placeholder="name@example.com"
+           style="width:100%" required list="email-to-list">
+    <datalist id="email-to-list">
+      {% for r in recipients %}
+      <option value="{{ r.email }}">{{ r.label }}</option>
+      {% endfor %}
+    </datalist>
+    {% if recipients %}
+    <p class="small muted">Suggestions from client record and linked contacts.</p>
+    {% endif %}
+
+    <label>Subject</label>
+    <input type="text" name="subject" value="{{ subject }}" required style="width:100%">
+
+    <label>Body</label>
+    <textarea name="body" rows="14" required style="width:100%;font-family:ui-monospace,monospace;font-size:0.9rem">{{ body }}</textarea>
+
+    <div class="actions">
+      <button class="btn wc-touch" type="submit">
+        {% if cap.can_send %}Send email{% else %}Log email (not sent){% endif %}
+      </button>
+      {% if cap.can_send %}
+      <button class="btn btn-outline wc-touch" type="submit" name="log_only" value="1">Log only</button>
+      {% endif %}
+      <a class="btn btn-outline wc-touch" href="{{ return_to }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

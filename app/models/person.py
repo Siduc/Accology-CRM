@@ -27,6 +27,9 @@ class Person(Base):
     utr = Column(String, nullable=True)
     ni_number = Column(String, nullable=True)
     ch_code = Column(String, nullable=True)
+    # Personal Government Gateway (same fields as Client for companies)
+    gov_gateway_username = Column(String, nullable=True)  # Government Gateway ID
+    gov_gateway_password = Column(String, nullable=True)
     person_status = Column(String, default="Contact")
     is_primary = Column(Boolean, default=False)
     # True when this person is a client themselves (e.g. SA / tax only, no company)

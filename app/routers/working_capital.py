@@ -38,7 +38,7 @@ from app.templating import render
 
 router = APIRouter(prefix="/working-capital", tags=["working-capital"])
 
-VALID_BANDS = {"today", "m1", "m2", "m3", "later"}
+VALID_BANDS = {"today", "m1", "m2", "m3", "later", "all", "total"}
 
 
 def _parse_date(value: str):
@@ -103,6 +103,7 @@ async def wc_wip(
     valid_pe_slices = {
         "completed",
         "accounts",
+        "sa",
         "cs",
         "vat",
         "other",
@@ -124,8 +125,11 @@ async def wc_wip(
     }
     if filter_horizon in legacy:
         filter_horizon = legacy[filter_horizon]
+    if filter_horizon in ("total",):
+        filter_horizon = "all"
     if filter_horizon and filter_horizon not in VALID_BANDS:
         filter_horizon = ""
+    horizon_is_all = filter_horizon == "all"
 
     if filter_type.lower() in (
         "cs",
@@ -137,11 +141,23 @@ async def wc_wip(
         filter_type = "Confirmation Statement"
     elif filter_type.lower() in ("accounts", "account"):
         filter_type = "Accounts"
+    elif filter_type.lower() in (
+        "self assessment",
+        "self+assessment",
+        "sa",
+        "sar",
+    ):
+        filter_type = "Self Assessment"
     elif filter_type.lower() in ("other", "others"):
         filter_type = "Other"
     elif filter_type:
         # keep free text for other job types match via _match or exact bucket
-        if filter_type not in ("Accounts", "Confirmation Statement", "Other"):
+        if filter_type not in (
+            "Accounts",
+            "Self Assessment",
+            "Confirmation Statement",
+            "Other",
+        ):
             filter_type = "Other" if filter_type else ""
 
     show_age_home = (
@@ -165,6 +181,7 @@ async def wc_wip(
     # When pe_slice set, show list under layout
 
     band_labels = {k: v["label"] for k, v in age_home["bands"].items()}
+    band_labels["all"] = "Total WIP"
     list_status_options = [
         "Today",
         "Overdue",
@@ -191,7 +208,9 @@ async def wc_wip(
 
     type_totals = []
     if filter_horizon:
-        type_totals = compute_wip_type_totals_for_band(db, filter_horizon, today)
+        type_totals = compute_wip_type_totals_for_band(
+            db, "all" if horizon_is_all else filter_horizon, today
+        )
 
     pe_layout = None
     if show_pe_year_home:
@@ -199,11 +218,11 @@ async def wc_wip(
 
     rows = []
     clients_for_filter = []
-    # Age-band list (open WIP only)
+    # Age-band list (open WIP only); horizon=all → full Total WIP ledger
     if show_list and filter_horizon:
         seen_c = {}
         for j in snap.jobs:
-            if job_wip_band(j, today) != filter_horizon:
+            if not horizon_is_all and job_wip_band(j, today) != filter_horizon:
                 continue
             tb = job_type_bucket(j)
             if filter_type:
@@ -299,7 +318,7 @@ async def wc_wip(
                     continue
             elif filter_pe_slice == "year":
                 pass
-            elif filter_pe_slice in ("accounts", "cs", "vat", "other"):
+            elif filter_pe_slice in ("accounts", "sa", "cs", "vat", "other"):
                 if filter_pe_key == "pe_2027":
                     if kind != filter_pe_slice:
                         continue
@@ -368,7 +387,11 @@ async def wc_wip(
         filter_label_parts.append(
             "Confirmation statements"
             if filter_type == "Confirmation Statement"
-            else filter_type
+            else (
+                "Self Assessment"
+                if filter_type == "Self Assessment"
+                else filter_type
+            )
         )
     if filter_status:
         filter_label_parts.append(filter_status)
@@ -376,6 +399,7 @@ async def wc_wip(
         slice_labs = {
             "completed": "Jobs completed",
             "accounts": "Accounts outstanding",
+            "sa": "Self Assessment outstanding",
             "cs": "Confirmation statements outstanding",
             "vat": "VAT outstanding",
             "other": "Other outstanding",
@@ -387,6 +411,8 @@ async def wc_wip(
     type_query = ""
     if filter_type == "Accounts":
         type_query = "Accounts"
+    elif filter_type == "Self Assessment":
+        type_query = "Self+Assessment"
     elif filter_type == "Confirmation Statement":
         type_query = "Confirmation+Statement"
     elif filter_type == "Other":
@@ -406,13 +432,15 @@ async def wc_wip(
     }
     type_box_class = {
         "Accounts": "wc-box-wip",
+        "Self Assessment": "wc-box-cash",
         "Confirmation Statement": "wc-box-debtors",
-        "Other": "wc-box-cash",
+        "Other": "wc-box-creditors",
     }
     type_tile_class = {
         "Accounts": "tile-wip",
+        "Self Assessment": "tile-cash",
         "Confirmation Statement": "tile-debtors",
-        "Other": "tile-cash",
+        "Other": "tile-creditors",
     }
 
     return render(

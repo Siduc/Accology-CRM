@@ -172,11 +172,18 @@ def seed_default_fees(db: Session) -> int:
     accounts_2026 = _round_fee(accounts_2025 * (1.0 + PRIOR_YEAR_UPLIFT))
     accounts_2027 = _round_fee(accounts_2026 * (1.0 + PRIOR_YEAR_UPLIFT))
 
+    sa_2025 = 250.0
+    sa_2026 = 250.0
+    sa_2027 = 250.0
+
     defaults = [
         (SERVICE_ACCOUNTS, "Accounts", 2025, accounts_2025),
         (SERVICE_ACCOUNTS, "Accounts", 2026, accounts_2026),
         (SERVICE_ACCOUNTS, "Accounts", 2027, accounts_2027),
         (SERVICE_CS, "Confirmation Statement", 2025, 50.0),
+        (SERVICE_SA, "Self Assessment", 2025, sa_2025),
+        (SERVICE_SA, "Self Assessment", 2026, sa_2026),
+        (SERVICE_SA, "Self Assessment", 2027, sa_2027),
         (SERVICE_CS, "Confirmation Statement", 2026, 50.0),
         (SERVICE_CS, "Confirmation Statement", 2027, 50.0),
     ]

@@ -162,7 +162,10 @@ def _client_lifecycle_rows(
     db: Session,
 ) -> List[Tuple[int, str, Optional[date], Optional[date]]]:
     """
-    (client_id, status, join_date, leave_date) for non-prospects.
+    (client_id, status, join_date, leave_date) for non-prospect **companies**.
+
+    Individual / IND- person shells live under People and are excluded from the
+    practice book (Groups · Clients · New · Lost).
 
     Join  = engagement_date if set, else first billable invoice date.
     Leave = disengagement_date if set, else last invoice when status is lost.
@@ -174,11 +177,18 @@ def _client_lifecycle_rows(
         Client.overall_status,
         Client.engagement_date,
         Client.disengagement_date,
+        Client.client_type,
+        Client.company_number,
     ).all()
     out: List[Tuple[int, str, Optional[date], Optional[date]]] = []
-    for cid, status, eng, dis in rows:
+    for cid, status, eng, dis, client_type, company_number in rows:
         st = (status or "Active").strip()
         if st == "Prospect":
+            continue
+        # Practice book is company-based; people/IND shells are not companies
+        ct = (client_type or "").strip().lower()
+        cn = (company_number or "").strip().upper()
+        if ct == "individual" or cn.startswith("IND-"):
             continue
         inv_first, inv_last = inv_bounds.get(int(cid), (None, None))
         join = _as_date(eng) or inv_first
@@ -379,10 +389,11 @@ async def dashboard(
         clients_book = "closing"
         new_cohort = "all"
 
-    total_prospects = int(
+    # Client records flagged Prospect (legacy) + open Prospecting ledger leads
+    client_prospects = int(
         _count_clients_by_statuses(db, PROSPECT_STATUSES, None, None)
     )
-    prospecting_open = total_prospects
+    prospecting_open = 0
     prospecting_value = 0.0
     try:
         from app.services.prospecting import hub_stats
@@ -390,11 +401,15 @@ async def dashboard(
         _hs = hub_stats(db)
         prospecting_open = int(_hs.get("open_count") or 0)
         prospecting_value = float(_hs.get("open_value") or 0)
-        if prospecting_open == 0 and total_prospects:
-            prospecting_open = total_prospects
     except Exception:
-        prospecting_open = total_prospects
+        prospecting_open = 0
         prospecting_value = 0.0
+    # Practice book Prospects tile = open pipeline (primary) + any CRM Prospect clients
+    total_prospects = prospecting_open + client_prospects
+    if total_prospects == 0 and client_prospects:
+        total_prospects = client_prospects
+    if prospecting_open == 0 and client_prospects:
+        prospecting_open = client_prospects
 
     try:
         live_notes = pinned_for_live_tiles(db, limit=6)

@@ -14,6 +14,49 @@
   --nav: #0f172a;
 }
 
+/* Demo / presentation mode */
+.demo-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.85rem;
+  padding: 0.55rem 1rem;
+  background: linear-gradient(90deg, #92400e, #b45309);
+  color: #fffbeb;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.demo-banner strong {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+.demo-banner-exit {
+  margin-left: auto;
+  color: #fff !important;
+  font-weight: 700;
+  text-decoration: none !important;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.15);
+}
+.demo-banner-exit:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+.minibar-logout.demo-toggle-on {
+  color: #fbbf24 !important;
+  font-weight: 700;
+}
+body.is-demo-mode {
+  /* subtle cue beyond the banner */
+  --primary: #b45309;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -275,8 +318,13 @@ h2 { font-size: 1.25rem; }
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+.stat-row-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 @media (max-width: 1100px) {
   .stat-row-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .stat-row-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 900px) {
@@ -286,6 +334,7 @@ h2 { font-size: 1.25rem; }
 
 @media (max-width: 480px) {
   .stat-row,
+  .stat-row-4,
   .stat-row-5 { grid-template-columns: 1fr; }
 }
 
@@ -1136,9 +1185,19 @@ a.live-tile.live-tile-wide {
 .wip-action-tiles { display: none; margin-bottom: 0.85rem; }
 .wip-actions-desk { display: flex; }
 @media (max-width: 767.98px) {
-  .wip-action-tiles { display: flex; }
+  .wip-action-tiles { display: grid; }
   .wip-actions-desk { display: none !important; }
   .wip-hint-desk { display: none; }
+}
+
+/* Clients / People phone action tiles; desk uses header buttons */
+.page-action-tiles { display: none; margin-bottom: 0.85rem; }
+.page-actions-desk { display: flex; }
+.page-subnav-desk { display: flex; }
+@media (max-width: 767.98px) {
+  .page-action-tiles { display: grid; }
+  .page-actions-desk { display: none !important; }
+  /* Subnav still useful on phone for Live / Lost, but primary nav is tiles */
 }
 
 /* WIP book strip */
@@ -1738,6 +1797,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .action-job { background: #2563eb; }
 .action-client { background: #15803d; }
 .action-prospect { background: #7c3aed; }
+.action-companies { background: #0f766e; }
+.action-people { background: #7c3aed; }
 .action-tile:hover { filter: brightness(1.08); color: #fff !important; text-decoration: none !important; }
 
 /* 2×2 live tiles */
@@ -1910,6 +1971,64 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   opacity: 0.9;
   margin-top: 0.3rem;
 }
+.practice-sub {
+  font-size: 0.62rem;
+  font-weight: 600;
+  opacity: 0.8;
+  margin-top: 0.2rem;
+  line-height: 1.2;
+}
+.practice-tiles-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* WIP book + sales day book: desk vs phone (match practice book mobile) */
+.wip-book-mobile,
+.sales-daybook-mobile {
+  display: none;
+  margin-top: 1.25rem;
+}
+.wip-book-desk,
+.sales-daybook-desk {
+  display: block;
+}
+
+/* On phone: hide desk book strips; show practice-tile strip like dashboard */
+@media (max-width: 767.98px) {
+  .wip-book-desk,
+  .sales-daybook-desk {
+    display: none !important;
+  }
+  .wip-book-mobile,
+  .sales-daybook-mobile {
+    display: block !important;
+  }
+  /* WIP / debtors pages are light — dark practice panel like dashboard hub */
+  .wip-book-mobile.hub-practice,
+  .sales-daybook-mobile.hub-practice {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 10px;
+    padding: 0.9rem 0.85rem 1rem;
+  }
+  .wip-book-mobile .hub-practice-head h2,
+  .sales-daybook-mobile .hub-practice-head h2 {
+    color: #f1f5f9;
+  }
+  .wip-book-mobile .hub-practice-note,
+  .sales-daybook-mobile .hub-practice-note {
+    color: #94a3b8 !important;
+  }
+  .wip-book-mobile .practice-num,
+  .sales-daybook-mobile .practice-num {
+    font-size: 1.05rem;
+    letter-spacing: -0.02em;
+  }
+  .wip-book-mobile .practice-lab,
+  .sales-daybook-mobile .practice-lab {
+    font-size: 0.58rem;
+  }
+}
 
 /* Desktop: keep hub centred but larger tiles */
 @media (min-width: 640px) {
@@ -1921,6 +2040,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 420px) {
   .practice-tiles { grid-template-columns: repeat(3, 1fr); }
+  .practice-tiles-4 { grid-template-columns: repeat(2, 1fr); }
   .practice-tile:nth-child(4),
   .practice-tile:nth-child(5) { min-height: 3.75rem; }
   .action-label { font-size: 0.82rem; }

@@ -61,11 +61,15 @@
     {% endif %}
     {% endif %}
     <a class="btn btn-sm btn-secondary" href="/jobs/new?client_id={{ client.id }}">Add Job</a>
+    <a class="btn btn-sm btn-outline wc-touch" href="/emails/compose?client_id={{ client.id }}&amp;return_to=/clients/{{ client.id }}?tab=email">Send email</a>
   </div>
 </div>
 
 {% if message %}
 <div class="alert alert-success">{{ message }}</div>
+{% endif %}
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
 {% endif %}
 {% if cur == 'Inactive' %}
 <div class="alert alert-info">This client is currently <strong>Inactive (lost)</strong>.</div>
@@ -76,6 +80,7 @@
   <button type="button" class="tab-btn {% if active_tab == 'details' %}active{% endif %}" data-tab="details" role="tab">Details</button>
   <button type="button" class="tab-btn {% if active_tab == 'documents' %}active{% endif %}" data-tab="documents" role="tab">Documents{% if documents %} ({{ documents|length }}){% endif %}</button>
   <button type="button" class="tab-btn {% if active_tab == 'tasks' %}active{% endif %}" data-tab="tasks" role="tab">Tasks{% if client_tasks %} ({{ client_tasks|length }}){% endif %}</button>
+  <button type="button" class="tab-btn {% if active_tab == 'email' %}active{% endif %}" data-tab="email" role="tab">Email{% if client_emails %} ({{ client_emails|length }}){% endif %}</button>
   <button type="button" class="tab-btn {% if active_tab == 'connections' %}active{% endif %}" data-tab="connections" role="tab">Connections</button>
   <button type="button" class="tab-btn {% if active_tab == 'fees' %}active{% endif %}" data-tab="fees" role="tab">Previous fees</button>
 </nav>
@@ -652,6 +657,12 @@
 <div class="tab-panel {% if active_tab == 'tasks' %}active{% endif %}" id="tab-tasks" role="tabpanel" {% if active_tab != 'tasks' %}hidden{% endif %}>
   {% with tasks=client_tasks|default([]), embed_title='Tasks', new_task_href='/tasks/new?client_id=' ~ client.id, next_url='/clients/' ~ client.id ~ '?tab=tasks', empty_msg='No open tasks for this client.' %}
   {% include "tasks/_embed.html" %}
+  {% endwith %}
+</div>
+
+<div class="tab-panel {% if active_tab == 'email' %}active{% endif %}" id="tab-email" role="tabpanel" {% if active_tab != 'email' %}hidden{% endif %}>
+  {% with emails=client_emails|default([]), embed_title='Email', compose_href='/emails/compose?client_id=' ~ client.id ~ '&return_to=/clients/' ~ client.id ~ '?tab=email', next_url='/clients/' ~ client.id ~ '?tab=email', empty_msg='No structured emails for this client yet.' %}
+  {% include "emails/_history.html" %}
   {% endwith %}
 </div>
 

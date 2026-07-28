@@ -428,3 +428,87 @@ def summarize_profile_dates(profile: Dict[str, Any]) -> Dict[str, Any]:
         "cs_due": cs.get("next_due"),
         "cs_overdue": bool(cs.get("overdue")),
     }
+
+
+# Map CH company type codes → Accologise client_type options
+_CH_TYPE_TO_CLIENT_TYPE = {
+    "ltd": "Limited Company",
+    "private-limited-guarant-nsc": "Limited Company",
+    "private-limited-guarant-nsc-limited-exemption": "Limited Company",
+    "private-limited-shares-section-30-exemption": "Limited Company",
+    "private-unlimited": "Limited Company",
+    "private-unlimited-nsc": "Limited Company",
+    "plc": "PLC",
+    "llp": "LLP",
+    "limited-partnership": "Partnership",
+    "scottish-partnership": "Partnership",
+    "scottish-limited-partnership": "Partnership",
+    "old-public-company": "PLC",
+}
+
+
+def client_type_from_ch(ch_type: Optional[str]) -> str:
+    """Map Companies House company type to CRM client_type label."""
+    raw = (ch_type or "").strip().lower()
+    if not raw:
+        return "Limited Company"
+    if raw in _CH_TYPE_TO_CLIENT_TYPE:
+        return _CH_TYPE_TO_CLIENT_TYPE[raw]
+    if "llp" in raw:
+        return "LLP"
+    if "plc" in raw or "public" in raw:
+        return "PLC"
+    if "partnership" in raw:
+        return "Partnership"
+    if "ltd" in raw or "limited" in raw:
+        return "Limited Company"
+    return "Other"
+
+
+def client_fields_from_profile(profile: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Map a CH company profile into form field values for New Client.
+
+    Does not create a client — only returns strings for the form draft.
+    """
+    profile = profile or {}
+    addr = profile.get("registered_office_address") or {}
+    cn = normalize_company_number(profile.get("company_number") or "") or (
+        str(profile.get("company_number") or "").strip()
+    )
+    ch_status = (profile.get("company_status") or "").strip().lower()
+    # Prefer Active for live companies; leave status choice for user otherwise
+    if ch_status in ("active", "open"):
+        overall_status = "Active"
+    elif ch_status in ("dissolved", "liquidation", "converted-closed", "closed"):
+        overall_status = "Former"
+    else:
+        overall_status = "Active"
+
+    sic = profile.get("sic_codes") or []
+    if isinstance(sic, list):
+        sic_txt = ", ".join(str(x) for x in sic if x)
+    else:
+        sic_txt = str(sic) if sic else ""
+
+    notes_parts = [
+        f"Pulled from Companies House ({profile.get('company_status') or 'status unknown'})."
+    ]
+    if sic_txt:
+        notes_parts.append(f"SIC: {sic_txt}")
+    if profile.get("date_of_creation"):
+        notes_parts.append(f"Incorporated: {profile.get('date_of_creation')}")
+
+    return {
+        "company_name": (profile.get("company_name") or "").strip(),
+        "company_number": cn,
+        "address_line1": (addr.get("address_line_1") or "").strip(),
+        "address_line2": (addr.get("address_line_2") or "").strip(),
+        "town": (addr.get("locality") or "").strip(),
+        "postcode": (addr.get("postal_code") or "").strip(),
+        "client_type": client_type_from_ch(profile.get("type")),
+        "overall_status": overall_status,
+        "notes": " ".join(notes_parts),
+        "ch_company_status": (profile.get("company_status") or "").strip(),
+        "ch_company_type": (profile.get("type") or "").strip(),
+    }

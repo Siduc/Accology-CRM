@@ -46,6 +46,12 @@
   </p>
   {% endif %}
 
+  <p class="small muted" style="margin-top:0.75rem">
+    Email + OneDrive need scopes:
+    <code>Mail.Send</code>, <code>Mail.ReadWrite</code>, <code>Files.ReadWrite</code>, <code>User.Read</code>, <code>offline_access</code>.
+    Reconnect after adding mail permissions in Azure.
+  </p>
+
   <div class="actions" style="margin-top:1rem">
     {% if configured %}
     <a class="btn wc-touch" href="/oauth/microsoft/start?return_to=/settings/microsoft-graph">
@@ -72,12 +78,15 @@
     <li>Azure Portal → App registrations → New registration.</li>
     <li>Add a <strong>Web</strong> redirect URI matching <code>{{ redirect_uri }}</code>.</li>
     <li>Certificates &amp; secrets → new client secret.</li>
-    <li>API permissions (delegated): <code>Files.ReadWrite</code>, <code>User.Read</code>, <code>offline_access</code>.</li>
+    <li>API permissions (delegated): <code>Files.ReadWrite</code>, <code>Mail.Send</code>, <code>Mail.ReadWrite</code>, <code>User.Read</code>, <code>offline_access</code>.</li>
     <li>Copy Client ID &amp; secret into <code>.env</code> and restart Accologise.</li>
+    <li>Reconnect after changing scopes so tokens include mail.</li>
   </ol>
-  <p class="small muted">Folder tree created on first upload:
+  <p class="small muted">OneDrive folder tree:
     <code>Accologise Documents / Clients / …</code> and
-    <code>Accologise Documents / Jobs / JOB-…</code>.
+    <code>Jobs / JOB-…</code>.
+    Completing a task with an Outlook message id moves that message to Archive (or
+    <code>MS_GRAPH_MAIL_ARCHIVE_FOLDER</code>).
   </p>
 </div>
 {% endblock %}

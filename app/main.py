@@ -50,6 +50,7 @@ from app.routers import (
     ch_oauth,
     ms_graph_oauth,
     documents,
+    emails,
     tasks,
     csv_exchange,
     prospecting,
@@ -97,6 +98,16 @@ async def security_and_auth(request: Request, call_next):
 
     if not _is_public_path(path) and not request.session.get("user"):
         return RedirectResponse("/", status_code=303)
+
+    # Demo mode: block CSV / data exports so real data cannot leave the UI
+    if request.session.get("demo_mode") and request.method in ("GET", "POST", "HEAD"):
+        from app.services.demo_mode import should_block_export
+
+        if should_block_export(path):
+            return RedirectResponse(
+                "/settings?demo_msg=export_blocked#settings-demo",
+                status_code=303,
+            )
 
     response = await call_next(request)
 
@@ -159,6 +170,7 @@ app.include_router(cs.router)
 app.include_router(ch_oauth.router)
 app.include_router(ms_graph_oauth.router)
 app.include_router(documents.router)
+app.include_router(emails.router)
 app.include_router(tasks.router)
 app.include_router(csv_exchange.router)
 app.include_router(settings.router)

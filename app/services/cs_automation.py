@@ -72,9 +72,13 @@ def build_form_from_download(
 
     pscs = []
     for p in pscs_raw:
-        if (p.get("ceased_on") or p.get("kind") or "").endswith("statement"):
-            # keep statements too as info
-            pass
+        kind = (p.get("kind") or "").strip()
+        # Skip CH "statements" (e.g. no-individual-or-entity-with-signficant-control)
+        if kind.endswith("statement") or "statement" in kind:
+            continue
+        # Skip ceased PSCs for active CS review (keep history out of the main list)
+        if p.get("ceased_on"):
+            continue
         name = p.get("name")
         if not name and p.get("name_elements"):
             ne = p["name_elements"]
@@ -88,13 +92,20 @@ def build_form_from_download(
                 ]
                 if x
             )
+        # Corporate / legal-entity PSCs
+        if not name and p.get("name"):
+            name = p.get("name")
+        natures = p.get("natures_of_control") or []
         pscs.append(
             {
-                "name": name or p.get("kind") or "—",
-                "kind": p.get("kind"),
-                "natures_of_control": p.get("natures_of_control") or [],
+                "name": name or kind or "—",
+                "kind": kind,
+                "kind_label": _psc_kind_label(kind),
+                "natures_of_control": natures,
+                "natures_label": _psc_natures_label(natures),
                 "notified_on": p.get("notified_on"),
                 "ceased_on": p.get("ceased_on"),
+                "is_individual": "individual" in kind,
             }
         )
 
@@ -322,6 +333,96 @@ def _names_match(a: str, b: str) -> bool:
     return False
 
 
+def _officer_display_name(officer_name: str) -> str:
+    """CH often uses 'SURNAME, Forename Middle' → 'Forename Middle SURNAME'."""
+    name = (officer_name or "").strip()
+    if not name:
+        return ""
+    if "," in name:
+        sur, rest = name.split(",", 1)
+        return f"{rest.strip()} {sur.strip()}".strip()
+    return name
+
+
+def _psc_kind_label(kind: str) -> str:
+    k = (kind or "").strip().lower()
+    if "individual" in k:
+        return "Individual PSC"
+    if "corporate" in k or "legal" in k:
+        return "Corporate PSC"
+    if "super-secure" in k:
+        return "Super secure PSC"
+    if k:
+        return k.replace("-", " ").title()
+    return "PSC"
+
+
+def _psc_natures_label(natures: Any) -> str:
+    """Human-readable natures of control (e.g. ownership-of-shares-75-to-100-percent)."""
+    if not natures:
+        return ""
+    if isinstance(natures, str):
+        natures = [natures]
+    labels = []
+    for n in natures:
+        s = str(n or "").strip()
+        if not s:
+            continue
+        labels.append(s.replace("-", " ").replace("_", " "))
+    return "; ".join(labels)
+
+
+def find_people_matching_officer(
+    directory: List[Any],
+    officer_name: str,
+    *,
+    exclude_ids: Optional[set] = None,
+) -> List[Any]:
+    """
+    Find CRM people whose name matches a CH officer (across the whole practice).
+
+    Used so a director already created for company A can be linked on company B
+    instead of only offering "Create contact".
+    """
+    exclude_ids = exclude_ids or set()
+    display = _officer_display_name(officer_name)
+    hits: List[Any] = []
+    for p in directory:
+        if not p or getattr(p, "id", None) in exclude_ids:
+            continue
+        pname = (getattr(p, "full_name", None) or "").strip()
+        if not pname:
+            continue
+        if _names_match(officer_name, pname) or (
+            display and _names_match(display, pname)
+        ):
+            hits.append(p)
+    return hits
+
+
+def _person_other_companies_label(person: Any, current_client_id: Optional[int]) -> str:
+    """Short list of other companies this person is already linked to."""
+    names: List[str] = []
+    for c in getattr(person, "clients", None) or []:
+        if current_client_id and getattr(c, "id", None) == current_client_id:
+            continue
+        label = ""
+        if hasattr(c, "display_name"):
+            try:
+                label = c.display_name() or ""
+            except Exception:  # noqa: BLE001
+                label = ""
+        if not label:
+            label = (getattr(c, "company_name", None) or getattr(c, "company_number", None) or "").strip()
+        if label:
+            names.append(label)
+    if not names:
+        return ""
+    if len(names) <= 2:
+        return ", ".join(names)
+    return f"{names[0]}, {names[1]} +{len(names) - 2} more"
+
+
 def _fmt_d(value: Any) -> str:
     if not value:
         return "—"
@@ -458,26 +559,71 @@ def create_contact_from_officer(
     officer_name: str,
     officer_role: str = "",
 ) -> Optional[Any]:
-    """Create a Person linked to client from a CH officer name."""
+    """
+    Link an existing Person by name if found, otherwise create one from CH officer.
+
+    Avoids duplicate people when the same director already exists for another company.
+    """
     from app.models.person import Person
 
     name = (officer_name or "").strip()
     if not name:
         return None
-    # CH format often "SURNAME, Forename Middle"
-    display = name
-    if "," in name:
-        sur, rest = name.split(",", 1)
-        display = f"{rest.strip()} {sur.strip()}".strip()
+    display = _officer_display_name(name)
+    role = (officer_role or "Director").strip() or "Director"
+
+    # Prefer linking an existing practice person rather than creating a duplicate
+    directory = db.query(Person).order_by(Person.id).all()
+    matches = find_people_matching_officer(directory, name)
+    if matches:
+        # Prefer a person already multi-company / with more data
+        person = sorted(
+            matches,
+            key=lambda p: (
+                len(getattr(p, "clients", None) or []),
+                1 if (getattr(p, "ch_code", None) or "").strip() else 0,
+                1 if (getattr(p, "email", None) or "").strip() else 0,
+            ),
+            reverse=True,
+        )[0]
+        if client not in (person.clients or []):
+            person.clients.append(client)
+        if role and not (person.role or "").strip():
+            person.role = role
+        db.flush()
+        return person
+
     person = Person(
         full_name=display,
-        role=(officer_role or "Director").strip() or "Director",
+        role=role,
         person_status="Contact",
         is_primary=False,
         notes=f"Created from CS compare (CH officer: {name})",
     )
     person.clients.append(client)
     db.add(person)
+    db.flush()
+    return person
+
+
+def link_person_to_client(
+    db: Session,
+    client: Client,
+    person_id: int,
+    *,
+    officer_role: str = "",
+) -> Optional[Any]:
+    """Link an existing Person to this client (CH officer match across companies)."""
+    from app.models.person import Person
+
+    person = db.query(Person).filter(Person.id == person_id).first()
+    if not person:
+        return None
+    if client not in (person.clients or []):
+        person.clients.append(client)
+    role = (officer_role or "").strip()
+    if role and not (person.role or "").strip():
+        person.role = role
     db.flush()
     return person
 
@@ -580,6 +726,7 @@ def build_cs_comparison(
     client: Optional[Client],
     *,
     people: Optional[List[Any]] = None,
+    directory_people: Optional[List[Any]] = None,
     job: Optional[Job] = None,
     accounts_job: Optional[Job] = None,
 ) -> Dict[str, Any]:
@@ -588,9 +735,14 @@ def build_cs_comparison(
 
     Flags mismatches (name, year/period, officers vs contacts) and practice-only
     fields that do not come from the public CH API (auth codes, gateway, software).
+
+    Officers are matched first to people linked on this client, then to the whole
+    practice people directory so multi-company directors can be linked rather than
+    re-created.
     """
     form = form_dict(pack)
     people = list(people or [])
+    directory = list(directory_people) if directory_people is not None else list(people)
     ch_name = (form.get("company_name") or "").strip()
     crm_name = (client.company_name or "").strip() if client else ""
     ch_number = (
@@ -813,33 +965,184 @@ def build_cs_comparison(
             )
         )
 
-    # --- Officers vs people ---
+    # --- Officers vs people (this client, then whole practice directory) ---
     officers = form.get("officers") or []
     officer_matches = []
     matched_person_ids = set()
+    client_id = client.id if client else None
     for o in officers:
         oname = o.get("name") or ""
         hit = None
         for p in people:
             if p.id in matched_person_ids:
                 continue
-            if _names_match(oname, p.full_name or ""):
+            if _names_match(oname, p.full_name or "") or _names_match(
+                _officer_display_name(oname), p.full_name or ""
+            ):
                 hit = p
                 matched_person_ids.add(p.id)
                 break
+
+        candidates: List[Dict[str, Any]] = []
+        if not hit:
+            # Search practice people not yet linked on this client
+            dir_hits = find_people_matching_officer(
+                directory, oname, exclude_ids=matched_person_ids
+            )
+            # Also skip anyone already on this client's contact list (already tried)
+            client_person_ids = {p.id for p in people}
+            for p in dir_hits:
+                if p.id in client_person_ids:
+                    continue
+                candidates.append(
+                    {
+                        "id": p.id,
+                        "name": p.full_name or "—",
+                        "role": p.role or "",
+                        "other_companies": _person_other_companies_label(p, client_id),
+                        "ch_code_on_file": bool((p.ch_code or "").strip()),
+                    }
+                )
+
         pic_on_file = bool(hit and (hit.ch_code or "").strip())
+        if hit:
+            practice_name = hit.full_name
+            severity = "ok"
+        elif candidates:
+            practice_name = (
+                f"Found in People: {candidates[0]['name']}"
+                if len(candidates) == 1
+                else f"Found {len(candidates)} matching people"
+            )
+            severity = "warn"
+        else:
+            practice_name = "— not in CRM people —"
+            severity = "warn"
+
         officer_matches.append(
             {
                 "ch_name": oname,
                 "ch_role": o.get("role") or "",
                 "ch_appointed": o.get("appointed_on") or "",
-                "practice_name": hit.full_name if hit else "— not on CRM contacts —",
+                "practice_name": practice_name,
                 "practice_role": (hit.role or "") if hit else "",
                 "practice_id": hit.id if hit else None,
                 "match": bool(hit),
+                "candidates": candidates,
                 "ch_code_on_file": pic_on_file,
                 # Never expose the actual code in the pack UI
-                "severity": "ok" if hit else "warn",
+                "severity": severity,
+            }
+        )
+
+    # Officer name set (for "also a director?" flags on PSCs)
+    officer_names = [o.get("name") or "" for o in officers]
+
+    # --- PSCs vs people (same matching rules as officers; often same people) ---
+    pscs = form.get("pscs") or []
+    psc_matches: List[Dict[str, Any]] = []
+    psc_matched_person_ids: set = set()
+    for psc in pscs:
+        pname = psc.get("name") or ""
+        kind_raw = (psc.get("kind") or "").lower()
+        if "is_individual" in psc:
+            is_individual = bool(psc.get("is_individual"))
+        else:
+            # Older packs: treat as individual unless kind says corporate/legal entity
+            is_individual = (
+                "individual" in kind_raw
+                or not kind_raw
+                or (
+                    "corporate" not in kind_raw
+                    and "legal" not in kind_raw
+                    and "entity" not in kind_raw
+                )
+            )
+        # Corporate PSCs are not people we link as contacts
+        if not is_individual:
+            also_officer = any(_names_match(pname, on) for on in officer_names if on)
+            psc_matches.append(
+                {
+                    "ch_name": pname,
+                    "ch_kind": psc.get("kind_label") or psc.get("kind") or "PSC",
+                    "ch_natures": psc.get("natures_label")
+                    or _psc_natures_label(psc.get("natures_of_control")),
+                    "ch_notified": psc.get("notified_on") or "",
+                    "is_individual": False,
+                    "also_officer": also_officer,
+                    "practice_name": "— corporate / entity PSC —",
+                    "practice_role": "",
+                    "practice_id": None,
+                    "match": False,
+                    "candidates": [],
+                    "ch_code_on_file": False,
+                    "severity": "info",
+                }
+            )
+            continue
+
+        hit = None
+        # Prefer person already matched as an officer on this client
+        for p in people:
+            if _names_match(pname, p.full_name or "") or _names_match(
+                _officer_display_name(pname), p.full_name or ""
+            ):
+                hit = p
+                psc_matched_person_ids.add(p.id)
+                matched_person_ids.add(p.id)
+                break
+
+        candidates: List[Dict[str, Any]] = []
+        if not hit:
+            dir_hits = find_people_matching_officer(
+                directory, pname, exclude_ids=psc_matched_person_ids
+            )
+            client_person_ids = {p.id for p in people}
+            for p in dir_hits:
+                if p.id in client_person_ids:
+                    continue
+                candidates.append(
+                    {
+                        "id": p.id,
+                        "name": p.full_name or "—",
+                        "role": p.role or "",
+                        "other_companies": _person_other_companies_label(p, client_id),
+                        "ch_code_on_file": bool((p.ch_code or "").strip()),
+                    }
+                )
+
+        also_officer = any(_names_match(pname, on) for on in officer_names if on)
+        pic_on_file = bool(hit and (hit.ch_code or "").strip())
+        if hit:
+            practice_name = hit.full_name
+            severity = "ok"
+        elif candidates:
+            practice_name = (
+                f"Found in People: {candidates[0]['name']}"
+                if len(candidates) == 1
+                else f"Found {len(candidates)} matching people"
+            )
+            severity = "warn"
+        else:
+            practice_name = "— not in CRM people —"
+            severity = "warn"
+
+        psc_matches.append(
+            {
+                "ch_name": pname,
+                "ch_kind": psc.get("kind_label") or "Individual PSC",
+                "ch_natures": psc.get("natures_label")
+                or _psc_natures_label(psc.get("natures_of_control")),
+                "ch_notified": psc.get("notified_on") or "",
+                "is_individual": True,
+                "also_officer": also_officer,
+                "practice_name": practice_name,
+                "practice_role": (hit.role or "") if hit else "",
+                "practice_id": hit.id if hit else None,
+                "match": bool(hit),
+                "candidates": candidates,
+                "ch_code_on_file": pic_on_file,
+                "severity": severity,
             }
         )
 
@@ -857,7 +1160,7 @@ def build_cs_comparison(
                 "is_primary": bool(p.is_primary),
                 "ch_code_on_file": bool((p.ch_code or "").strip()),
                 "severity": "warn",
-                "note": "On Accologise contacts but not an active CH officer in this download",
+                "note": "On Accologise contacts but not an active CH officer or PSC in this download",
             }
         )
 
@@ -916,6 +1219,12 @@ def build_cs_comparison(
 
     mismatches = [r for r in company_rows if not r.get("match")]
     officer_gaps = [o for o in officer_matches if not o.get("match")]
+    # Unmatched individual PSCs only (corporate entities are not CRM contacts)
+    psc_gaps = [
+        p
+        for p in psc_matches
+        if p.get("is_individual") and not p.get("match")
+    ]
     accounts_mismatch = bool(
         accounts_job
         and ch_acc.get("period_end")
@@ -925,12 +1234,14 @@ def build_cs_comparison(
     summary = {
         "mismatch_count": len(mismatches),
         "officer_unmatched": len(officer_gaps),
+        "psc_unmatched": len(psc_gaps),
+        "psc_count": len(psc_matches),
         "crm_only_contacts": len(crm_only_people),
         "practice_secrets_on_file": sum(
             1 for s in practice_only if s.get("present")
         ),
         "accounts_mismatch": accounts_mismatch,
-        "ok": len(mismatches) == 0 and len(officer_gaps) == 0,
+        "ok": len(mismatches) == 0 and len(officer_gaps) == 0 and len(psc_gaps) == 0,
     }
 
     fetched_at = None
@@ -956,6 +1267,7 @@ def build_cs_comparison(
     return {
         "company_rows": company_rows,
         "officers": officer_matches,
+        "pscs": psc_matches,
         "crm_only_people": crm_only_people,
         "practice_only": practice_only,
         "summary": summary,

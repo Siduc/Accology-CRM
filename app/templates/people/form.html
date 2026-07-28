@@ -106,6 +106,21 @@
         </p>
       </div>
       <div>
+        <label for="gov_gateway_username">Government Gateway ID</label>
+        <input id="gov_gateway_username" name="gov_gateway_username"
+               value="{{ person.gov_gateway_username if person and person.gov_gateway_username else '' }}"
+               autocomplete="off" placeholder="Personal Gateway user ID">
+        <p class="small muted" style="margin:0.25rem 0 0">
+          Same idea as on companies — for this person’s own Gateway login (e.g. SA).
+        </p>
+      </div>
+      <div>
+        <label for="gov_gateway_password">Government Gateway password</label>
+        <input id="gov_gateway_password" name="gov_gateway_password" type="password"
+               value="{{ person.gov_gateway_password if person and person.gov_gateway_password else '' }}"
+               autocomplete="new-password">
+      </div>
+      <div>
         <label for="person_status">Status</label>
         <input id="person_status" name="person_status" value="{{ person.person_status if person and person.person_status else 'Contact' }}">
       </div>
@@ -122,7 +137,19 @@
     <div class="form-actions">
       <button class="btn" type="submit">Save</button>
       <a class="btn btn-outline" href="/people">Cancel</a>
+      {% if person %}
+      <a class="btn btn-outline" href="/people/{{ person.id }}/delete" style="margin-left:auto;color:#b91c1c;border-color:#fca5a5">
+        Delete…
+      </a>
+      {% endif %}
     </div>
   </form>
 </div>
+
+{% if person %}
+<p class="small muted" style="margin-top:1rem">
+  Delete is for <strong>duplicates</strong> and unwanted contacts.
+  You will see linked companies, individual client shells/jobs, and same-name records before confirming.
+</p>
+{% endif %}
 {% endblock %}

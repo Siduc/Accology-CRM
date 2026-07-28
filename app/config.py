@@ -296,9 +296,9 @@ MS_GRAPH_REDIRECT_URI = _env(
 MS_GRAPH_SCOPES = (
     _env(
         "MS_GRAPH_SCOPES",
-        "offline_access User.Read Files.ReadWrite",
+        "offline_access User.Read Files.ReadWrite Mail.Send Mail.ReadWrite",
     )
-    or "offline_access User.Read Files.ReadWrite"
+    or "offline_access User.Read Files.ReadWrite Mail.Send Mail.ReadWrite"
 )
 _MS_TENANT = (MS_GRAPH_TENANT_ID or "common").strip()
 MS_GRAPH_AUTHORISE_URL = _env(
@@ -314,6 +314,10 @@ GRAPH_API_BASE = (
     or "https://graph.microsoft.com/v1.0"
 )
 MS_GRAPH_MAX_UPLOAD_MB = int(_env("MS_GRAPH_MAX_UPLOAD_MB", "25") or "25")
+# Well-known folder name for archive-on-task-complete: archive | deleteditems | …
+MS_GRAPH_MAIL_ARCHIVE_FOLDER = (
+    _env("MS_GRAPH_MAIL_ARCHIVE_FOLDER", "archive") or "archive"
+)
 MS_GRAPH_ENABLED = _env_bool_early("MS_GRAPH_ENABLED", True) and bool(
     (MS_GRAPH_CLIENT_ID or "").strip() and (MS_GRAPH_CLIENT_SECRET or "").strip()
 )
@@ -348,6 +352,18 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 CHASE_LIVE_MODE = _env_bool("CHASE_LIVE_MODE", False)
+
+
+# Practice structured email (template send). Defaults to CHASE_LIVE_MODE if unset.
+def practice_email_live() -> bool:
+    raw = (_env("PRACTICE_EMAIL_LIVE") or "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return bool(CHASE_LIVE_MODE)
+
+
 # Soft enable when token present (override with ASANA_ENABLED=false)
 ASANA_ENABLED = _env_bool("ASANA_ENABLED", True) and bool(ASANA_ACCESS_TOKEN)
 SMTP_HOST = _env("SMTP_HOST")

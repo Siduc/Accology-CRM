@@ -665,10 +665,12 @@ def job_wip_band(job: Job, today: Optional[date] = None) -> str:
 
 
 def job_type_bucket(job: Job) -> str:
-    """Accounts | Confirmation Statement | Other."""
+    """Accounts | Self Assessment | Confirmation Statement | Other."""
     t = (job.type or "").strip()
     if _match_job_type(t, "Accounts"):
         return "Accounts"
+    if _match_job_type(t, "Self Assessment") or t in ("SA", "SAR"):
+        return "Self Assessment"
     if _match_job_type(t, "Confirmation Statement"):
         return "Confirmation Statement"
     return "Other"
@@ -748,10 +750,12 @@ def _job_is_completed(job: Job) -> bool:
 
 
 def job_service_kind(job: Job) -> str:
-    """accounts | cs | vat | other — for PE-year 1-2-2-1 drill."""
+    """accounts | sa | cs | vat | other — for PE-year drill tiles."""
     t = (job.type or "").strip().lower()
     if t == "accounts" or t.startswith("accounts "):
         return "accounts"
+    if "self assessment" in t or t in ("sa", "sar"):
+        return "sa"
     if "confirmation" in t:
         return "cs"
     if "vat" in t:
@@ -1004,7 +1008,7 @@ def compute_pe_year_layout(
     """
     1–2–2–1 layout for a period-end year drill:
       top wide: Jobs completed (year shown prominently)
-      2×2: Accounts / Confirmation statements / VAT / Others (outstanding)
+      mid: Accounts / Self Assessment / CS / VAT / Other (outstanding)
       bottom wide: Jobs for the year
 
     Values include retainers: each calendar month is completed once its start
@@ -1075,6 +1079,7 @@ def compute_pe_year_layout(
 
         by_kind: Dict[str, List[Job]] = {
             "accounts": [],
+            "sa": [],
             "cs": [],
             "vat": [],
             "other": [],
@@ -1082,6 +1087,8 @@ def compute_pe_year_layout(
         kind_amt = {k: 0.0 for k in by_kind}
         for j in snap.jobs:
             kind = job_service_kind(j)
+            if kind not in by_kind:
+                kind = "other"
             by_kind[kind].append(j)
             if _client_is_retainer(j.client):
                 continue  # valued via retainer months
@@ -1131,6 +1138,13 @@ def compute_pe_year_layout(
                     f"{base_list}&pe_slice=accounts#wip-list",
                 ),
                 pack_amt(
+                    "sa",
+                    "Self Assessment outstanding",
+                    len(by_kind["sa"]),
+                    kind_amt["sa"],
+                    f"{base_list}&pe_slice=sa#wip-list",
+                ),
+                pack_amt(
                     "cs",
                     "Confirmation statements outstanding",
                     len(by_kind["cs"]),
@@ -1171,6 +1185,7 @@ def compute_pe_year_layout(
 
     by_kind_jobs: Dict[str, List[Job]] = {
         "accounts": [],
+        "sa": [],
         "cs": [],
         "vat": [],
         "other": [],
@@ -1178,6 +1193,8 @@ def compute_pe_year_layout(
     kind_amt = {k: 0.0 for k in by_kind_jobs}
     for j in outstanding:
         kind = job_service_kind(j)
+        if kind not in by_kind_jobs:
+            kind = "other"
         by_kind_jobs[kind].append(j)
         kind_amt[kind] += _pe_job_fee(j)
 
@@ -1221,6 +1238,13 @@ def compute_pe_year_layout(
                 len(by_kind_jobs["accounts"]),
                 kind_amt["accounts"],
                 f"{base_list}&pe_slice=accounts#wip-list",
+            ),
+            pack_amt(
+                "sa",
+                "Self Assessment outstanding",
+                len(by_kind_jobs["sa"]),
+                kind_amt["sa"],
+                f"{base_list}&pe_slice=sa#wip-list",
             ),
             pack_amt(
                 "cs",
@@ -1281,8 +1305,15 @@ def compute_wip_type_totals_for_band(
         if _client_is_retainer(j.client) and j.client_id:
             open_counts[j.client_id] = open_counts.get(j.client_id, 0) + 1
 
+    # Order: Accounts, Self Assessment (2nd by value), CS, Other
     buckets = {
         "Accounts": {"key": "Accounts", "label": "Accounts", "count": 0, "amount": 0.0},
+        "Self Assessment": {
+            "key": "Self Assessment",
+            "label": "Self Assessment",
+            "count": 0,
+            "amount": 0.0,
+        },
         "Confirmation Statement": {
             "key": "Confirmation Statement",
             "label": "Confirmation statements",
@@ -1292,9 +1323,11 @@ def compute_wip_type_totals_for_band(
         "Other": {"key": "Other", "label": "Other jobs", "count": 0, "amount": 0.0},
     }
     for j in jobs:
-        if job_wip_band(j, today) != band:
+        if band not in ("all", "total", "") and job_wip_band(j, today) != band:
             continue
         tb = job_type_bucket(j)
+        if tb not in buckets:
+            tb = "Other"
         amt = wip_amount_for_job(
             j, open_counts=open_counts, monthly_by_client=monthly_by
         )
@@ -1311,7 +1344,7 @@ def compute_wip_type_horizons(
     db: Session, today: Optional[date] = None
 ) -> List[WipTypeHorizon]:
     """
-    Rows for WIP page: Accounts, Confirmation Statements (and optionally tasks separately).
+    Rows for WIP page: Accounts, Self Assessment, Confirmation Statements.
     Buckets: Overdue and Imminent · Planning · Pre Planning · Everything else.
     """
     today = today or date.today()
@@ -1325,6 +1358,7 @@ def compute_wip_type_horizons(
 
     rows_spec = [
         ("Accounts", "Accounts"),
+        ("Self Assessment", "Self Assessment"),
         ("Confirmation Statement", "Confirmation statements"),
     ]
     titles = {

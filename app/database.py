@@ -130,6 +130,8 @@ def _add_missing_columns():
             ("utr", "VARCHAR"),
             ("ni_number", "VARCHAR"),
             ("ch_code", "VARCHAR"),  # Companies House personal identification code
+            ("gov_gateway_username", "VARCHAR"),  # Government Gateway ID
+            ("gov_gateway_password", "VARCHAR"),
         ],
         "jobs": [
             ("created_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
@@ -200,6 +202,11 @@ def _add_missing_columns():
             ("import_source", "VARCHAR"),
             ("import_hash", "VARCHAR"),
             ("import_batch_id", "VARCHAR"),
+            ("outlook_message_id", "VARCHAR"),
+            ("outlook_conversation_id", "VARCHAR"),
+            ("outlook_web_link", "VARCHAR"),
+            ("outlook_archived_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+            ("outlook_archive_status", "VARCHAR"),
         ],
     }
 
@@ -207,12 +214,31 @@ def _add_missing_columns():
         for table, cols in alterations.items():
             if table not in existing_tables:
                 continue
-            existing = {c["name"] for c in inspector.get_columns(table)}
+            # Re-read columns each table (avoids stale inspector after concurrent startup)
+            existing = {c["name"] for c in inspect(conn).get_columns(table)}
             for col_name, col_type in cols:
-                if col_name not in existing:
-                    conn.execute(
-                        text(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
-                    )
+                if col_name in existing:
+                    continue
+                try:
+                    if not IS_SQLITE:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS "
+                                f"{col_name} {col_type}"
+                            )
+                        )
+                    else:
+                        conn.execute(
+                            text(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
+                        )
+                    existing.add(col_name)
+                except Exception as exc:  # noqa: BLE001
+                    # Concurrent startup or already applied — ignore duplicate column
+                    msg = str(exc).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        existing.add(col_name)
+                        continue
+                    raise
 
 
 def _migrate_person_clients():

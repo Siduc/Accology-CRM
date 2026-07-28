@@ -21,6 +21,7 @@
 <div class="actions" style="margin-bottom:1rem">
   <a class="btn btn-sm {% if view == 'all' %}{% else %}btn-outline{% endif %}" href="/jobs">All jobs</a>
   <a class="btn btn-sm {% if view == 'accounts' %}{% else %}btn-outline{% endif %}" href="/jobs/accounts">Accounts</a>
+  <a class="btn btn-sm {% if view == 'sa' %}{% else %}btn-outline{% endif %}" href="/jobs/self-assessment">Self Assessment</a>
   <a class="btn btn-sm {% if view == 'cs' %}{% else %}btn-outline{% endif %}" href="/jobs/confirmation-statements">Confirmation Statements</a>
   <a class="btn btn-sm btn-outline" href="/jobs/completion">Completion list</a>
   <a class="btn btn-sm {% if view == 'lost' %}{% else %}btn-outline{% endif %}" href="/lost/jobs">Lost jobs</a>
@@ -33,7 +34,7 @@
 </div>
 {% endif %}
 
-<form class="filters" method="get" action="{% if view == 'accounts' %}/jobs/accounts{% elif view == 'cs' %}/jobs/confirmation-statements{% elif view == 'lost' %}/lost/jobs{% else %}/jobs{% endif %}">
+<form class="filters" method="get" action="{% if view == 'accounts' %}/jobs/accounts{% elif view == 'sa' %}/jobs/self-assessment{% elif view == 'cs' %}/jobs/confirmation-statements{% elif view == 'lost' %}/lost/jobs{% else %}/jobs{% endif %}">
   <div>
     <label class="small muted" for="status">Status</label><br>
     <select id="status" name="status">

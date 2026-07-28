@@ -15,6 +15,11 @@
       <a class="btn btn-sm" href="/jobs/new">New Job</a>
       <a class="btn btn-sm btn-secondary" href="/clients/new">New Client</a>
       <a class="btn btn-sm btn-outline" href="/clients/new?status=Prospect">New Prospect</a>
+      {% if demo_mode %}
+      <a class="btn btn-sm" href="/demo/off" style="background:#b45309;border-color:#92400e">Exit demo</a>
+      {% else %}
+      <a class="btn btn-sm btn-outline" href="/demo/on" title="Anonymise data for presentation">Demo mode</a>
+      {% endif %}
       <a class="btn btn-sm btn-outline" href="/settings">Settings</a>
       <a class="btn btn-sm btn-outline" href="/logout">Logout</a>
     </div>
@@ -215,7 +220,7 @@
         <div class="stat-num" style="color:#b91c1c;font-size:2.25rem;font-weight:800;line-height:1.1;">{{ total_lost|default(0)|int }}</div>
         <div class="stat-name">Lost</div>
       </a>
-      <a class="stat-tile" href="/clients?status=Prospect">
+      <a class="stat-tile" href="/prospecting">
         <div class="stat-num" style="color:#0f172a;font-size:2.25rem;font-weight:800;line-height:1.1;">{{ total_prospects|default(0)|int }}</div>
         <div class="stat-name">Prospects</div>
       </a>
@@ -233,6 +238,11 @@
         <p class="hub-date muted small">Working capital · {{ today }}</p>
       </div>
       <div class="hub-header-actions">
+        {% if demo_mode %}
+        <a class="hub-logout" href="/demo/off" style="color:#fbbf24;font-weight:700">Exit demo</a>
+        {% else %}
+        <a class="hub-logout" href="/demo/on">Demo</a>
+        {% endif %}
         <a class="hub-logout" href="/settings">Settings</a>
         <a class="hub-logout" href="/logout">Logout</a>
       </div>
@@ -359,13 +369,13 @@
           <span class="practice-num">{{ total_lost|default(0)|int }}</span>
           <span class="practice-lab">Lost</span>
         </a>
-        <a class="practice-tile" href="/clients?status=Prospect">
+        <a class="practice-tile" href="/prospecting">
           <span class="practice-num">{{ total_prospects|default(0)|int }}</span>
           <span class="practice-lab">Prospects</span>
         </a>
       </div>
       <p class="muted small hub-practice-note">
-        {{ year_label|default('Overall') }} · Clients = New − Lost · Groups board
+        {{ year_label|default('Overall') }} · Companies = New − Lost · Prospects = open pipeline · Groups board
       </p>
     </section>
   </div>

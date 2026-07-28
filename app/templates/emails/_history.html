@@ -1,0 +1,62 @@
+{# Expects: emails, compose_href, next_url, empty_msg, embed_title #}
+<div class="card" id="email-history" style="margin-top:1rem">
+  <div class="page-header" style="margin-bottom:0.75rem">
+    <div>
+      <h2 style="margin:0">{{ embed_title|default('Email') }}{% if emails %} ({{ emails|length }}){% endif %}</h2>
+      <p class="muted small" style="margin:0.35rem 0 0">Structured mail sent from Accologise · not your full Outlook inbox</p>
+    </div>
+    <div class="actions">
+      {% if compose_href %}
+      <a class="btn btn-sm wc-touch" href="{{ compose_href }}">Send email</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if emails %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Subject</th>
+          <th>To</th>
+          <th>Status</th>
+          <th>Via</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in emails %}
+        <tr>
+          <td class="small">
+            {% if m.sent_at %}{{ m.sent_at.strftime('%d-%m-%Y %H:%M') }}
+            {% else %}{{ m.created_at.strftime('%d-%m-%Y') if m.created_at else '—' }}{% endif %}
+          </td>
+          <td>
+            <strong>{{ m.subject or '(no subject)' }}</strong>
+            {% if m.template %}<div class="small muted">{{ m.template.name }}</div>{% endif %}
+            {% if m.job_id %}<div class="small muted"><a href="/jobs/{{ m.job_id }}">JOB-{{ m.job_id }}</a></div>{% endif %}
+          </td>
+          <td class="small">{{ m.to_address or '—' }}</td>
+          <td>
+            {% if m.status == 'sent' %}
+            <span class="badge badge-active">sent</span>
+            {% elif m.status in ('failed',) %}
+            <span class="badge badge-overdue">failed</span>
+            {% elif m.status in ('blocked_not_live', 'skipped_no_smtp') %}
+            <span class="badge">logged</span>
+            {% else %}
+            <span class="badge">{{ m.status }}</span>
+            {% endif %}
+          </td>
+          <td class="small">{{ m.provider or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">{{ empty_msg|default('No emails logged yet.') }}
+    {% if compose_href %}<a href="{{ compose_href }}">Send the first one</a>.{% endif %}
+  </p>
+  {% endif %}
+</div>

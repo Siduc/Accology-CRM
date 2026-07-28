@@ -41,6 +41,7 @@ from app.services.sales_ledger import (
     debtor_age_tiles,
     debtors_total,
     import_opening_balances,
+    sales_day_book,
     invoice_age_days,
     invoice_from_quote,
     invoice_overdue_days,
@@ -619,6 +620,22 @@ async def sales_ageing(
     filter_fee = round(sum(float(r["inv"].balance or 0) for r in rows), 2)
     filter_label = bucket_labels.get(filter_bucket, "") if show_list else ""
 
+    # Sales day book: b/Fwd + Invoices − Receipts = c/Fwd (year or overall)
+    day_period = (request.query_params.get("day_period") or "").strip()
+    day_year = None
+    if day_period.isdigit() and len(day_period) == 4:
+        day_year = int(day_period)
+    elif day_period in ("", "ytd"):
+        day_year = today.year
+    # day_period == "overall" → year None
+    if day_period == "overall":
+        day_year = None
+    try:
+        day_book = sales_day_book(db, year=day_year, today=today)
+    except Exception:
+        day_book = None
+    day_years = list(range(today.year, today.year - 5, -1))
+
     return render(
         request,
         "sales/ageing.html",
@@ -635,6 +652,10 @@ async def sales_ageing(
             "filter_fee": filter_fee,
             "filter_count": len(rows),
             "show_list": show_list,
+            "day_book": day_book,
+            "day_years": day_years,
+            "day_period": day_period or "ytd",
+            "day_year": day_year,
         },
     )
 

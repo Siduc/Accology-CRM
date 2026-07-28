@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ person.full_name }} · People{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/people/{{ person.id }}/edit">← Edit person</a> · <a href="/people">People</a></p>
+    <h1>Delete person</h1>
+    <p class="muted small">
+      Use this to remove <strong>duplicate</strong> people records.
+      Linked companies are kept; only the person (and empty individual shells) can go.
+    </p>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="border-left:4px solid #b91c1c;margin-bottom:1rem">
+  <h2 style="margin-top:0">{{ impact.full_name }}</h2>
+  <p class="muted small" style="margin:0">
+    Person #{{ impact.person_id }}
+    {% if impact.is_individual %}· <span class="badge badge-active">Individual client</span>{% endif %}
+    {% if impact.role %}· {{ impact.role }}{% endif %}
+    {% if impact.email %}· {{ impact.email }}{% endif %}
+  </p>
+</div>
+
+{% if impact.warnings %}
+<div class="alert alert-error" style="margin-bottom:1rem">
+  <strong>Warnings before you delete</strong>
+  <ul style="margin:0.5rem 0 0;padding-left:1.25rem">
+    {% for w in impact.warnings %}
+    <li>{{ w }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="grid-2" style="margin-bottom:1rem">
+  <div class="card">
+    <h2 style="margin-top:0">Related companies ({{ impact.companies|length }})</h2>
+    {% if impact.companies %}
+    <p class="small muted">These company records stay. Only the link to this person is removed.</p>
+    <ul class="chase-history">
+      {% for c in impact.companies %}
+      <li>
+        <a href="/clients/{{ c.id }}"><strong>{{ c.name }}</strong></a>
+        {% if c.number %}<span class="muted small"> · {{ c.number }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No company links.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Individual client shell ({{ impact.shells|length }})</h2>
+    {% if impact.shells %}
+    <p class="small muted">
+      IND-… shells hold SA / personal tax jobs. Empty shells can be removed with this person;
+      shells with jobs or invoices are kept.
+    </p>
+    {% for s in impact.shells %}
+    <div style="margin-bottom:0.75rem;padding:0.65rem 0.75rem;border:1px solid var(--border);border-radius:8px;background:#f8fafc">
+      <strong><a href="/clients/{{ s.id }}">{{ s.name }}</a></strong>
+      <span class="muted small"> · {{ s.number }}</span>
+      <div class="small" style="margin-top:0.35rem">
+        {{ s.job_count }} job(s)
+        {% if s.open_job_count %} · <strong>{{ s.open_job_count }} open</strong>{% endif %}
+        · {{ s.invoice_count }} invoice(s)
+        {% if s.can_delete %}
+        · <span class="badge badge-active">Can delete shell</span>
+        {% else %}
+        · <span class="badge badge-progress">Shell kept (has data)</span>
+        {% endif %}
+      </div>
+      {% if s.sample_jobs %}
+      <ul class="small muted" style="margin:0.4rem 0 0;padding-left:1.1rem">
+        {% for j in s.sample_jobs %}
+        <li>{{ j.type or 'Job' }} · {{ j.status or '—' }} · £{{ '%.0f'|format(j.fee) }} · #{{ j.id }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="empty">No individual client shell.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if impact.name_matches %}
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">Other people with the same name</h2>
+  <p class="small muted">Keep the better record; delete this one if it is the duplicate.</p>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Name</th><th>Type</th><th>Companies</th><th>CH PIC</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for m in impact.name_matches %}
+        <tr>
+          <td><strong>{{ m.name }}</strong> <span class="muted small">#{{ m.id }}</span></td>
+          <td>
+            {% if m.is_individual %}
+            <span class="badge badge-active">Individual</span>
+            {% else %}
+            <span class="badge">Contact</span>
+            {% endif %}
+          </td>
+          <td class="small">
+            {% if m.companies %}{{ m.companies|join(', ') }}{% else %}—{% endif %}
+          </td>
+          <td>{% if m.has_ch_code %}<span class="badge badge-active">On file</span>{% else %}—{% endif %}</td>
+          <td><a class="btn btn-sm btn-outline" href="/people/{{ m.id }}/edit">Open keep?</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">Confirm delete</h2>
+  <p class="small muted">
+    This permanently removes the <strong>person</strong> record.
+    It cannot be undone (except from a backup restore).
+  </p>
+  <form class="stack" method="post" action="/people/{{ person.id }}/delete"
+        onsubmit="return confirm('Permanently delete {{ person.full_name|e }}?');">
+    {% if impact.shells and impact.can_delete_shell %}
+    <label style="display:flex;align-items:flex-start;gap:0.5rem;font-weight:500">
+      <input type="checkbox" name="delete_empty_shell" value="yes" checked style="margin-top:0.25rem">
+      <span>
+        Also delete empty individual client shell(s)
+        <span class="muted small" style="display:block;font-weight:400">
+          Only when they have no jobs and no invoices.
+        </span>
+      </span>
+    </label>
+    {% elif impact.shells %}
+    <p class="small muted">
+      Individual shell(s) with jobs/invoices will be <strong>kept</strong> (not deleted).
+      Re-point or clear those jobs first if you want the shell gone too.
+    </p>
+    <input type="hidden" name="delete_empty_shell" value="">
+    {% else %}
+    <input type="hidden" name="delete_empty_shell" value="yes">
+    {% endif %}
+
+    <div>
+      <label for="confirm_name">Type the full name to confirm</label>
+      <input id="confirm_name" name="confirm_name" required autocomplete="off"
+             placeholder="{{ person.full_name }}" style="max-width:28rem">
+    </div>
+    <div class="form-actions">
+      <button class="btn" type="submit" style="background:#b91c1c;border-color:#991b1b">Delete permanently</button>
+      <a class="btn btn-outline" href="/people/{{ person.id }}/edit">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

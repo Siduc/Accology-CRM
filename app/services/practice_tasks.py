@@ -134,12 +134,29 @@ def create_task(
     return task
 
 
-def complete_task(db: Session, task: PracticeTask) -> PracticeTask:
+def complete_task(
+    db: Session, task: PracticeTask, *, archive_outlook: bool = True
+) -> tuple:
+    """
+    Mark task completed. Optionally archive linked Outlook message via Graph.
+    Returns (task, archive_message).
+    """
     task.status = "Completed"
     task.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(task)
-    return task
+    archive_msg = ""
+    if archive_outlook and (task.outlook_message_id or "").strip():
+        try:
+            from app.services.practice_emails import archive_outlook_for_task
+
+            _ok, archive_msg = archive_outlook_for_task(db, task)
+            db.refresh(task)
+        except Exception as exc:  # noqa: BLE001
+            archive_msg = f"Archive error: {exc}"
+            task.outlook_archive_status = "failed"
+            db.commit()
+    return task, archive_msg
 
 
 def task_horizon_key(task: PracticeTask, today: Optional[date] = None) -> str:

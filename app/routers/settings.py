@@ -70,6 +70,8 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "fresh": False,
             "email": "",
         }
+    from app.services.demo_mode import is_demo_request
+
     return render(
         request,
         "settings.html",
@@ -103,8 +105,40 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "oauth_msg": request.query_params.get("oauth_msg", ""),
             "backlog": backlog,
             "backlog_msg": request.query_params.get("backlog_msg", ""),
+            "demo_mode_on": is_demo_request(request),
+            "demo_msg": request.query_params.get("demo_msg", ""),
         },
     )
+
+
+@router.post("/settings/demo-mode")
+async def settings_demo_mode(
+    request: Request,
+    enabled: str = Form(""),
+):
+    """Toggle presentation demo mode (session only — database unchanged)."""
+    from app.services.demo_mode import set_demo_mode
+
+    on = (enabled or "").strip().lower() in ("1", "yes", "on", "true")
+    set_demo_mode(request, on)
+    msg = "on" if on else "off"
+    return RedirectResponse(f"/settings?demo_msg={msg}#settings-demo", status_code=303)
+
+
+@router.get("/demo/on")
+async def demo_on(request: Request):
+    from app.services.demo_mode import set_demo_mode
+
+    set_demo_mode(request, True)
+    return RedirectResponse("/dashboard", status_code=303)
+
+
+@router.get("/demo/off")
+async def demo_off(request: Request):
+    from app.services.demo_mode import set_demo_mode
+
+    set_demo_mode(request, False)
+    return RedirectResponse("/dashboard", status_code=303)
 
 
 @router.post("/settings/backlog/add")
