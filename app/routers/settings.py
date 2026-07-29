@@ -70,6 +70,7 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "fresh": False,
             "email": "",
         }
+    from app.config import TASK_PUSH_API_KEY
     from app.services.demo_mode import is_demo_request
 
     return render(
@@ -77,6 +78,7 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
         "settings.html",
         {
             "chase_live": CHASE_LIVE_MODE,
+            "task_push_key_set": bool((TASK_PUSH_API_KEY or "").strip()),
             "smtp_ok": smtp_configured(),
             "smtp_host": SMTP_HOST or "",
             "smtp_from": SMTP_FROM or "",

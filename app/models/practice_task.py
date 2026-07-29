@@ -28,16 +28,26 @@ class PracticeTask(Base):
     # High | Medium | Low
     priority = Column(String, nullable=True, index=True)
     source_email_date = Column(Date, nullable=True)
-    import_source = Column(String, nullable=True)  # e.g. outlook_grok
+    import_source = Column(String, nullable=True)  # e.g. outlook_grok | outlook_push
     import_hash = Column(String, nullable=True, index=True)
     import_batch_id = Column(String, nullable=True, index=True)
-    # Graph Outlook message linkage (archive-on-complete)
+    # Selective “push email → task” fields (Outlook / Graph)
+    email_from = Column(String, nullable=True)
+    email_to = Column(String, nullable=True)
+    email_preview = Column(Text, nullable=True)  # short body preview
+    # Graph Outlook message linkage (open in Outlook + archive-on-complete)
     outlook_message_id = Column(String, nullable=True, index=True)
     outlook_conversation_id = Column(String, nullable=True)
     outlook_web_link = Column(String, nullable=True)
     outlook_archived_at = Column(DateTime, nullable=True)
     # none | pending | archived | failed
     outlook_archive_status = Column(String, nullable=True, index=True)
+
+    def is_from_email(self) -> bool:
+        src = (self.import_source or "").strip().lower()
+        if src in ("outlook_push", "outlook_email", "email_push", "outlook_grok"):
+            return True
+        return bool((self.outlook_message_id or "").strip() or (self.email_from or "").strip())
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

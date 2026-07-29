@@ -17,6 +17,10 @@
     <a class="btn btn-outline wc-touch" href="/import/csv?dataset=tasks">Reimport CSV</a>
   </div>
 </div>
+<p class="small muted" style="margin:-0.25rem 0 0.85rem">
+  Selective email pushes from Outlook appear here with an <span class="badge">Email</span> badge.
+  Chatter stays in Outlook — only emails you push become tasks.
+</p>
 
 {% if import_msg %}<div class="chase-banner chase-banner-info">{{ import_msg }}</div>{% endif %}
 {% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
@@ -82,8 +86,19 @@
         <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
           <td>
             <a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a>
-            {% if t.description %}<div class="small muted">{{ t.description[:80] }}{% if t.description|length > 80 %}…{% endif %}</div>{% endif %}
-            {% if t.import_source %}<div class="small muted">via {{ t.import_source }}{% if t.source_email_date %} · email {{ t.source_email_date }}{% endif %}</div>{% endif %}
+            {% if t.is_from_email() %}
+            <span class="badge" style="margin-left:0.25rem;background:#dbeafe;color:#1e40af">Email</span>
+            {% endif %}
+            {% if t.email_preview %}
+            <div class="small muted">{{ t.email_preview[:90] }}{% if t.email_preview|length > 90 %}…{% endif %}</div>
+            {% elif t.description %}
+            <div class="small muted">{{ t.description[:80] }}{% if t.description|length > 80 %}…{% endif %}</div>
+            {% endif %}
+            {% if t.email_from %}
+            <div class="small muted">{{ t.email_from }}{% if t.source_email_date %} · {{ t.source_email_date|uk_date }}{% endif %}</div>
+            {% elif t.import_source %}
+            <div class="small muted">via {{ t.import_source }}{% if t.source_email_date %} · {{ t.source_email_date|uk_date }}{% endif %}</div>
+            {% endif %}
           </td>
           <td>
             {% set p = t.display_priority() %}

@@ -230,6 +230,16 @@ SESSION_HTTPS_ONLY = IS_PRODUCTION
 # Companies House
 COMPANIES_HOUSE_API_KEY = _env("COMPANIES_HOUSE_API_KEY")
 
+# Selective Outlook → Task push (API key for Power Automate / Outlook)
+# Preferred: TASK_IMPORT_API_KEY (Power Automate docs)
+# Aliases: ACCOLOGISE_TASK_PUSH_KEY, TASK_PUSH_API_KEY
+TASK_PUSH_API_KEY = (
+    _env("TASK_IMPORT_API_KEY")
+    or _env("ACCOLOGISE_TASK_PUSH_KEY")
+    or _env("TASK_PUSH_API_KEY")
+    or ""
+)
+
 # Companies House OAuth 2.0 (API Filing / Software Filing web client)
 CH_OAUTH_CLIENT_ID = _env("CH_OAUTH_CLIENT_ID")
 CH_OAUTH_CLIENT_SECRET = _env("CH_OAUTH_CLIENT_SECRET")

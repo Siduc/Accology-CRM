@@ -5,10 +5,54 @@
   <div>
     <p class="small muted"><a href="/tasks">← Task ledger</a></p>
     <h1>{% if task %}Edit task{% else %}New task{% endif %}</h1>
+    {% if task and task.is_from_email() %}
+    <p class="muted small">From email · received {{ task.source_email_date|uk_date if task.source_email_date else '—' }}</p>
+    {% endif %}
   </div>
+  {% if task and not task.is_closed() %}
+  <div class="actions">
+    <form method="post" action="/tasks/{{ task.id }}/complete" style="display:inline"
+          onsubmit="return confirm('Mark this task complete?');">
+      <input type="hidden" name="next" value="/tasks">
+      <button class="btn wc-touch" type="submit">Mark complete</button>
+    </form>
+  </div>
+  {% endif %}
 </div>
 
-<div class="card" style="max-width:36rem">
+{% if task and task.is_from_email() %}
+<div class="card" style="margin-bottom:1rem;border-left:4px solid #2563eb;max-width:40rem">
+  <h2 style="margin-top:0;font-size:1.05rem">Email</h2>
+  <dl class="small" style="margin:0;display:grid;grid-template-columns:7rem 1fr;gap:0.35rem 0.75rem">
+    <dt class="muted">From</dt>
+    <dd style="margin:0">{{ task.email_from or '—' }}</dd>
+    <dt class="muted">To</dt>
+    <dd style="margin:0">{{ task.email_to or '—' }}</dd>
+    <dt class="muted">Received</dt>
+    <dd style="margin:0">{{ task.source_email_date|uk_date if task.source_email_date else '—' }}</dd>
+    <dt class="muted">Source</dt>
+    <dd style="margin:0"><code>{{ task.import_source or 'email' }}</code></dd>
+  </dl>
+  {% if task.email_preview %}
+  <p class="small" style="margin:0.75rem 0 0;padding:0.65rem 0.75rem;background:#f8fafc;border-radius:8px;border:1px solid var(--border);white-space:pre-wrap">{{ task.email_preview }}</p>
+  {% endif %}
+  <div class="actions" style="margin-top:0.75rem;flex-wrap:wrap">
+    {% if task.outlook_web_link %}
+    <a class="btn btn-sm" href="{{ task.outlook_web_link }}" target="_blank" rel="noopener">Open in Outlook</a>
+    {% endif %}
+    {% if task.outlook_message_id and not task.outlook_web_link %}
+    <span class="small muted">Message id on file — open from Outlook (web link not supplied).</span>
+    {% endif %}
+    {% if task.outlook_archive_status %}
+    <span class="small muted">Archive: <strong>{{ task.outlook_archive_status }}</strong>
+      {% if task.outlook_archived_at %} · {{ task.outlook_archived_at.strftime('%d-%m-%Y %H:%M') }}{% endif %}
+    </span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card" style="max-width:40rem">
   <form class="stack" method="post" action="{% if task %}/tasks/{{ task.id }}/edit{% else %}/tasks/new{% endif %}">
     <label>Title *</label>
     <input name="title" required value="{{ task.title if task else '' }}" placeholder="e.g. VAT query, payroll setup">
@@ -59,6 +103,7 @@
       </option>
       {% endfor %}
     </select>
+    <p class="small muted">Email pushes try to match by sender domain/name; you can change the link here.</p>
 
     <label>Linked job (optional)</label>
     <select name="job_id">
@@ -74,7 +119,7 @@
     {% endif %}
 
     <label>Description</label>
-    <textarea name="description" rows="3">{{ task.description if task else '' }}</textarea>
+    <textarea name="description" rows="5">{{ task.description if task else '' }}</textarea>
 
     <label>Notes</label>
     <textarea name="notes" rows="2">{{ task.notes if task else '' }}</textarea>
@@ -84,12 +129,7 @@
            value="{{ task.outlook_message_id if task and task.outlook_message_id else '' }}"
            placeholder="Graph message id — archive on complete"
            style="width:100%">
-    <p class="small muted">When set, completing this task moves the message to Archive in Outlook (Microsoft Graph).</p>
-    {% if task and task.outlook_archive_status %}
-    <p class="small muted">Archive status: <strong>{{ task.outlook_archive_status }}</strong>
-      {% if task.outlook_archived_at %} · {{ task.outlook_archived_at.strftime('%d-%m-%Y %H:%M') }}{% endif %}
-    </p>
-    {% endif %}
+    <p class="small muted">When set, completing this task can move the message to Archive in Outlook (Microsoft Graph).</p>
 
     {% if task and task.import_source %}
     <p class="small muted">Imported via <code>{{ task.import_source }}</code>
@@ -102,5 +142,12 @@
       <a class="btn btn-outline" href="/tasks">Cancel</a>
     </div>
   </form>
+  {% if task and not task.is_closed() %}
+  <form method="post" action="/tasks/{{ task.id }}/complete" style="margin-top:0.75rem"
+        onsubmit="return confirm('Mark this task complete?');">
+    <input type="hidden" name="next" value="/tasks">
+    <button class="btn btn-secondary wc-touch" type="submit">Mark complete</button>
+  </form>
+  {% endif %}
 </div>
 {% endblock %}

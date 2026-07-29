@@ -10,6 +10,7 @@
 </div>
 
 <nav class="settings-nav" aria-label="Settings sections">
+  <a href="#settings-task-push">Email → Task</a>
   <a href="#settings-demo">Demo mode</a>
   <a href="#settings-system">System</a>
   <a href="#settings-wip">WIP</a>
@@ -18,6 +19,32 @@
   <a href="#settings-creditors">Creditors</a>
   <a href="#settings-other">Other</a>
 </nav>
+
+{# ========== TASK PUSH API ========== #}
+<section class="settings-section" id="settings-task-push">
+  <h2 class="settings-section-title">Outlook → Task push</h2>
+  <div class="card settings-card">
+    <h3>Selective email → Accologise task</h3>
+    <p class="muted small">
+      Chatter stays in Outlook. An Outlook button (or Power Automate) can
+      <code>POST /api/v1/tasks/from-email</code> with an API key to create a Task.
+      Accologise matches the sender to a Client when possible.
+    </p>
+    <p style="margin:0.5rem 0">
+      API key:
+      {% if task_push_key_set %}
+      <span class="badge badge-active">Configured</span>
+      {% else %}
+      <span class="badge badge-progress">Not set</span>
+      {% endif %}
+    </p>
+    <p class="small muted" style="margin:0">
+      Set <code>TASK_IMPORT_API_KEY</code> in the environment / <code>.env</code>, then restart.
+      Power Automate header: <code>X-API-Key: &lt;your key&gt;</code> (no browser login).
+      Contract: <a href="/api/v1/tasks/from-email">GET /api/v1/tasks/from-email</a>
+    </p>
+  </div>
+</section>
 
 {# ========== DEMO MODE ========== #}
 <section class="settings-section" id="settings-demo">

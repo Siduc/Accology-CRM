@@ -105,6 +105,13 @@ def create_task(
     import_source: Optional[str] = None,
     import_hash: Optional[str] = None,
     import_batch_id: Optional[str] = None,
+    email_from: Optional[str] = None,
+    email_to: Optional[str] = None,
+    email_preview: Optional[str] = None,
+    outlook_message_id: Optional[str] = None,
+    outlook_conversation_id: Optional[str] = None,
+    outlook_web_link: Optional[str] = None,
+    commit: bool = True,
 ) -> PracticeTask:
     pri = (priority or "").strip()
     if pri and pri not in TASK_PRIORITIES:
@@ -112,6 +119,7 @@ def create_task(
     if not pri:
         pri = "Medium"
     st = status if status in TASK_STATUSES else "Planned"
+    oid = (outlook_message_id or "").strip() or None
     task = PracticeTask(
         title=(title or "").strip() or "Task",
         description=(description or "").strip() or None,
@@ -127,10 +135,20 @@ def create_task(
         import_source=import_source,
         import_hash=import_hash,
         import_batch_id=import_batch_id,
+        email_from=(email_from or "").strip() or None,
+        email_to=(email_to or "").strip() or None,
+        email_preview=(email_preview or "").strip() or None,
+        outlook_message_id=oid,
+        outlook_conversation_id=(outlook_conversation_id or "").strip() or None,
+        outlook_web_link=(outlook_web_link or "").strip() or None,
+        outlook_archive_status="none" if oid else None,
     )
     db.add(task)
-    db.commit()
-    db.refresh(task)
+    if commit:
+        db.commit()
+        db.refresh(task)
+    else:
+        db.flush()
     return task
 
 

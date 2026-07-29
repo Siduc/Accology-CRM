@@ -1,6 +1,8 @@
 """FastAPI application entry — production DB URL comes from app.config (env / dotenv)."""
 
 from pathlib import Path
+import logging
+import secrets
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -23,8 +25,11 @@ from app.config import (  # noqa: E402
     SESSION_HTTPS_ONLY,
     SESSION_MAX_AGE,
     SESSION_SECRET,
+    TASK_PUSH_API_KEY,
 )
 from app.database import init_db, ping_database  # noqa: E402
+
+logger = logging.getLogger("accountant_crm.auth")
 
 from app.routers import (
     auth,
@@ -52,6 +57,7 @@ from app.routers import (
     documents,
     emails,
     tasks,
+    api_tasks,
     csv_exchange,
     prospecting,
 )
@@ -66,7 +72,7 @@ app = FastAPI(
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-# Paths that do not require a logged-in session
+# Paths that do not require a logged-in browser session (HTML UI only)
 _PUBLIC_EXACT = frozenset(
     {
         "/",
@@ -76,9 +82,7 @@ _PUBLIC_EXACT = frozenset(
         "/favicon.ico",
         "/manifest.webmanifest",
         "/sw.js",
-        # CH OAuth redirect (signed state; no CRM session required)
         "/oauth/companies-house/callback",
-        # Microsoft Graph OAuth redirect
         "/oauth/microsoft/callback",
     }
 )
@@ -86,38 +90,64 @@ _PUBLIC_PREFIXES = ("/static/",)
 
 
 def _is_public_path(path: str) -> bool:
-    if path in _PUBLIC_EXACT:
+    p = (path or "").rstrip("/") or "/"
+    if path in _PUBLIC_EXACT or p in _PUBLIC_EXACT:
         return True
     return any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES)
 
 
-@app.middleware("http")
-async def security_and_auth(request: Request, call_next):
-    """Auth gate + security headers. Must sit inside SessionMiddleware."""
-    path = request.url.path
+def _is_api_path(path: str) -> bool:
+    """Machine API — never use browser session redirects."""
+    p = (path or "").strip()
+    return p == "/api" or p.startswith("/api/")
 
-    if not _is_public_path(path) and not request.session.get("user"):
-        return RedirectResponse("/", status_code=303)
 
-    # Demo mode: block CSV / data exports so real data cannot leave the UI
-    if request.session.get("demo_mode") and request.method in ("GET", "POST", "HEAD"):
-        from app.services.demo_mode import should_block_export
+def _header_api_key(request: Request) -> str:
+    """Read API key from common Power Automate / HTTP client header shapes."""
+    # Starlette headers are case-insensitive
+    for name in ("x-api-key", "api-key", "x-api_key"):
+        val = (request.headers.get(name) or "").strip()
+        if val:
+            return val
+    auth = (request.headers.get("authorization") or "").strip()
+    if not auth:
+        return ""
+    lower = auth.lower()
+    if lower.startswith("bearer "):
+        return auth[7:].strip()
+    if lower.startswith("apikey "):
+        return auth[7:].strip()
+    # Raw key in Authorization (no scheme)
+    if " " not in auth:
+        return auth
+    return ""
 
-        if should_block_export(path):
-            return RedirectResponse(
-                "/settings?demo_msg=export_blocked#settings-demo",
-                status_code=303,
-            )
 
-    response = await call_next(request)
+def _api_key_configured() -> str:
+    return (TASK_PUSH_API_KEY or "").strip()
 
-    # Security headers
+
+def _api_key_matches(provided: str) -> bool:
+    expected = _api_key_configured()
+    if not expected or not provided:
+        return False
+    if len(provided) != len(expected):
+        return False
+    return secrets.compare_digest(provided, expected)
+
+
+def _json_api_error(status: int, *messages: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status,
+        content={"ok": False, "errors": [m for m in messages if m]},
+    )
+
+
+def _security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
-    # SAMEORIGIN so document PDF preview iframes work on /documents/{id}
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    # Allow self + Chart.js CDN used on client detail charts; frame-src for PDF preview
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
@@ -135,6 +165,93 @@ async def security_and_auth(request: Request, call_next):
             "max-age=31536000; includeSubDomains"
         )
     return response
+
+
+@app.middleware("http")
+async def security_and_auth(request: Request, call_next):
+    """
+    Auth gate (inside SessionMiddleware).
+
+    Critical: /api/* is for Power Automate / machine clients.
+    - NEVER 303-redirect API paths to /
+    - Session cookie is NOT required for /api/*
+    - POST /api/v1/tasks/from-email requires X-API-Key (checked here + in router)
+    """
+    path = request.url.path or ""
+    method = request.method or "GET"
+
+    # ─── API paths: short-circuit before any browser session redirect ───
+    if _is_api_path(path):
+        provided = _header_api_key(request)
+        expected = _api_key_configured()
+        # Temporary diagnostics (no secret values logged)
+        logger.info(
+            "API request method=%s path=%s has_x_api_key=%s key_len=%s "
+            "env_key_configured=%s env_key_len=%s key_match=%s "
+            "header_names=%s",
+            method,
+            path,
+            bool(provided),
+            len(provided),
+            bool(expected),
+            len(expected),
+            _api_key_matches(provided) if provided and expected else False,
+            sorted({h.lower() for h in request.headers.keys()}),
+        )
+
+        # Task push POST must have a valid key at the gate (never redirect)
+        norm = path.rstrip("/") or "/"
+        if norm.endswith("/tasks/from-email") and method == "POST":
+            if not expected:
+                return _security_headers(
+                    _json_api_error(
+                        503,
+                        "TASK_IMPORT_API_KEY is not set on the server. "
+                        "Add it to the environment and restart.",
+                    )
+                )
+            if not provided:
+                return _security_headers(
+                    _json_api_error(
+                        401,
+                        "Missing X-API-Key header. "
+                        "In Power Automate set header name X-API-Key to your TASK_IMPORT_API_KEY value.",
+                    )
+                )
+            if not _api_key_matches(provided):
+                return _security_headers(
+                    _json_api_error(
+                        401,
+                        "Invalid X-API-Key (does not match TASK_IMPORT_API_KEY on the server).",
+                    )
+                )
+            # Stash for router (optional)
+            request.state.api_key_ok = True
+
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("API handler error path=%s", path)
+            return _security_headers(
+                _json_api_error(500, "Internal server error on API request.")
+            )
+        return _security_headers(response)
+
+    # ─── Browser UI: session required (HTML redirects OK) ───
+    if not _is_public_path(path) and not request.session.get("user"):
+        return RedirectResponse("/", status_code=303)
+
+    if request.session.get("demo_mode") and method in ("GET", "POST", "HEAD"):
+        from app.services.demo_mode import should_block_export
+
+        if should_block_export(path):
+            return RedirectResponse(
+                "/settings?demo_msg=export_blocked#settings-demo",
+                status_code=303,
+            )
+
+    response = await call_next(request)
+    return _security_headers(response)
 
 
 # SessionMiddleware last so it is outermost and request.session is available
@@ -172,6 +289,7 @@ app.include_router(ms_graph_oauth.router)
 app.include_router(documents.router)
 app.include_router(emails.router)
 app.include_router(tasks.router)
+app.include_router(api_tasks.router)
 app.include_router(csv_exchange.router)
 app.include_router(settings.router)
 app.include_router(sales.router)
