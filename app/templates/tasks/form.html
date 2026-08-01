@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="small muted"><a href="/tasks">← Task ledger</a></p>
+    <p class="small muted"><a href="{{ next_url|default('/tasks') }}">← Back to list</a></p>
     <h1>{% if task %}Edit task{% else %}New task{% endif %}</h1>
     {% if task and task.is_from_email() %}
     <p class="muted small">From email · received {{ task.source_email_date|uk_date if task.source_email_date else '—' }}</p>
@@ -13,7 +13,7 @@
   <div class="actions">
     <form method="post" action="/tasks/{{ task.id }}/complete" style="display:inline"
           onsubmit="return confirm('Mark this task complete?');">
-      <input type="hidden" name="next" value="/tasks">
+      <input type="hidden" name="next" value="{{ next_url|default('/tasks') }}">
       <button class="btn wc-touch" type="submit">Mark complete</button>
     </form>
   </div>
@@ -54,6 +54,7 @@
 
 <div class="card" style="max-width:40rem">
   <form class="stack" method="post" action="{% if task %}/tasks/{{ task.id }}/edit{% else %}/tasks/new{% endif %}">
+    <input type="hidden" name="next" value="{{ next_url|default('/tasks') }}">
     <label>Title *</label>
     <input name="title" required value="{{ task.title if task else '' }}" placeholder="e.g. VAT query, payroll setup">
 
@@ -139,13 +140,13 @@
 
     <div class="actions">
       <button class="btn wc-touch" type="submit">Save task</button>
-      <a class="btn btn-outline" href="/tasks">Cancel</a>
+      <a class="btn btn-outline" href="{{ next_url|default('/tasks') }}">Cancel</a>
     </div>
   </form>
   {% if task and not task.is_closed() %}
   <form method="post" action="/tasks/{{ task.id }}/complete" style="margin-top:0.75rem"
         onsubmit="return confirm('Mark this task complete?');">
-    <input type="hidden" name="next" value="/tasks">
+    <input type="hidden" name="next" value="{{ next_url|default('/tasks') }}">
     <button class="btn btn-secondary wc-touch" type="submit">Mark complete</button>
   </form>
   {% endif %}

@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ job.title or job.type }} · Jobs{% endblock %}
 {% block content %}
+{% set list_back = return_to if return_to else '/jobs' %}
+{% set ret_q = ('?return_to=' ~ return_to|urlquote) if return_to else '' %}
 <div class="page-header">
   <div>
-    <p class="small muted"><a href="/jobs">← Jobs</a></p>
+    <p class="small muted"><a href="{{ list_back }}">← Back to list</a></p>
     <h1>{{ job.title or job.type }}</h1>
     <p class="muted">
       {% if job.client %}
@@ -19,7 +21,15 @@
     </p>
   </div>
   <div class="actions">
-    <a class="btn btn-sm" href="/jobs/{{ job.id }}/edit">Edit</a>
+    {% if (job.status or '') != 'Cancelled' and (job.billing_status or '')|lower not in ('invoiced', 'paid') %}
+    <form method="post" action="/jobs/{{ job.id }}/done" style="display:inline">
+      <input type="hidden" name="next" value="{{ list_back }}">
+      <button class="btn btn-sm" type="submit" title="Complete job, create next year if recurring, open invoice">Done</button>
+    </form>
+    {% elif (job.billing_status or '')|lower in ('invoiced', 'paid') %}
+    <a class="btn btn-sm btn-outline" href="/sales/invoices/new?job_id={{ job.id }}">Invoice</a>
+    {% endif %}
+    <a class="btn btn-sm" href="/jobs/{{ job.id }}/edit{{ ret_q }}">Edit</a>
     {% if job.client_id %}
     <a class="btn btn-sm btn-outline wc-touch" href="/emails/compose?client_id={{ job.client_id }}&amp;job_id={{ job.id }}&amp;return_to=/jobs/{{ job.id }}">Send email</a>
     {% endif %}
@@ -115,11 +125,21 @@
     <div>
       <h2 style="margin:0">Documents{% if documents %} ({{ documents|length }}){% endif %}</h2>
       <p class="muted small" style="margin:0.35rem 0 0">
-        OneDrive · Jobs / JOB-{{ job.id }}
+        OneDrive · Accologise / Clients /
+        {% if job.client %}{{ job.client.display_name() }}{% else %}…{% endif %} /
+        {{ job.type or job.title or 'Job' }}{% if job.period_end %} — {{ job.period_end }}{% endif %}
       </p>
     </div>
     <div class="actions">
       <a class="btn btn-sm wc-touch" href="/documents/new?job_id={{ job.id }}{% if job.client_id %}&amp;client_id={{ job.client_id }}{% endif %}">Upload</a>
+      {% if docs_conn.connected and docs_conn.fresh and job.client_id %}
+      <form method="post" action="/documents/scan-onedrive" style="display:inline">
+        <input type="hidden" name="client_id" value="{{ job.client_id }}">
+        <input type="hidden" name="job_id" value="{{ job.id }}">
+        <input type="hidden" name="return_to" value="/jobs/{{ job.id }}">
+        <button class="btn btn-sm btn-secondary wc-touch" type="submit" title="Link files added manually in OneDrive">Scan OneDrive</button>
+      </form>
+      {% endif %}
       <a class="btn btn-sm btn-outline wc-touch" href="/documents?job_id={{ job.id }}">Filter list</a>
     </div>
   </div>

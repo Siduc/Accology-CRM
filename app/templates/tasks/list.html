@@ -1,26 +1,71 @@
 {% extends "base.html" %}
 {% block title %}Task ledger · Accologise{% endblock %}
+{% block apple_title %}Tasks{% endblock %}
 {% block content %}
-<div class="page-header">
+<div class="page-header task-ledger-header">
   <div>
     <p class="small muted"><a href="/dashboard">← Accologise</a></p>
-    <h1>Task ledger</h1>
-    <p class="muted small">
-      {{ tasks|length }} tasks
-      · open fees <strong style="font-size:1.15rem;color:#0f172a">£{{ '{:,.2f}'.format(total_fees) }}</strong>
+    <h1 class="desk-page-title" style="font-size:clamp(1.55rem,3vw,1.95rem);margin:0">Task ledger</h1>
+    <p class="desk-page-sub" style="margin:0.35rem 0 0">
+      Your action list — Outlook emails you push, plus practice work.
+      {% if reorder_enabled %}<span class="muted">· Drag rows to reorder</span>{% endif %}
     </p>
   </div>
   <div class="actions">
     <a class="btn wc-touch" href="/tasks/new">Add task</a>
-    <a class="btn btn-secondary wc-touch" href="/tasks/import">Import from Outlook</a>
-    <a class="btn btn-outline wc-touch" href="/export/tasks{% if status %}?status={{ status }}{% endif %}">Export CSV</a>
-    <a class="btn btn-outline wc-touch" href="/import/csv?dataset=tasks">Reimport CSV</a>
+    <a class="btn btn-secondary wc-touch" href="/tasks/import">Import</a>
+    <a class="btn btn-outline wc-touch" href="/export/tasks{% if status %}?status={{ status }}{% endif %}">Export</a>
   </div>
 </div>
-<p class="small muted" style="margin:-0.25rem 0 0.85rem">
-  Selective email pushes from Outlook appear here with an <span class="badge">Email</span> badge.
-  Chatter stays in Outlook — only emails you push become tasks.
-</p>
+
+{# Desk: sales-kpi row · Phone: live tiles (same dual pattern as WIP / dashboard) #}
+<div class="task-kpi-desk sales-kpi-row task-ledger-kpis" style="margin-bottom:1rem">
+  <a class="sales-kpi sales-kpi-ok" href="/tasks">
+    <div class="sales-kpi-lab">Open</div>
+    <div class="sales-kpi-val">{{ open_n|default(tasks|length) }}</div>
+    <div class="sales-kpi-sub">in this view</div>
+  </a>
+  <a class="sales-kpi {% if overdue_n %}sales-kpi-danger{% endif %}" href="/tasks">
+    <div class="sales-kpi-lab">Overdue</div>
+    <div class="sales-kpi-val">{{ overdue_n|default(0) }}</div>
+    <div class="sales-kpi-sub">need attention</div>
+  </a>
+  <a class="sales-kpi" href="/tasks">
+    <div class="sales-kpi-lab">From email</div>
+    <div class="sales-kpi-val">{{ email_n|default(0) }}</div>
+    <div class="sales-kpi-sub">Outlook push</div>
+  </a>
+  <a class="sales-kpi {% if unlinked_n %}sales-kpi-warn{% endif %}" href="/tasks">
+    <div class="sales-kpi-lab">Unlinked</div>
+    <div class="sales-kpi-val">{{ unlinked_n|default(0) }}</div>
+    <div class="sales-kpi-sub">no client yet</div>
+  </a>
+</div>
+
+<div class="task-kpi-mobile" style="margin-bottom:0.85rem">
+  <div class="live-grid" aria-label="Task summary">
+    <a class="live-tile tile-cash" href="/tasks">
+      <span class="live-kicker">Open</span>
+      <span class="live-value">{{ open_n|default(tasks|length) }}</span>
+      <span class="live-sub">in this view</span>
+    </a>
+    <a class="live-tile tile-debtors" href="/tasks">
+      <span class="live-kicker">Overdue</span>
+      <span class="live-value">{{ overdue_n|default(0) }}</span>
+      <span class="live-sub">need attention</span>
+    </a>
+    <a class="live-tile tile-wip" href="/tasks">
+      <span class="live-kicker">From email</span>
+      <span class="live-value">{{ email_n|default(0) }}</span>
+      <span class="live-sub">Outlook push</span>
+    </a>
+    <a class="live-tile tile-creditors" href="/tasks">
+      <span class="live-kicker">Unlinked</span>
+      <span class="live-value">{{ unlinked_n|default(0) }}</span>
+      <span class="live-sub">no client yet</span>
+    </a>
+  </div>
+</div>
 
 {% if import_msg %}<div class="chase-banner chase-banner-info">{{ import_msg }}</div>{% endif %}
 {% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
@@ -36,15 +81,6 @@
     </select>
   </div>
   <div>
-    <label class="small muted">Priority</label><br>
-    <select name="priority">
-      <option value="">All</option>
-      {% for p in priorities %}
-      <option value="{{ p }}" {% if priority == p %}selected{% endif %}>{{ p }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div>
     <label class="small muted">Client</label><br>
     <select name="client_id">
       <option value="">All</option>
@@ -56,7 +92,7 @@
   <button class="btn btn-sm" type="submit">Filter</button>
 </form>
 
-<div class="period-toggle" role="group" aria-label="Quick status" style="margin-bottom:1rem">
+<div class="period-toggle" role="group" aria-label="Quick status" style="margin-bottom:0.85rem">
   <a class="period-btn {% if not status %}is-active{% endif %}" href="/tasks">Open</a>
   <a class="period-btn {% if status == 'Development' %}is-active{% endif %}" href="/tasks?status=Development">Development</a>
   <a class="period-btn {% if status == 'On hold' %}is-active{% endif %}" href="/tasks?status=On+hold">On hold</a>
@@ -65,57 +101,46 @@
   <a class="period-btn {% if status == 'Completed' %}is-active{% endif %}" href="/tasks?status=Completed">Completed</a>
 </div>
 
-<div class="card">
+<div class="card task-ledger-card">
   {% if tasks %}
   <div class="table-wrap">
-    <table class="data">
+    <table class="data task-ledger-table" id="task-ledger-table">
       <thead>
         <tr>
+          {% if reorder_enabled %}<th class="task-drag-col" aria-label="Reorder"></th>{% endif %}
           <th>Task</th>
-          <th>Priority</th>
           <th>Client</th>
-          <th>Job</th>
           <th>Due</th>
           <th>Status</th>
           <th class="num">Fee</th>
           <th></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="task-ledger-body"
+             {% if reorder_enabled %}data-reorder="1"{% endif %}>
         {% for t in tasks %}
-        <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
-          <td>
-            <a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a>
+        <tr class="task-row {% if t.is_overdue() %}row-overdue{% endif %}"
+            data-task-id="{{ t.id }}"
+            {% if reorder_enabled %}draggable="true"{% endif %}>
+          {% if reorder_enabled %}
+          <td class="task-drag-col" title="Drag to reorder">
+            <span class="task-drag-handle" aria-hidden="true">⋮⋮</span>
+          </td>
+          {% endif %}
+          <td class="task-title-cell">
+            <a href="/tasks/{{ t.id }}/edit?next={{ (request.url.path ~ ('?' ~ request.url.query if request.url.query else ''))|urlencode }}"><strong>{{ t.title }}</strong></a>
             {% if t.is_from_email() %}
-            <span class="badge" style="margin-left:0.25rem;background:#dbeafe;color:#1e40af">Email</span>
-            {% endif %}
-            {% if t.email_preview %}
-            <div class="small muted">{{ t.email_preview[:90] }}{% if t.email_preview|length > 90 %}…{% endif %}</div>
-            {% elif t.description %}
-            <div class="small muted">{{ t.description[:80] }}{% if t.description|length > 80 %}…{% endif %}</div>
-            {% endif %}
-            {% if t.email_from %}
-            <div class="small muted">{{ t.email_from }}{% if t.source_email_date %} · {{ t.source_email_date|uk_date }}{% endif %}</div>
-            {% elif t.import_source %}
-            <div class="small muted">via {{ t.import_source }}{% if t.source_email_date %} · {{ t.source_email_date|uk_date }}{% endif %}</div>
+            <span class="badge task-email-badge">Email</span>
             {% endif %}
           </td>
-          <td>
-            {% set p = t.display_priority() %}
-            <span class="badge priority-{{ p|lower }}">{{ p }}</span>
-          </td>
-          <td class="small">
+          <td class="small task-client-cell">
             {% if t.client %}<a href="/clients/{{ t.client_id }}">{{ t.client.display_name() }}</a>
-            {% else %}<span class="muted">Standalone</span>{% endif %}
+            {% else %}<span class="muted">—</span>{% endif %}
           </td>
-          <td class="small">
-            {% if t.job %}<a href="/jobs/{{ t.job_id }}">JOB-{{ t.job_id }}</a>
-            {% else %}—{% endif %}
-          </td>
-          <td class="small">
+          <td class="small nowrap">
             {% if t.due_on %}
-              {% if t.is_overdue() %}<span class="badge badge-overdue">{{ t.due_on }}</span>
-              {% else %}{{ t.due_on }}{% endif %}
+              {% if t.is_overdue() %}<span class="badge badge-overdue">{{ t.due_on|uk_date }}</span>
+              {% else %}{{ t.due_on|uk_date }}{% endif %}
             {% else %}—{% endif %}
           </td>
           <td>
@@ -129,21 +154,21 @@
             <span class="badge">{{ t.display_status() }}</span>
             {% endif %}
           </td>
-          <td class="num">£{{ '%.2f'|format(t.fee or 0) }}</td>
-          <td class="actions">
+          <td class="num">£{{ '%.0f'|format(t.fee or 0) }}</td>
+          <td class="actions-cell nowrap">
             {% if not t.is_closed() %}
             <form method="post" action="/tasks/{{ t.id }}/complete" style="display:inline">
               <input type="hidden" name="next" value="/tasks{% if status %}?status={{ status }}{% endif %}">
-              <button class="btn btn-sm btn-outline" type="submit">Done</button>
+              <button class="btn btn-sm btn-outline" type="submit" title="Complete">Done</button>
             </form>
             {% endif %}
-            <a class="btn btn-sm btn-outline" href="/tasks/{{ t.id }}/edit">Edit</a>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  <p id="task-reorder-status" class="small muted" style="margin:0.65rem 0 0;min-height:1.2em" aria-live="polite"></p>
   {% else %}
   <p class="empty">No tasks in this filter.
     <a href="/tasks/new">Add a task</a> or
@@ -151,4 +176,95 @@
   </p>
   {% endif %}
 </div>
+
+{% if reorder_enabled and tasks %}
+<script>
+(function () {
+  var tbody = document.getElementById('task-ledger-body');
+  if (!tbody || tbody.getAttribute('data-reorder') !== '1') return;
+  var statusEl = document.getElementById('task-reorder-status');
+  var dragRow = null;
+
+  function rows() {
+    return Array.prototype.slice.call(tbody.querySelectorAll('tr.task-row'));
+  }
+
+  function setStatus(msg, ok) {
+    if (!statusEl) return;
+    statusEl.textContent = msg || '';
+    statusEl.style.color = ok === false ? '#b91c1c' : '';
+  }
+
+  function saveOrder() {
+    var order = rows().map(function (tr) {
+      return parseInt(tr.getAttribute('data-task-id'), 10);
+    }).filter(function (id) { return id > 0; });
+    setStatus('Saving order…');
+    fetch('/tasks/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ order: order })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (res.ok && res.j && res.j.ok) {
+          setStatus('Order saved');
+          setTimeout(function () { setStatus(''); }, 1800);
+        } else {
+          setStatus((res.j && res.j.error) || 'Could not save order', false);
+        }
+      })
+      .catch(function () { setStatus('Network error saving order', false); });
+  }
+
+  // Only start a drag from the ⋮⋮ handle (avoids fighting links / text selection)
+  rows().forEach(function (tr) {
+    tr.setAttribute('draggable', 'false');
+    var handle = tr.querySelector('.task-drag-handle, .task-drag-col');
+    if (!handle) return;
+    handle.setAttribute('draggable', 'true');
+    handle.addEventListener('dragstart', function (e) {
+      dragRow = tr;
+      tr.classList.add('task-row-dragging');
+      try {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', tr.getAttribute('data-task-id') || '');
+        e.dataTransfer.setDragImage(tr, 24, 12);
+      } catch (err) {}
+      e.stopPropagation();
+    });
+    handle.addEventListener('dragend', function () {
+      tr.classList.remove('task-row-dragging');
+      rows().forEach(function (r) { r.classList.remove('task-row-drag-over'); });
+      dragRow = null;
+    });
+  });
+
+  tbody.addEventListener('dragover', function (e) {
+    if (!dragRow) return;
+    e.preventDefault();
+    var tr = e.target.closest('tr.task-row');
+    if (!tr || tr === dragRow) return;
+    rows().forEach(function (r) { r.classList.remove('task-row-drag-over'); });
+    tr.classList.add('task-row-drag-over');
+    try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+  });
+
+  tbody.addEventListener('drop', function (e) {
+    e.preventDefault();
+    var tr = e.target.closest('tr.task-row');
+    if (!tr || !dragRow || tr === dragRow) return;
+    var rect = tr.getBoundingClientRect();
+    var before = (e.clientY - rect.top) < rect.height / 2;
+    if (before) {
+      tbody.insertBefore(dragRow, tr);
+    } else {
+      tbody.insertBefore(dragRow, tr.nextSibling);
+    }
+    rows().forEach(function (r) { r.classList.remove('task-row-drag-over'); });
+    saveOrder();
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

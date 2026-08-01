@@ -32,6 +32,24 @@ GROUP_STATUSES = ("Active", "Former", "Prospect")
 EARLIEST_INVOICE_YEAR = 2022
 
 
+def _dash_tasks_overdue(db: Session, today: date) -> int:
+    try:
+        from app.services.practice_tasks import open_tasks
+
+        return sum(1 for t in open_tasks(db) if t.is_overdue(today))
+    except Exception:
+        return 0
+
+
+def _dash_tasks_email(db: Session) -> int:
+    try:
+        from app.services.practice_tasks import open_tasks
+
+        return sum(1 for t in open_tasks(db) if t.is_from_email())
+    except Exception:
+        return 0
+
+
 def _available_years(today: date, db: Session) -> List[int]:
     """
     Year tabs: EARLIEST_INVOICE_YEAR .. current year (inclusive), newest first.
@@ -552,5 +570,10 @@ async def dashboard(
             "chase_actions_week": chase_sum.get("actions_this_week", 0),
             "chase_live": CHASE_LIVE_MODE,
             "live_notes": live_notes,
+            # Tasks strip (under Prospects)
+            "tasks_value": getattr(wc.wip, "tasks_value", 0) or 0,
+            "tasks_count": getattr(wc.wip, "tasks_count", 0) or 0,
+            "tasks_overdue": _dash_tasks_overdue(db, today),
+            "tasks_email": _dash_tasks_email(db),
         },
     )

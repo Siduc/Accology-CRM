@@ -30,15 +30,42 @@ _TASK_INACTIVE = ("Completed", "Cancelled", "On hold", "Development")
 _PRIORITY_SORT = {"High": 0, "Medium": 1, "Low": 2, "": 3, None: 3}
 
 
+def _next_sort_order(db: Session) -> int:
+    """New tasks go to the top of the ledger (lowest sort_order)."""
+    from sqlalchemy import func
+
+    mn = db.query(func.min(PracticeTask.sort_order)).scalar()
+    if mn is None:
+        return 0
+    return int(mn) - 10
+
+
 def open_tasks(db: Session) -> List[PracticeTask]:
     """Active open tasks (not completed, cancelled, or on hold) for WIP."""
-    return (
+    rows = (
         db.query(PracticeTask)
         .options(joinedload(PracticeTask.client), joinedload(PracticeTask.job))
         .filter(PracticeTask.status.notin_(list(_TASK_INACTIVE)))
-        .order_by(PracticeTask.due_on.asc(), PracticeTask.id.desc())
         .all()
     )
+    return _sort_ledger(rows)
+
+
+def _sort_ledger(rows: List[PracticeTask]) -> List[PracticeTask]:
+    """
+    Manual drag order first (sort_order), then due date, id.
+    Priority is no longer used for list order — users drag continuously.
+    """
+    rows = list(rows)
+    rows.sort(
+        key=lambda t: (
+            0 if t.sort_order is not None else 1,
+            int(t.sort_order) if t.sort_order is not None else 10**9,
+            t.due_on or date.max,
+            -(t.id or 0),
+        )
+    )
+    return rows
 
 
 def list_tasks(
@@ -55,7 +82,7 @@ def list_tasks(
     """
     Task ledger query.
     Default open list: everything except Completed/Cancelled (On hold included).
-    WIP uses open_tasks() which excludes On hold.
+    Order: drag-and-drop sort_order (manual), then priority / due.
     """
     q = db.query(PracticeTask).options(
         joinedload(PracticeTask.client), joinedload(PracticeTask.job)
@@ -72,20 +99,50 @@ def list_tasks(
         q = q.filter(PracticeTask.job_id == job_id)
     if priority and priority in TASK_PRIORITIES:
         q = q.filter(PracticeTask.priority == priority)
-    rows = (
-        q.order_by(PracticeTask.due_on.asc(), PracticeTask.id.desc())
-        .limit(limit)
+    rows = q.limit(limit).all()
+    return _sort_ledger(rows)
+
+
+def reorder_tasks(db: Session, ordered_ids: List[int]) -> int:
+    """
+    Persist ledger order from drag-and-drop.
+    ordered_ids = task ids top → bottom. Returns count updated.
+    """
+    if not ordered_ids:
+        return 0
+    # Keep ids unique, preserve order
+    seen = set()
+    ids: List[int] = []
+    for raw in ordered_ids:
+        try:
+            tid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if tid in seen:
+            continue
+        seen.add(tid)
+        ids.append(tid)
+    if not ids:
+        return 0
+    tasks = (
+        db.query(PracticeTask)
+        .filter(PracticeTask.id.in_(ids))
         .all()
     )
-    # Priority sort: High first, then due date (stable secondary)
-    rows.sort(
-        key=lambda t: (
-            _PRIORITY_SORT.get(t.priority or "", 3),
-            t.due_on or date.max,
-            -(t.id or 0),
-        )
-    )
-    return rows
+    by_id = {t.id: t for t in tasks}
+    n = 0
+    # 10, 20, 30… leaves room for inserts without renumbering everything
+    for i, tid in enumerate(ids):
+        t = by_id.get(tid)
+        if not t:
+            continue
+        new_ord = (i + 1) * 10
+        if t.sort_order != new_ord:
+            t.sort_order = new_ord
+            t.updated_at = datetime.utcnow()
+            n += 1
+    db.commit()
+    return n
 
 
 def create_task(
@@ -131,6 +188,7 @@ def create_task(
         period_end=period_end,
         notes=(notes or "").strip() or None,
         priority=pri,
+        sort_order=_next_sort_order(db),
         source_email_date=source_email_date,
         import_source=import_source,
         import_hash=import_hash,

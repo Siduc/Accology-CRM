@@ -81,15 +81,15 @@ async def supplier_create(
     email: str = Form(""),
     phone: str = Form(""),
     vat_number: str = Form(""),
-    payment_terms_days: str = Form("30"),
+    payment_terms_days: str = Form("0"),
     default_category: str = Form("supplier"),
     notes: str = Form(""),
     db: Session = Depends(get_db),
 ):
     try:
-        days = int(payment_terms_days or 30)
+        days = int(payment_terms_days if payment_terms_days not in ("", None) else 0)
     except ValueError:
-        days = 30
+        days = 0
     sup = create_supplier(
         db,
         name=name,
@@ -125,16 +125,16 @@ async def supplier_edit(
     email: str = Form(""),
     phone: str = Form(""),
     vat_number: str = Form(""),
-    payment_terms_days: str = Form("30"),
+    payment_terms_days: str = Form("0"),
     default_category: str = Form("supplier"),
     is_active: str = Form("yes"),
     notes: str = Form(""),
     db: Session = Depends(get_db),
 ):
     try:
-        days = int(payment_terms_days or 30)
+        days = int(payment_terms_days if payment_terms_days not in ("", None) else 0)
     except ValueError:
-        days = 30
+        days = 0
     try:
         update_supplier(
             db,

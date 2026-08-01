@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0A0A0A">
+  <meta name="description" content="Accology CRM · Accounting Science. Unlock the power of the information you already hold.">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+  <title>Accology · Accounting Science</title>
+  <link rel="stylesheet" href="/static/accology_public.css?v=19">
+</head>
+<body class="ac-landing">
+  <a class="ac-skip" href="#main">Skip to content</a>
+
+  <header class="ac-nav">
+    <a class="ac-brand" href="/" aria-label="Accology home">
+      {#
+        Emblem from Imagine:
+        - Outer: white wireframe cube
+        - Inner: solid cyan (~60% of outer) + white face edges only
+      #}
+      <svg class="ac-cube" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g stroke="#FFFFFF" stroke-width="0.55" stroke-linejoin="miter" stroke-linecap="square">
+          <path d="M32 5L55 18V46L32 59L9 46V18L32 5Z"/>
+          <path d="M32 5V32"/>
+          <path d="M32 32L9 18"/>
+          <path d="M32 32L55 18"/>
+          <path d="M32 32V59"/>
+          <path d="M9 46L32 32L55 46"/>
+        </g>
+        {# Inner cyan very slightly smaller #}
+        <path d="M32 15.5L46 23.5V40.5L32 48.5L18 40.5V23.5L32 15.5Z" fill="#00E5FF"/>
+        <g stroke="#FFFFFF" stroke-width="0.55" stroke-linejoin="miter" stroke-linecap="square">
+          <path d="M32 15.5L46 23.5V40.5L32 48.5L18 40.5V23.5L32 15.5Z"/>
+          <path d="M18 23.5L32 32"/>
+          <path d="M46 23.5L32 32"/>
+          <path d="M32 32V48.5"/>
+        </g>
+      </svg>
+      <span class="ac-brand-text">
+        <span class="ac-brand-word"><span class="ac-acc">Acc</span><span class="ac-ology">ology</span></span>
+        <hr class="ac-brand-rule" aria-hidden="true">
+        <span class="ac-brand-tag">Accounting Science</span>
+      </span>
+    </a>
+  </header>
+
+  <main id="main" class="ac-shell">
+    <section class="ac-hero-col" aria-labelledby="hero-title">
+      <h1 id="hero-title" class="ac-hero-title">
+        Unlock the power<br>
+        of the information<br>
+        you already hold.
+      </h1>
+      <p class="ac-hero-tagline">Think Inside the Box.</p>
+      <blockquote class="ac-quote">
+        “Reports that say that something hasn’t happened are always interesting to me, because as we know, there are known knowns; there are things we know we know. We also know there are known unknowns; that is to say we know there are some things we do not know. But there are also unknown unknowns—the ones we don’t know we don’t know.”
+      </blockquote>
+      <cite class="ac-quote-cite">Donald Rumsfeld, US Secretary of Defence,<br>February 12 2002.</cite>
+      <a class="ac-cta" href="#contact">Request a consultation</a>
+    </section>
+
+    <section class="ac-login-col" id="login" aria-labelledby="login-heading">
+      <div class="ac-login-card">
+        <h1 id="login-heading">Welcome Back</h1>
+        <p class="ac-login-sub">Sign in to your account</p>
+
+        {% if login_error %}
+        <div class="ac-login-alert" role="alert">{{ login_error }}</div>
+        {% endif %}
+
+        <form method="post" action="/login" autocomplete="on">
+          <label for="username">User ID</label>
+          <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+          <button class="ac-login-btn" type="submit">Login</button>
+        </form>
+
+        <p class="ac-login-forgot"><a href="mailto:support@accology.co.uk?subject=Password%20reset">Forgot Password?</a></p>
+
+        {% if demo_available %}
+        <div class="ac-login-demo">
+          Demo access uses the credentials provided separately.
+          <a href="/demo/tour">Demo guide</a>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+
+  <section class="ac-contact-band" id="contact" aria-labelledby="contact-heading">
+    <div class="ac-contact-panel">
+      <h2 id="contact-heading">Contact sales</h2>
+      {% if sent %}
+      <p class="ac-success" role="status">Message received. A response will follow shortly.</p>
+      {% else %}
+      <p class="ac-muted">Send a short note. The team will respond.</p>
+      {% if error %}
+      <div class="ac-login-alert" role="alert">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/contact" novalidate>
+        <div class="ac-hp" aria-hidden="true">
+          <label for="company_url">Company website</label>
+          <input id="company_url" type="text" name="company_url" tabindex="-1" autocomplete="off">
+        </div>
+        <label for="name">Name</label>
+        <input id="name" name="name" type="text" required maxlength="200" value="{{ form_name or '' }}" autocomplete="name">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required maxlength="200" value="{{ form_email or '' }}" autocomplete="email">
+        <label for="company">Company (optional)</label>
+        <input id="company" name="company" type="text" maxlength="200" value="{{ form_company or '' }}" autocomplete="organization">
+        <label for="message">Message</label>
+        <textarea id="message" name="message" rows="4" required maxlength="4000">{{ form_message or '' }}</textarea>
+        <button class="ac-login-btn" type="submit" style="margin-top:1.15rem">Send</button>
+      </form>
+      {% endif %}
+    </div>
+  </section>
+
+  <footer class="ac-landing-footer">
+    © Accology CRM. All rights reserved.
+    <a href="/login">Log in</a>
+  </footer>
+</body>
+</html>

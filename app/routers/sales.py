@@ -49,6 +49,7 @@ from app.services.sales_ledger import (
     record_payment,
     seed_services,
     suggested_chase_action,
+    update_invoice,
 )
 from app.templating import render
 
@@ -79,6 +80,41 @@ def _money(value: str) -> float:
         return float((value or "0").replace("£", "").replace(",", "").strip() or 0)
     except ValueError:
         return 0.0
+
+
+def _practice_branding() -> dict:
+    """Practice name / logo / letterhead for invoice documents."""
+    from app.services.branding import practice_branding_context
+
+    return practice_branding_context()
+
+
+def _parse_invoice_lines_from_form(form) -> list[dict]:
+    """Collect line_desc_N / line_qty_N / … from a multi-line invoice form."""
+    lines: list[dict] = []
+    # Support up to 12 lines on edit
+    for n in range(1, 13):
+        desc = (form.get(f"line_desc_{n}") or "").strip()
+        svc = (form.get(f"line_service_{n}") or "").strip()
+        qty = form.get(f"line_qty_{n}") or "1"
+        price = form.get(f"line_price_{n}") or "0"
+        vat = form.get(f"line_vat_{n}") or "0"
+        if not desc and _money(price) <= 0 and not svc:
+            continue
+        sid = int(svc) if svc.isdigit() else None
+        if sid and not desc:
+            # filled later by caller if needed
+            pass
+        lines.append(
+            {
+                "service_id": sid,
+                "description": desc or "Service",
+                "qty": _money(qty) or 1,
+                "unit_price": _money(price),
+                "vat_rate": _money(vat),
+            }
+        )
+    return lines
 
 
 @router.get("", response_class=HTMLResponse)
@@ -388,24 +424,132 @@ async def invoice_detail(
     age = invoice_age_days(inv, today)
     overdue = invoice_overdue_days(inv, today)
     suggest = suggested_chase_action(overdue)
-    return render(
-        request,
-        "sales/invoice_detail.html",
-        {
-            "inv": inv,
-            "client": client,
-            "job": job,
-            "chase": chase,
-            "age": age,
-            "overdue": overdue,
-            "chase_types": CHASE_TYPES,
-            "stage_labels": STAGE_LABELS,
-            "suggest": suggest,
-            "today": today,
-            "chase_live": CHASE_LIVE_MODE,
-            "smtp_ok": smtp_configured(),
-            "client_email": _client_email(client),
-        },
+    ctx = {
+        "inv": inv,
+        "client": client,
+        "job": job,
+        "chase": chase,
+        "age": age,
+        "overdue": overdue,
+        "chase_types": CHASE_TYPES,
+        "stage_labels": STAGE_LABELS,
+        "suggest": suggest,
+        "today": today,
+        "chase_live": CHASE_LIVE_MODE,
+        "smtp_ok": smtp_configured(),
+        "client_email": _client_email(client),
+        "msg": request.query_params.get("msg", ""),
+        "error": request.query_params.get("error", ""),
+    }
+    ctx.update(_practice_branding())
+    return render(request, "sales/invoice_detail.html", ctx)
+
+
+@router.get("/invoices/{invoice_id:int}/edit", response_class=HTMLResponse)
+async def invoice_edit_form(
+    invoice_id: int, request: Request, db: Session = Depends(get_db)
+):
+    inv = (
+        db.query(Invoice)
+        .options(joinedload(Invoice.lines))
+        .filter(Invoice.id == invoice_id)
+        .first()
+    )
+    if not inv:
+        return RedirectResponse("/sales/invoices", status_code=303)
+    client = db.query(Client).filter(Client.id == inv.client_id).first()
+    job = db.query(Job).filter(Job.id == inv.job_id).first() if inv.job_id else None
+    clients = (
+        db.query(Client)
+        .filter(Client.overall_status != "Inactive")
+        .order_by(Client.company_name)
+        .all()
+    )
+    # Ensure current client appears even if inactive
+    if client and all(c.id != client.id for c in clients):
+        clients = [client] + list(clients)
+    services = (
+        db.query(Service)
+        .filter(Service.is_active.is_(True))
+        .order_by(Service.name)
+        .all()
+    )
+    # Pad lines to at least 5 editable rows
+    lines = list(inv.lines or [])
+    while len(lines) < 5:
+        lines.append(None)
+    ctx = {
+        "inv": inv,
+        "client": client,
+        "job": job,
+        "clients": clients,
+        "services": services,
+        "edit_lines": lines,
+        "error": request.query_params.get("error", ""),
+        "today": date.today(),
+    }
+    ctx.update(_practice_branding())
+    return render(request, "sales/invoice_edit.html", ctx)
+
+
+@router.post("/invoices/{invoice_id:int}/edit", response_class=HTMLResponse)
+async def invoice_edit_save(
+    invoice_id: int,
+    request: Request,
+    client_id: int = Form(...),
+    number: str = Form(""),
+    issue_date: str = Form(""),
+    due_date: str = Form(""),
+    notes: str = Form(""),
+    status: str = Form("sent"),
+    db: Session = Depends(get_db),
+):
+    inv = (
+        db.query(Invoice)
+        .options(joinedload(Invoice.lines))
+        .filter(Invoice.id == invoice_id)
+        .first()
+    )
+    if not inv:
+        return RedirectResponse("/sales/invoices", status_code=303)
+
+    form = await request.form()
+    lines = _parse_invoice_lines_from_form(form)
+    # Resolve service names into descriptions when blank
+    for row in lines:
+        sid = row.get("service_id")
+        if sid and (not row.get("description") or row["description"] == "Service"):
+            s = db.query(Service).filter(Service.id == sid).first()
+            if s:
+                row["description"] = s.name
+
+    if not lines:
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}/edit?error={url_quote('Add at least one line')}",
+            status_code=303,
+        )
+
+    try:
+        update_invoice(
+            db,
+            inv,
+            client_id=client_id,
+            number=number or inv.number,
+            issue_date=_parse_date(issue_date) or inv.issue_date,
+            due_date=_parse_date(due_date),
+            notes=notes,
+            status=status,
+            lines=lines,
+        )
+    except ValueError as e:
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}/edit?error={url_quote(str(e))}",
+            status_code=303,
+        )
+
+    return RedirectResponse(
+        f"/sales/invoices/{invoice_id}?msg={url_quote('Invoice updated')}",
+        status_code=303,
     )
 
 

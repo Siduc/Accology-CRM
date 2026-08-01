@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="Accologise demo tour — practice working capital CRM">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+  <title>Demo tour · Accologise</title>
+  <link rel="stylesheet" href="/static/style.css?v=demo-tour1">
+</head>
+<body class="body-login tour-body">
+  <div class="tour-wrap">
+    <header class="tour-hero">
+      <div class="tour-brand">
+        <span class="login-mark" aria-hidden="true">A</span>
+        <div>
+          <h1>Accologise demo tour</h1>
+          <p class="muted">A 3-minute guide before you sign in · practice working capital CRM</p>
+        </div>
+      </div>
+      <div class="tour-hero-actions">
+        {% if logged_in %}
+        <a class="btn" href="/demo/tutorial">Open in-app guide</a>
+        <a class="btn btn-outline" href="/dashboard">Dashboard</a>
+        {% else %}
+        <a class="btn" href="/">Sign in to demo</a>
+        {% endif %}
+      </div>
+    </header>
+
+    <nav class="tour-steps-nav" aria-label="Tour sections">
+      <a href="#what">1 · What it is</a>
+      <a href="#cycle">2 · Working capital</a>
+      <a href="#jobs">3 · Jobs &amp; invoices</a>
+      <a href="#tasks">4 · Tasks</a>
+      <a href="#demo-data">5 · Demo data</a>
+      <a href="#try">6 · Suggested path</a>
+    </nav>
+
+    <section class="tour-card" id="what">
+      <p class="tour-kicker">Step 1</p>
+      <h2>What is Accologise?</h2>
+      <p>
+        Accologise is a CRM built for UK accountancy practices. It joins up
+        <strong>clients</strong>, <strong>compliance jobs</strong> (Accounts, Self Assessment, Confirmation Statements),
+        <strong>sales invoices</strong>, <strong>debtors</strong>, <strong>cash</strong>, and <strong>purchase bills</strong>
+        so you can see the practice as a working-capital cycle — not separate spreadsheets.
+      </p>
+      <ul class="tour-bullets">
+        <li>One place for WIP, billing, and who owes what</li>
+        <li>Designed for day-to-day desk work (lists, status pins, Done buttons)</li>
+        <li>Phone-friendly for checking jobs and tasks on the move</li>
+      </ul>
+    </section>
+
+    <section class="tour-card" id="cycle">
+      <p class="tour-kicker">Step 2</p>
+      <h2>The working capital desk</h2>
+      <p>From the home dashboard, the practice money story is:</p>
+      <ol class="tour-flow">
+        <li><strong>Work in progress</strong> — open jobs &amp; retainers not yet billed</li>
+        <li><strong>Sales</strong> — raise invoices when work is done</li>
+        <li><strong>Debtors</strong> — unpaid client invoices (credit control / chase)</li>
+        <li><strong>Cash</strong> — bank &amp; payments</li>
+        <li><strong>Creditors</strong> — supplier bills you need to pay</li>
+      </ol>
+      <p class="muted small">Prospecting (pipeline) and the task ledger sit alongside so nothing falls through the cracks.</p>
+    </section>
+
+    <section class="tour-card" id="jobs">
+      <p class="tour-kicker">Step 3</p>
+      <h2>Jobs → Done → Invoice</h2>
+      <p>
+        Jobs are the core of compliance work. Filter by type (Accounts, SAR, Confirmation Statement)
+        or by time band (Today, Tomorrow, This week).
+      </p>
+      <ul class="tour-bullets">
+        <li>Open a job to see dates, fee, status, and linked tasks</li>
+        <li>Press <strong>Done</strong> when work is finished — that marks the job complete,
+          creates next year’s job if it is recurring, and opens the invoice</li>
+        <li>Invoices look like real invoices; you can edit number, lines, and dates</li>
+      </ul>
+    </section>
+
+    <section class="tour-card" id="tasks">
+      <p class="tour-kicker">Step 4</p>
+      <h2>Task ledger</h2>
+      <p>
+        Smaller pieces of work live on the task ledger (including email-style follow-ups).
+        Use <strong>Done</strong> on a task the same way — complete and move on.
+        Tasks can link to a client or job so context stays with the work.
+      </p>
+    </section>
+
+    <section class="tour-card" id="demo-data">
+      <p class="tour-kicker">Step 5</p>
+      <h2>What you will see in the demo</h2>
+      <div class="tour-callout">
+        <strong>Demo login is anonymised.</strong>
+        Client and people names are replaced with sample names. Fees show polished demo amounts
+        (e.g. Accounts £10,000 · Confirmation Statement £100 · SAR £1,000).
+        The real practice database is not exposed and cannot be switched to “live” on a demo login.
+      </div>
+      <ul class="tour-bullets">
+        <li>Explore freely — navigation and workflows are real</li>
+        <li>Figures and names are for presentation, not live books</li>
+        <li>Exports of sensitive live data are blocked in demo</li>
+      </ul>
+    </section>
+
+    <section class="tour-card" id="try">
+      <p class="tour-kicker">Step 6</p>
+      <h2>Suggested path (10 minutes)</h2>
+      <ol class="tour-path">
+        <li>
+          <strong>Sign in</strong> with the demo username and password you were given
+          {% if demo_available %}
+          <span class="muted small">(demo username is usually <code>{{ demo_username_hint }}</code>)</span>
+          {% endif %}
+        </li>
+        <li><strong>Dashboard</strong> — read the working capital boxes (WIP, debtors, cash, creditors)</li>
+        <li><strong>WIP</strong> — open Today or a type tile (Accounts / SAR / Other)</li>
+        <li><strong>A job</strong> — open one row; notice status, due dates, fee, and the Done button</li>
+        <li><strong>Sales</strong> — browse invoices; open one to see the invoice layout</li>
+        <li><strong>Tasks</strong> — task ledger and Done buttons</li>
+        <li>Optional: <strong>Prospecting</strong>, <strong>Purchase</strong>, <strong>Si</strong> (assistant badge) if present</li>
+      </ol>
+      <div class="tour-cta">
+        {% if logged_in %}
+        <a class="btn wc-touch" href="/demo/tutorial">Continue with in-app guide →</a>
+        <a class="btn btn-outline" href="/dashboard">Skip to dashboard</a>
+        {% else %}
+        <a class="btn wc-touch" href="/">Sign in to the demo →</a>
+        <p class="small muted" style="margin:0.75rem 0 0">
+          You will get an in-app checklist after login. Password is sent separately — it is not shown on this page.
+        </p>
+        {% endif %}
+      </div>
+    </section>
+
+    <footer class="tour-footer muted small">
+      Accologise · Practice working capital CRM
+      · <a href="/">Login</a>
+      {% if logged_in %} · <a href="/logout">Sign out</a>{% endif %}
+    </footer>
+  </div>
+</body>
+</html>

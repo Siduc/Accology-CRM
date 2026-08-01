@@ -10,7 +10,9 @@
 </div>
 
 <nav class="settings-nav" aria-label="Settings sections">
+  <a href="#settings-ai">Si</a>
   <a href="#settings-task-push">Email → Task</a>
+  <a href="#settings-branding">Letterhead &amp; logo</a>
   <a href="#settings-demo">Demo mode</a>
   <a href="#settings-system">System</a>
   <a href="#settings-wip">WIP</a>
@@ -19,6 +21,44 @@
   <a href="#settings-creditors">Creditors</a>
   <a href="#settings-other">Other</a>
 </nav>
+
+{# ========== ACCOLOGISE AI ========== #}
+<section class="settings-section" id="settings-ai">
+  <h2 class="settings-section-title">Si</h2>
+  <div class="card settings-card">
+    <h3>Voice &amp; chat assistant</h3>
+    <p class="muted small">
+      Floating <strong>Si</strong> button (bottom-right) for live meetings: CRM find/open/jobs,
+      SAR for directors, and Companies House when you ask. Always confirms before writing.
+      Uses SpaceXAI (xAI) when a key is set; command mode works without the model.
+    </p>
+    <p style="margin:0.5rem 0">
+      xAI key:
+      {% if ai_key_set %}
+      <span class="badge badge-active">Configured</span>
+      {% else %}
+      <span class="badge badge-progress">Not set</span>
+      {% endif %}
+      · Model: <code>{{ ai_model or 'grok-4.5' }}</code>
+      · Full LLM:
+      {% if ai_enabled %}
+      <span class="badge badge-active">On</span>
+      {% else %}
+      <span class="badge badge-progress">Off</span>
+      {% endif %}
+      · Heuristic commands:
+      {% if ai_heuristic %}
+      <span class="badge badge-active">On</span>
+      {% else %}
+      <span class="badge badge-progress">Off</span>
+      {% endif %}
+    </p>
+    <p class="small muted" style="margin:0">
+      Set <code>XAI_API_KEY</code> (and optional <code>AI_MODEL</code>) in <code>.env</code>, then restart.
+      Requires <code>COMPANIES_HOUSE_API_KEY</code> for CH lookup. Never invents company numbers.
+    </p>
+  </div>
+</section>
 
 {# ========== TASK PUSH API ========== #}
 <section class="settings-section" id="settings-task-push">
@@ -47,6 +87,134 @@
 </section>
 
 {# ========== DEMO MODE ========== #}
+{# ========== BRANDING / LETTERHEAD ========== #}
+<section class="settings-section" id="settings-branding">
+  <h2 class="settings-section-title">Letterhead &amp; logo</h2>
+  <div class="card settings-card">
+    <h3>Accology branding for invoices &amp; templates</h3>
+    <p class="muted small">
+      New Accology lockup (cyan → purple bar, Inter-style wordmark) and letterhead header are installed.
+      Assets live under <code>app/static/branding/</code> and drive invoices, letterhead Word, and the CRM chrome.
+      Upload replacements here any time.
+    </p>
+    {% if branding_msg %}
+    <div class="chase-banner chase-banner-info">{{ branding_msg }}</div>
+    {% endif %}
+    {% if branding_error %}
+    <div class="alert alert-error">{{ branding_error }}</div>
+    {% endif %}
+
+    <div class="branding-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));gap:1rem;margin-top:1rem">
+      {# Letterhead Word #}
+      <div class="branding-tile" style="border:1px solid var(--border);border-radius:12px;padding:1rem">
+        <h4 style="margin:0 0 0.35rem">0 · Letterhead Word</h4>
+        <p class="muted small" style="margin:0 0 0.65rem">
+          Accology Limited letterhead as a <strong>.docx</strong> — opens in Microsoft Word.
+          Header logo + footer with registered office and company number 07210650.
+        </p>
+        {% if branding and branding.letterhead_docx_ready %}
+        <p class="small" style="margin:0 0 0.5rem">
+          <span class="badge badge-active">Ready</span>
+          {{ branding.letterhead_docx_name }}
+        </p>
+        <a class="btn btn-sm wc-touch" href="/documents/letterhead.docx">Open in Word</a>
+        {% else %}
+        <p class="small muted">Word letterhead not found. Run <code>python scripts/build_letterhead_docx.py</code>.</p>
+        {% endif %}
+      </div>
+
+      {# Letterhead PDF #}
+      <div class="branding-tile" style="border:1px solid var(--border);border-radius:12px;padding:1rem">
+        <h4 style="margin:0 0 0.35rem">1 · Letterhead PDF</h4>
+        <p class="muted small" style="margin:0 0 0.65rem">
+          Your Accology letterhead as a PDF (full page). Kept for PDF templates and archive.
+        </p>
+        {% if branding and branding.letterhead_pdf_ready %}
+        <p class="small" style="margin:0 0 0.5rem">
+          <span class="badge badge-active">Uploaded</span>
+          <a href="{{ branding.letterhead_pdf_url }}" target="_blank" rel="noopener">{{ branding.letterhead_pdf_name }}</a>
+        </p>
+        <form method="post" action="/settings/branding/remove" style="display:inline;margin-bottom:0.5rem">
+          <input type="hidden" name="kind" value="letterhead_pdf">
+          <button class="btn btn-sm btn-outline" type="submit">Remove PDF</button>
+        </form>
+        {% else %}
+        <p class="small muted">No letterhead PDF yet.</p>
+        {% endif %}
+        <form method="post" action="/settings/branding/upload" enctype="multipart/form-data" class="stack" style="margin-top:0.65rem">
+          <input type="hidden" name="kind" value="letterhead_pdf">
+          <input type="file" name="file" accept=".pdf,application/pdf" required>
+          <button class="btn btn-sm" type="submit">Upload letterhead PDF</button>
+        </form>
+      </div>
+
+      {# Letterhead image for HTML/print #}
+      <div class="branding-tile" style="border:1px solid var(--border);border-radius:12px;padding:1rem">
+        <h4 style="margin:0 0 0.35rem">2 · Letterhead image <span class="muted small">(recommended for screen)</span></h4>
+        <p class="muted small" style="margin:0 0 0.65rem">
+          PNG/JPG of the header band (or full page). Shows on invoices when you view/print in the browser.
+          Export the top of your PDF as an image from Word/PDF viewer if needed.
+        </p>
+        {% if branding and branding.letterhead_image_ready %}
+        <p class="small" style="margin:0 0 0.5rem">
+          <span class="badge badge-active">Uploaded</span>
+          {{ branding.letterhead_image_name }}
+        </p>
+        <img src="{{ branding.letterhead_image_url }}" alt="Letterhead" style="max-width:100%;max-height:5rem;object-fit:contain;border:1px solid #e2e8f0;border-radius:6px;background:#fff;margin-bottom:0.5rem">
+        <form method="post" action="/settings/branding/remove" style="display:inline">
+          <input type="hidden" name="kind" value="letterhead_image">
+          <button class="btn btn-sm btn-outline" type="submit">Remove image</button>
+        </form>
+        {% else %}
+        <p class="small muted">No letterhead image yet.</p>
+        {% endif %}
+        <form method="post" action="/settings/branding/upload" enctype="multipart/form-data" class="stack" style="margin-top:0.65rem">
+          <input type="hidden" name="kind" value="letterhead_image">
+          <input type="file" name="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" required>
+          <button class="btn btn-sm" type="submit">Upload letterhead image</button>
+        </form>
+      </div>
+
+      {# Logo #}
+      <div class="branding-tile" style="border:1px solid var(--border);border-radius:12px;padding:1rem">
+        <h4 style="margin:0 0 0.35rem">3 · Logo mark</h4>
+        <p class="muted small" style="margin:0 0 0.65rem">
+          Wide lockup for invoices when no letterhead image is set. Current default is the Accology wordmark with cyan → purple bar.
+        </p>
+        {% if branding and branding.logo_ready %}
+        <p class="small" style="margin:0 0 0.5rem">
+          <span class="badge badge-active">Uploaded</span>
+          {{ branding.logo_name }}
+        </p>
+        <img src="{{ branding.logo_url }}" alt="Logo" style="max-width:100%;max-height:4rem;object-fit:contain;border:1px solid #e2e8f0;border-radius:6px;background:#fff;margin-bottom:0.5rem;padding:0.35rem">
+        <p class="small muted" style="margin:0 0 0.5rem">
+          On dark / Live Tiles:
+          <img src="{{ branding.logo_on_dark_url }}" alt="Logo on dark" style="height:1.5rem;vertical-align:middle;background:#0f172a;padding:0.25rem 0.4rem;border-radius:4px">
+        </p>
+        <form method="post" action="/settings/branding/remove" style="display:inline">
+          <input type="hidden" name="kind" value="logo">
+          <button class="btn btn-sm btn-outline" type="submit">Remove logo</button>
+        </form>
+        {% else %}
+        <p class="small muted">No logo yet.</p>
+        {% endif %}
+        <form method="post" action="/settings/branding/upload" enctype="multipart/form-data" class="stack" style="margin-top:0.65rem">
+          <input type="hidden" name="kind" value="logo">
+          <input type="file" name="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" required>
+          <button class="btn btn-sm" type="submit">Upload logo</button>
+        </form>
+      </div>
+    </div>
+
+    <ol class="small muted" style="margin:1.15rem 0 0;padding-left:1.2rem;line-height:1.5">
+      <li>Open <strong>Settings → Letterhead &amp; logo</strong> (this page).</li>
+      <li>Upload your <strong>letterhead PDF</strong> (the Accology file you already have).</li>
+      <li>Optionally export/save a <strong>PNG of the header</strong> and upload that too — that is what appears on on-screen invoices.</li>
+      <li>Open any invoice → branding appears at the top; use <strong>Print</strong> for a paper-ready view.</li>
+    </ol>
+  </div>
+</section>
+
 <section class="settings-section" id="settings-demo">
   <h2 class="settings-section-title">Demo / presentation mode</h2>
   <div class="card settings-card" style="border-left:4px solid {% if demo_mode_on %}#b45309{% else %}#0f766e{% endif %}">
@@ -56,21 +224,38 @@
       company numbers, credentials, and money figures in the UI. The database is
       <strong>not</strong> changed. CSV / data exports are blocked while demo mode is on.
     </p>
+    <p class="muted small">
+      <strong>Before you invite someone:</strong> send the shareable tour
+      <a href="/demo/tour"><code>/demo/tour</code></a>
+      (no login). After they sign in with the demo account they land on the in-app guide
+      <a href="/demo/tutorial"><code>/demo/tutorial</code></a>.
+    </p>
     {% if demo_msg == 'on' %}
     <div class="chase-banner chase-banner-info">Demo mode is <strong>on</strong> — safe to present.</div>
     {% elif demo_msg == 'off' %}
     <div class="chase-banner chase-banner-info">Demo mode is <strong>off</strong> — live data shown.</div>
     {% elif demo_msg == 'export_blocked' %}
     <div class="alert alert-error">Exports are blocked while demo mode is on. Turn it off in Settings to export.</div>
+    {% elif demo_msg == 'locked' %}
+    <div class="alert alert-error">This is a <strong>demo login</strong> — live data cannot be switched on. Sign out to leave.</div>
     {% endif %}
     <p style="margin:0.75rem 0">
       Status:
-      {% if demo_mode_on %}
+      {% if demo_locked %}
+      <span class="badge badge-progress">Demo login (locked)</span>
+      {% elif demo_mode_on %}
       <span class="badge badge-progress">Demo mode ON</span>
       {% else %}
       <span class="badge badge-active">Live data</span>
       {% endif %}
     </p>
+    {% if demo_locked %}
+    <p class="muted small">You signed in with demo credentials. There is no path to live client data from this session.</p>
+    <div class="actions">
+      <a class="btn" href="/logout">Sign out</a>
+      <a class="btn btn-outline" href="/dashboard">Dashboard</a>
+    </div>
+    {% else %}
     <div class="actions" style="flex-wrap:wrap">
       {% if demo_mode_on %}
       <form method="post" action="/settings/demo-mode">
@@ -86,10 +271,19 @@
       <a class="btn btn-outline" href="/demo/on">Quick on → dashboard</a>
       {% endif %}
     </div>
-    <p class="small muted" style="margin-top:0.85rem">
-      Tip: turn it on before a screen share, walk through the practice book and WIP,
-      then turn it off when you are done. Only this browser session is affected.
-    </p>
+    {% endif %}
+    <div class="card" style="margin-top:1rem;background:#f8fafc;border:1px dashed var(--border)">
+      <h3 style="margin-top:0;font-size:1rem">Share a demo-only login</h3>
+      <p class="small muted" style="margin:0 0 0.5rem">
+        Set <code>DEMO_AUTH_USERNAME</code> and <code>DEMO_AUTH_PASSWORD</code> in the environment.
+        Visitors who sign in with those credentials are always anonymised and <strong>cannot</strong> exit to live data.
+      </p>
+      {% if demo_login_configured %}
+      <p class="small">Demo username: <code>{{ demo_login_username }}</code> · password is set (not shown).</p>
+      {% else %}
+      <p class="small muted">Demo login not configured yet (no <code>DEMO_AUTH_PASSWORD</code>).</p>
+      {% endif %}
+    </div>
   </div>
 </section>
 
@@ -369,8 +563,10 @@
   <div class="card settings-card">
     <h3>Microsoft OneDrive · Documents</h3>
     <p class="muted small">
-      Practice documents are stored in your OneDrive via Microsoft Graph
-      (<code>Accologise Documents / Clients / …</code> and <code>Jobs / …</code>).
+      Practice documents are stored in your OneDrive via Microsoft Graph as
+      <code>Accologise / Clients / {Client name} / {Job name}</code>
+      (e.g. Accounts — readable names, not JOB numbers).
+      Use <strong>Scan OneDrive</strong> on Documents or a client to link files you add manually.
     </p>
     {% if ms_graph_configured %}
     <div class="chase-banner chase-banner-info" role="status">
@@ -393,7 +589,16 @@
     {% endif %}
     <dl class="dl-grid">
       <dt>Redirect URI</dt>
-      <dd><code class="small">{{ ms_graph_redirect or '—' }}</code></dd>
+      <dd>
+        <code class="small">{{ ms_graph_redirect or '—' }}</code>
+        <span class="small muted"> · from <code>MS_GRAPH_REDIRECT_URI</code> · must match Azure exactly</span>
+        {% if ms_graph_redirect and (ms_graph_redirect.startswith('https://localhost') or ms_graph_redirect.startswith('https://127.0.0.1')) %}
+        <p class="small" style="color:#b91c1c;margin:0.35rem 0 0">
+          Local HTTPS redirects break (ERR_SSL_PROTOCOL_ERROR) — use
+          <code>http://localhost:8000/oauth/microsoft/callback</code> in .env and Azure for local.
+        </p>
+        {% endif %}
+      </dd>
     </dl>
     <div class="actions">
       {% if ms_graph_configured %}

@@ -282,20 +282,10 @@ def _retainer_share_for_job(
     monthly_by_client: Dict[int, float],
 ) -> float:
     """
-    Spread a retainer client's annual book across their open WIP jobs
-    so horizons / list amounts include retainers without double-counting.
+    Deprecated path: retainers are valued on the calendar (bank on 1st),
+    not spread across open jobs. Always returns 0.
     """
-    cid = job.client_id
-    if not cid:
-        return 0.0
-    monthly = float(monthly_by_client.get(cid, 0) or 0)
-    if monthly <= 0 and job.client and hasattr(job.client, "retainer_monthly_net"):
-        monthly = float(job.client.retainer_monthly_net())
-    annual = monthly * 12.0
-    n = int(open_counts.get(cid, 0) or 0)
-    if n <= 0:
-        return round(annual, 2)
-    return round(annual / n, 2)
+    return 0.0
 
 
 def wip_amount_for_job(
@@ -304,33 +294,102 @@ def wip_amount_for_job(
     open_counts: Optional[Dict[int, int]] = None,
     monthly_by_client: Optional[Dict[int, float]] = None,
 ) -> float:
-    """Fee that counts toward WIP for this job (retainer share or job fee)."""
+    """
+    Fee that counts toward WIP for this job.
+
+    Retainer clients: £0 on the job row — retainers bank on the 1st of each
+    month and are allocated via :func:`retainer_wip_band_amounts`.
+    """
     if _client_is_retainer(job.client):
-        return _retainer_share_for_job(
-            job, open_counts or {}, monthly_by_client or {}
-        )
+        return 0.0
     return float(job.fee or 0)
+
+
+def retainer_forward_month_starts(
+    today: Optional[date] = None, *, months: int = 12
+) -> List[date]:
+    """
+    1sts of months not yet banked.
+
+    Retainers bank on the 1st: once ``today >= 1st of month``, that month has
+    left WIP. Outstanding months always start at the **next** calendar month.
+    """
+    today = today or date.today()
+    this_m = _month_start(today)
+    # Current month already banked on its 1st (including when today is the 1st)
+    first = _add_calendar_months(this_m, 1)
+    return [_add_calendar_months(first, i) for i in range(max(0, int(months)))]
+
+
+def _retainer_month_to_wip_band(month_start: date, today: date) -> str:
+    """Map a banking month (1st) onto WIP calendar bands today|m1|m2|m3|later."""
+    meta = wip_calendar_band_meta(today)
+    bounds = meta.get("_bounds") or {}
+    m1 = bounds.get("m1")
+    m2 = bounds.get("m2")
+    m3 = bounds.get("m3")
+    m4 = bounds.get("m4")
+    if m1 and month_start == m1:
+        return "m1"
+    if m2 and month_start == m2:
+        return "m2"
+    if m3 and month_start == m3:
+        return "m3"
+    if m4 and month_start >= m4:
+        return "later"
+    # Past / current month should not appear in outstanding
+    if month_start <= _month_start(today):
+        return "today"
+    return "later"
+
+
+def retainer_wip_band_amounts(
+    db: Session, today: Optional[date] = None, *, forward_months: int = 12
+) -> Dict[str, float]:
+    """
+    Allocate the active retainer book across WIP calendar bands.
+
+    Rules:
+      • Banks on the 1st of each month → never sits in **Today** once that
+        1st has been reached (so mid-month, current month is already out).
+      • Next three calendar months (m1/m2/m3) each get the full monthly book.
+      • Remaining forward months (default 12-month horizon) sit in **later**.
+
+    Example (today 29 Jul, monthly book £2,500):
+      today £0 · Aug £2,500 · Sep £2,500 · Oct £2,500 · later 9×£2,500.
+    """
+    today = today or date.today()
+    book = retainer_book(db)
+    monthly = float(book.get("monthly") or 0)
+    out = {"today": 0.0, "m1": 0.0, "m2": 0.0, "m3": 0.0, "later": 0.0}
+    if monthly <= 0:
+        return out
+    for start in retainer_forward_month_starts(today, months=forward_months):
+        band = _retainer_month_to_wip_band(start, today)
+        if band not in out:
+            band = "later"
+        out[band] = round(out[band] + monthly, 2)
+    return out
+
+
+def retainer_outstanding_total(
+    db: Session, today: Optional[date] = None, *, forward_months: int = 12
+) -> float:
+    """Sum of unbanked retainer months in the forward horizon."""
+    return round(sum(retainer_wip_band_amounts(db, today, forward_months=forward_months).values()), 2)
 
 
 def compute_wip(db: Session, today: Optional[date] = None) -> WipSnapshot:
     """
     WIP value = per-job fees (non-retainer clients)
-              + annualised retainer book
+              + unbanked retainer months (bank on 1st; next 12 months)
               + open task fees (practice tasks; not Development / On hold).
 
-    Retainer clients' listed jobs carry a share of annual retainer so horizon
-    tiles and lists include them; retainer clients with no open jobs still add
-    their full annual into Current.
+    Retainer £ is calendar-based, not attached to individual job due dates.
     """
     today = today or date.today()
     jobs = wip_jobs(db)
     book = retainer_book(db)
-    monthly_by = book.get("monthly_by_client") or {}
-
-    open_counts: Dict[int, int] = {}
-    for j in jobs:
-        if _client_is_retainer(j.client) and j.client_id:
-            open_counts[j.client_id] = open_counts.get(j.client_id, 0) + 1
 
     # Dashboard ageing matches WIP page horizons (not debtor-style days late)
     horizon_labels = {
@@ -350,15 +409,12 @@ def compute_wip(db: Session, today: Optional[date] = None) -> WipSnapshot:
     total = 0.0
     jobs_value = 0.0
     retainer_job_count = 0
-    clients_with_jobs = set()
 
     for j in jobs:
         is_ret = _client_is_retainer(j.client)
         if is_ret:
             retainer_job_count += 1
-            if j.client_id:
-                clients_with_jobs.add(j.client_id)
-            amt = _retainer_share_for_job(j, open_counts, monthly_by)
+            amt = 0.0  # valued via calendar months, not job due date
         else:
             amt = float(j.fee or 0)
             jobs_value += amt
@@ -368,16 +424,16 @@ def compute_wip(db: Session, today: Optional[date] = None) -> WipSnapshot:
         buckets[label].count += 1
         buckets[label].amount += amt
 
-    # Retainer clients with no open jobs — still count full annual in WIP
-    for cid, monthly in monthly_by.items():
-        if cid in clients_with_jobs:
-            continue
-        annual = float(monthly) * 12.0
-        if annual <= 0:
-            continue
-        total += annual
-        buckets["Everything else"].count += 1
-        buckets["Everything else"].amount += annual
+    # Unbanked retainer months → map calendar WIP bands onto ageing labels
+    ret_bands = retainer_wip_band_amounts(db, today)
+    # today band is always £0 for retainers; m1≈Planning, m2≈Pre Planning, rest later
+    buckets["Planning"].amount += ret_bands.get("m1", 0.0)
+    buckets["Pre Planning"].amount += ret_bands.get("m2", 0.0)
+    buckets["Everything else"].amount += (
+        ret_bands.get("m3", 0.0) + ret_bands.get("later", 0.0)
+    )
+    retainer_outstanding = sum(ret_bands.values())
+    total += retainer_outstanding
 
     # Open task ledger fees (excludes Completed / Cancelled / On hold / Development)
     # Included in total value; not mixed into horizon ageing (dashboard ageing
@@ -539,19 +595,82 @@ HORIZON_STATUS = {
 
 
 def wip_list_status(job: Job, today: Optional[date] = None) -> str:
-    """List status: Today | Overdue | Imminent | Planning | Pre Planning | Later."""
+    """
+    List status:
+      Today | Tomorrow | This week | Overdue | Imminent | Planning | Pre Planning | Later
+
+    Explicit pins (Today / Tomorrow / This week) win.
+    Auto: overdue → Overdue (shown in Today band); due tomorrow → Imminent
+    (shown in Tomorrow band); due later this calendar week → This week.
+    """
+    from datetime import timedelta
+
     today = today or date.today()
     if getattr(job, "is_closed", lambda: False)():
         return job.status or "—"
     if getattr(job, "is_on_hold", lambda: False)():
         return "On hold"
-    if (job.status or "").strip().lower() == "today":
+    st = (job.status or "").strip().lower()
+    if st == "today":
         return "Today"
+    if st == "tomorrow":
+        return "Tomorrow"
+    if st in ("this week", "thisweek"):
+        return "This week"
     due = _job_due_for_horizon(job)
     if due and due < today:
         return "Overdue"
+    if due and due == today:
+        return "Today"
+    if due and due == today + timedelta(days=1):
+        return "Imminent"  # appears under Tomorrow band
+    # Rest of calendar week (Mon–Sun) after tomorrow
+    if due:
+        # Week ends on Sunday
+        days_until_sunday = 6 - today.weekday()
+        week_end = today + timedelta(days=days_until_sunday)
+        if today < due <= week_end:
+            return "This week"
     key = job_horizon_key_for_due(due, today)
     return HORIZON_STATUS.get(key, "Later")
+
+
+def job_focus_band(job: Job, today: Optional[date] = None) -> str:
+    """
+    WIP focus tiles: today | tomorrow | this_week | later
+
+    - Status pin Today / Tomorrow / This week wins
+    - Overdue (and due today) → today
+    - Due tomorrow / Imminent → tomorrow
+    - Due later this calendar week → this_week
+    """
+    from datetime import timedelta
+
+    today = today or date.today()
+    if getattr(job, "is_closed", lambda: False)() or getattr(
+        job, "is_on_hold", lambda: False
+    )():
+        return "later"
+    st = (job.status or "").strip().lower()
+    if st == "today":
+        return "today"
+    if st == "tomorrow":
+        return "tomorrow"
+    if st in ("this week", "thisweek"):
+        return "this_week"
+
+    due = _job_due_for_horizon(job)
+    if due is None:
+        return "later"
+    if due <= today:
+        return "today"  # overdue + due today
+    if due == today + timedelta(days=1):
+        return "tomorrow"
+    days_until_sunday = 6 - today.weekday()
+    week_end = today + timedelta(days=days_until_sunday)
+    if due <= week_end:
+        return "this_week"
+    return "later"
 
 
 def _month_start(d: date) -> date:
@@ -678,18 +797,48 @@ def job_type_bucket(job: Job) -> str:
 
 def compute_wip_age_home(db: Session, today: Optional[date] = None) -> dict:
     """
-    WIP home: Today (full) · m1 | m2 · m3 | later (2×2) · Total.
+    WIP home focus tiles:
+      Today (overdue + pin) · Tomorrow (imminent + pin) · This week · Total
+
+    Also still computes legacy calendar month bands (m1–later) for retainers /
+    older links. Job fees use :func:`job_focus_band`. Retainers stay on calendar
+    months (bank on 1st) and are included in Total only (not Today/Tomorrow).
     """
+    from datetime import timedelta
+
     today = today or date.today()
     meta = wip_calendar_band_meta(today)
     jobs = wip_jobs(db)
-    book = retainer_book(db)
-    monthly_by = book.get("monthly_by_client") or {}
-    open_counts: Dict[int, int] = {}
-    for j in jobs:
-        if _client_is_retainer(j.client) and j.client_id:
-            open_counts[j.client_id] = open_counts.get(j.client_id, 0) + 1
 
+    # Focus bands for the WIP home desk
+    tomorrow_d = today + timedelta(days=1)
+    days_until_sunday = 6 - today.weekday()
+    week_end = today + timedelta(days=days_until_sunday)
+    focus = {
+        "today": {
+            "key": "today",
+            "label": "Today",
+            "detail": "Overdue · due today · status Today",
+            "count": 0,
+            "amount": 0.0,
+        },
+        "tomorrow": {
+            "key": "tomorrow",
+            "label": "Tomorrow",
+            "detail": f"{tomorrow_d.strftime('%d %b')} · imminent · status Tomorrow",
+            "count": 0,
+            "amount": 0.0,
+        },
+        "this_week": {
+            "key": "this_week",
+            "label": "This week",
+            "detail": f"To {week_end.strftime('%d %b')} · status This week",
+            "count": 0,
+            "amount": 0.0,
+        },
+    }
+
+    # Legacy calendar bands (still used by drill links / retainers)
     bands = {}
     for key in ("today", "m1", "m2", "m3", "later"):
         m = meta[key]
@@ -700,23 +849,59 @@ def compute_wip_age_home(db: Session, today: Optional[date] = None) -> dict:
             "count": 0,
             "amount": 0.0,
         }
+
     for j in jobs:
+        # Focus tile
+        fb = job_focus_band(j, today)
+        amt = wip_amount_for_job(j)
+        if fb in focus:
+            focus[fb]["count"] += 1
+            focus[fb]["amount"] += amt
+        # Legacy calendar band (due-date months)
         band = job_wip_band(j, today)
         if band not in bands:
             band = "later"
-        amt = wip_amount_for_job(
-            j, open_counts=open_counts, monthly_by_client=monthly_by
-        )
         bands[band]["count"] += 1
         bands[band]["amount"] += amt
+
+    # Calendar retainer book — not on Today/Tomorrow focus; on month bands + total
+    ret = retainer_wip_band_amounts(db, today)
+    for key, amt in ret.items():
+        if key in bands and amt:
+            bands[key]["amount"] = round(bands[key]["amount"] + amt, 2)
+            if key != "today":
+                detail = bands[key].get("detail") or ""
+                if "retainer" not in detail.lower():
+                    bands[key]["detail"] = (
+                        f"{detail} · retainers".strip(" ·")
+                        if detail
+                        else "Retainers bank on 1st"
+                    )
+
     for b in bands.values():
         b["amount"] = round(b["amount"], 2)
+    for b in focus.values():
+        b["amount"] = round(b["amount"], 2)
+
+    # Calendar aged strip only (never Tomorrow / This week — those are focus tiles)
+    calendar_aged = [
+        bands["m1"],
+        bands["m2"],
+        bands["m3"],
+        bands["later"],
+    ]
 
     return {
-        "today": bands["today"],
-        "mid": [bands["m1"], bands["m2"], bands["m3"], bands["later"]],
+        "today": focus["today"],
+        "tomorrow": focus["tomorrow"],
+        "this_week": focus["this_week"],
+        "focus": focus,
+        "calendar_bands": calendar_aged,
+        # mid = calendar aged only (do not put focus bands here — avoids duplicates)
+        "mid": calendar_aged,
         "bands": bands,
         "meta": meta,
+        "retainer_by_band": ret,
     }
 
 
@@ -1295,17 +1480,16 @@ def job_period_end_bucket(job: Job) -> str:
 def compute_wip_type_totals_for_band(
     db: Session, band: str, today: Optional[date] = None
 ) -> List[dict]:
-    """Per job-type totals within one age band (for drill-down tiles)."""
+    """
+    Per job-type totals within one age band (for drill-down tiles).
+
+    Buckets: Accounts · Self Assessment · Confirmation Statement · Other.
+    Calendar retainer WIP sits in **Other** (never Accounts), so Accounts only
+    lists real Accounts jobs.
+    """
     today = today or date.today()
     jobs = wip_jobs(db)
-    book = retainer_book(db)
-    monthly_by = book.get("monthly_by_client") or {}
-    open_counts: Dict[int, int] = {}
-    for j in jobs:
-        if _client_is_retainer(j.client) and j.client_id:
-            open_counts[j.client_id] = open_counts.get(j.client_id, 0) + 1
 
-    # Order: Accounts, Self Assessment (2nd by value), CS, Other
     buckets = {
         "Accounts": {"key": "Accounts", "label": "Accounts", "count": 0, "amount": 0.0},
         "Self Assessment": {
@@ -1320,19 +1504,60 @@ def compute_wip_type_totals_for_band(
             "count": 0,
             "amount": 0.0,
         },
-        "Other": {"key": "Other", "label": "Other jobs", "count": 0, "amount": 0.0},
+        "Other": {"key": "Other", "label": "Other", "count": 0, "amount": 0.0},
     }
+    focus_keys = {"today", "tomorrow", "this_week"}
     for j in jobs:
-        if band not in ("all", "total", "") and job_wip_band(j, today) != band:
+        if band not in ("all", "total", ""):
+            if band in focus_keys:
+                if job_focus_band(j, today) != band:
+                    continue
+            elif job_wip_band(j, today) != band:
+                continue
+        # Retainer clients valued via calendar months under Other (below)
+        if _client_is_retainer(j.client):
             continue
         tb = job_type_bucket(j)
         if tb not in buckets:
             tb = "Other"
-        amt = wip_amount_for_job(
-            j, open_counts=open_counts, monthly_by_client=monthly_by
-        )
+        # SAR bucket is personal tax only — skip Ltd / firm clients
+        if tb == "Self Assessment":
+            from app.services.individuals import is_individual_shell
+            import re as _re
+
+            c = j.client
+            if c and not is_individual_shell(c):
+                name = (c.company_name or "").lower()
+                cn = (c.company_number or "").strip().upper()
+                if _re.search(r"\b(limited|ltd|llp|plc)\b", name) or (
+                    cn and not cn.startswith("IND-")
+                ):
+                    tb = "Other"
+        amt = wip_amount_for_job(j)
         buckets[tb]["count"] += 1
         buckets[tb]["amount"] += amt
+
+    # Retainers bank on 1st → Other (not Accounts)
+    ret = retainer_wip_band_amounts(db, today)
+    book = retainer_book(db)
+    ret_clients = int(book.get("count") or 0)
+    if band in ("all", "total", ""):
+        ret_amt = sum(ret.values())
+        months_n = sum(1 for v in ret.values() if float(v or 0) > 0)
+        ret_count = ret_clients if ret_amt > 0 else 0
+    elif band in focus_keys:
+        ret_amt = 0.0
+        ret_count = 0
+    else:
+        ret_amt = float(ret.get(band, 0.0) or 0.0)
+        ret_count = ret_clients if ret_amt > 0 else 0
+    if ret_amt > 0:
+        buckets["Other"]["amount"] = round(
+            float(buckets["Other"]["amount"]) + ret_amt, 2
+        )
+        # Count retainer clients once (plus any non-retainer “other” jobs already counted)
+        buckets["Other"]["count"] = int(buckets["Other"]["count"]) + int(ret_count)
+
     out = []
     for b in buckets.values():
         b["amount"] = round(b["amount"], 2)
@@ -1346,15 +1571,20 @@ def compute_wip_type_horizons(
     """
     Rows for WIP page: Accounts, Self Assessment, Confirmation Statements.
     Buckets: Overdue and Imminent · Planning · Pre Planning · Everything else.
+
+    Retainer months (bank on 1st) sit under Accounts only — not on CS/SA jobs.
     """
     today = today or date.today()
     jobs = wip_jobs(db)
-    book = retainer_book(db)
-    monthly_by = book.get("monthly_by_client") or {}
-    open_counts: Dict[int, int] = {}
-    for j in jobs:
-        if _client_is_retainer(j.client) and j.client_id:
-            open_counts[j.client_id] = open_counts.get(j.client_id, 0) + 1
+    ret = retainer_wip_band_amounts(db, today)
+    # Map calendar bands → legacy horizon keys used by this view
+    ret_to_horizon = {
+        "m1": "planning",
+        "m2": "pre_planning",
+        "m3": "later",
+        "later": "later",
+        "today": "imminent",  # always 0 in practice
+    }
 
     rows_spec = [
         ("Accounts", "Accounts"),
@@ -1376,9 +1606,7 @@ def compute_wip_type_horizons(
         for j in jobs:
             if not _match_job_type(j.type, type_key):
                 continue
-            amt = wip_amount_for_job(
-                j, open_counts=open_counts, monthly_by_client=monthly_by
-            )
+            amt = wip_amount_for_job(j)
             total_c += 1
             total_a += amt
             key = job_horizon_key(j, today) or "later"
@@ -1386,6 +1614,18 @@ def compute_wip_type_horizons(
                 key = "later"
             by_key[key].count += 1
             by_key[key].amount += amt
+
+        # Calendar retainers only on Accounts row
+        if type_key == "Accounts":
+            for band_key, amt in ret.items():
+                if not amt:
+                    continue
+                hkey = ret_to_horizon.get(band_key, "later")
+                if hkey not in by_key:
+                    hkey = "later"
+                by_key[hkey].amount += amt
+                total_a += amt
+
         for b in buckets:
             b.amount = round(b.amount, 2)
 

@@ -32,7 +32,7 @@
       </div>
       <div>
         <label>Payment terms (days)</label>
-        <input name="payment_terms_days" value="{{ supplier.payment_terms_days if supplier else 30 }}">
+        <input name="payment_terms_days" value="{{ supplier.payment_terms_days if supplier and supplier.payment_terms_days is not none else 0 }}">
       </div>
       <div>
         <label>Default category</label>

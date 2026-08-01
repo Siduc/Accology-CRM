@@ -20,11 +20,17 @@
 
 <div class="card">
   <form class="stack" method="post" action="/documents/new" enctype="multipart/form-data" id="doc-upload-form">
-    <div class="doc-dropzone" id="doc-dropzone">
+    <div class="doc-dropzone" id="doc-dropzone" tabindex="0"
+         title="Drop files from File Explorer, or click to browse. Paste (Ctrl+V) also works.">
       <input type="file" name="file" id="doc-file" required
              accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif,.webp,.txt,.rtf,.msg,.eml">
-      <p class="doc-dropzone-label"><strong>Drag &amp; drop</strong> or choose a file</p>
+      <p class="doc-dropzone-label"><strong>Drop a file</strong>, click to browse, or <strong>Ctrl+V</strong> paste</p>
       <p class="small muted" id="doc-file-name">PDF, Word, Excel, images…</p>
+      <p class="small muted" id="doc-drop-hint" style="margin:0.5rem 0 0;max-width:28rem;margin-left:auto;margin-right:auto;line-height:1.4">
+        Works from <strong>File Explorer</strong> / Desktop.
+        Dragging straight out of <strong>Outlook</strong> often fails (the browser never receives a real file) —
+        save the attachment first, then drop it here.
+      </p>
     </div>
 
     <div>
@@ -87,30 +93,160 @@
   var zone = document.getElementById('doc-dropzone');
   var input = document.getElementById('doc-file');
   var nameEl = document.getElementById('doc-file-name');
+  var hintEl = document.getElementById('doc-drop-hint');
   if (!zone || !input) return;
+
+  var OUTLOOK_HINT =
+    'Outlook does not hand the browser a real file when you drag from email. ' +
+    'Right‑click the attachment → Save As (or drag to Desktop first), then drop the saved file here — or use Choose file / Ctrl+V.';
+
+  function setMsg(text, isError) {
+    if (!nameEl) return;
+    nameEl.textContent = text;
+    nameEl.style.color = isError ? '#b91c1c' : '';
+  }
+
   function showName() {
     if (input.files && input.files[0]) {
-      nameEl.textContent = input.files[0].name;
+      var f = input.files[0];
+      setMsg(
+        f.name + (f.size ? ' · ' + Math.round(f.size / 1024) + ' KB' : ''),
+        false
+      );
     }
   }
+
+  /** FileList is read-only — assign via DataTransfer. */
+  function assignFile(file) {
+    if (!file) return false;
+    // Reject empty 0-byte shells some apps put on the drag payload
+    if (typeof file.size === 'number' && file.size === 0 && !(file.name || '').match(/\.(msg|eml)$/i)) {
+      // still try — some OS temp files report 0 until read
+    }
+    try {
+      var dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      if (input.files && input.files[0]) {
+        showName();
+        return true;
+      }
+    } catch (err) { /* fall through */ }
+    setMsg('Could not attach that drop — use Choose file, or save from Outlook first.', true);
+    return false;
+  }
+
+  /**
+   * Pull real File objects from a drop/paste.
+   * Outlook often provides text/html or custom types with NO files.
+   */
+  function collectFiles(dt) {
+    var found = [];
+    var seen = {};
+    function add(f) {
+      if (!f || !(f instanceof File || (f && f.name != null && f.size != null))) return;
+      var key = (f.name || '') + ':' + (f.size || 0) + ':' + (f.lastModified || 0);
+      if (seen[key]) return;
+      seen[key] = 1;
+      found.push(f);
+    }
+    if (!dt) return found;
+    if (dt.files && dt.files.length) {
+      for (var i = 0; i < dt.files.length; i++) add(dt.files[i]);
+    }
+    if (dt.items && dt.items.length) {
+      for (var j = 0; j < dt.items.length; j++) {
+        var item = dt.items[j];
+        if (item.kind === 'file') {
+          try { add(item.getAsFile()); } catch (err) {}
+        }
+      }
+    }
+    return found;
+  }
+
+  function looksLikeEmailDrag(dt) {
+    if (!dt || !dt.types) return false;
+    var types = Array.prototype.slice.call(dt.types || []);
+    var joined = types.join(' ').toLowerCase();
+    // Classic / new Outlook, Mail, browser-mail UIs
+    if (/outlook|message|mail|cf_|uniformresourcelocator|text\/html/.test(joined)) {
+      if (!dt.files || !dt.files.length) return true;
+    }
+    // Only text/uri-list or text/html — not a file
+    if (types.length && !types.some(function (t) {
+      return t === 'Files' || t === 'application/x-moz-file' || t.indexOf('file') >= 0;
+    })) {
+      if (types.indexOf('text/html') >= 0 || types.indexOf('text/plain') >= 0) return true;
+    }
+    return false;
+  }
+
+  function handleDataTransfer(dt, source) {
+    var files = collectFiles(dt);
+    if (files.length) {
+      return assignFile(files[0]);
+    }
+    if (looksLikeEmailDrag(dt) || source === 'drop') {
+      setMsg(OUTLOOK_HINT, true);
+      if (hintEl) {
+        hintEl.innerHTML =
+          '<strong style="color:#b91c1c">Email drag not supported by the browser.</strong> ' +
+          'Save the attachment to your PC, then drop that file — or click this box to browse.';
+      }
+      return false;
+    }
+    setMsg('No file found in that drop — try Choose file.', true);
+    return false;
+  }
+
   input.addEventListener('change', showName);
-  ;['dragenter','dragover'].forEach(function (ev) {
+
+  ;['dragenter', 'dragover'].forEach(function (ev) {
     zone.addEventListener(ev, function (e) {
-      e.preventDefault(); e.stopPropagation();
+      e.preventDefault();
+      e.stopPropagation();
+      try { e.dataTransfer.dropEffect = 'copy'; } catch (err) {}
       zone.classList.add('is-dragover');
-    });
+    }, true);
   });
-  ;['dragleave','drop'].forEach(function (ev) {
-    zone.addEventListener(ev, function (e) {
-      e.preventDefault(); e.stopPropagation();
-      zone.classList.remove('is-dragover');
-    });
+
+  zone.addEventListener('dragleave', function (e) {
+    if (e.relatedTarget && zone.contains(e.relatedTarget)) return;
+    zone.classList.remove('is-dragover');
+  }, true);
+
+  function onDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    zone.classList.remove('is-dragover');
+    handleDataTransfer(e.dataTransfer, 'drop');
+  }
+  zone.addEventListener('drop', onDrop, true);
+  input.addEventListener('drop', onDrop, true);
+  input.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    zone.classList.add('is-dragover');
+  }, true);
+
+  // Paste a copied file / screenshot (works in Edge/Chrome; not from Outlook itself)
+  zone.addEventListener('paste', function (e) {
+    var dt = e.clipboardData;
+    if (!dt) return;
+    var files = collectFiles(dt);
+    if (files.length) {
+      e.preventDefault();
+      assignFile(files[0]);
+    }
   });
-  zone.addEventListener('drop', function (e) {
-    var files = e.dataTransfer && e.dataTransfer.files;
-    if (files && files.length) {
-      input.files = files;
-      showName();
+  // Global paste when focus is on the page and user is uploading
+  document.addEventListener('paste', function (e) {
+    if (!document.getElementById('doc-upload-form')) return;
+    var files = collectFiles(e.clipboardData);
+    if (files.length) {
+      e.preventDefault();
+      assignFile(files[0]);
+      zone.focus();
     }
   });
 })();

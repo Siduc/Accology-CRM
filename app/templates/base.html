@@ -3,33 +3,52 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#0A0A0A">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="{% block apple_title %}Accologise{% endblock %}">
-  <meta name="application-name" content="Accologise CRM">
-  <meta name="description" content="Practice working capital CRM">
+  <meta name="apple-mobile-web-app-title" content="{% block apple_title %}Accology{% endblock %}">
+  <meta name="application-name" content="Accology CRM">
+  <meta name="description" content="Accology · Accounting Science · Practice CRM">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="{% block apple_touch_icon %}/static/icons/apple-touch-icon.png{% endblock %}">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
-  <title>{% block title %}Accologise{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=demo1">
+  <title>{% block title %}Accology{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=brand5">
   <script src="/static/dashboard_view.js?v=dual1" defer></script>
+  <script src="/static/table_sort.js?v=1" defer></script>
   <script src="/static/pwa.js?v=2" defer></script>
+  {# Always load on authenticated pages (incl. dashboard hub with hide_nav) #}
+  <script src="/static/ai_assistant.js?v=6" defer></script>
 </head>
 <body class="dash-auto {% if hide_nav %}body-hub{% else %}body-page{% endif %} {% if demo_mode %}is-demo-mode{% endif %}">
   {% if demo_mode %}
   <div class="demo-banner" role="status">
-    <strong>Demo mode</strong>
-    <span>— names, contacts, credentials and figures are anonymised for presentation. Database unchanged.</span>
+    <strong>{% if demo_locked %}Demo login{% else %}Demo mode{% endif %}</strong>
+    <span>— anonymised sample data · demo fees (Accounts £10k · CS £100 · SA £1k · tasks variable) · database unchanged.</span>
+    <a class="demo-banner-exit" href="/demo/tutorial" style="margin-left:0.35rem">Guide</a>
+    {% if not demo_locked %}
     <a class="demo-banner-exit" href="/demo/off">Exit demo</a>
+    {% else %}
+    <a class="demo-banner-exit" href="/logout">Sign out</a>
+    {% endif %}
   </div>
   {% endif %}
   {% if not hide_nav %}
   <header class="minibar">
-    <a class="minibar-title" href="/dashboard" title="Dashboard home">Accologise</a>
+    <a class="minibar-title" href="/dashboard" title="Dashboard home">
+      {# Wide / desktop: full lockup. Live Tiles / phone: compact word only. #}
+      <span class="crm-lockup" aria-label="Accology — Accounting Science">
+        <span class="crm-lockup-word">ACCOLOGY</span>
+        <hr class="crm-lockup-rule" aria-hidden="true">
+        <span class="crm-lockup-tag">Accounting Science</span>
+      </span>
+      <span class="crm-lockup-compact" aria-hidden="true">ACCOLOGY</span>
+    </a>
     {# Full nav only on large screens; phone uses footer #}
     <div class="minibar-right minibar-nav-desk">
       <a class="minibar-logout" href="/sales">Sales</a>
@@ -40,22 +59,26 @@
       <a class="minibar-logout" href="/services">Services</a>
       <a class="minibar-logout" href="/groups">Groups</a>
       <a class="minibar-logout" href="/notes">Notes</a>
-      <a class="minibar-logout" href="/tasks">Tasks</a>
+      <a class="minibar-logout" href="/tasks" title="Task ledger">Task ledger</a>
       <a class="minibar-logout" href="/documents">Documents</a>
       <a class="minibar-logout" href="/asana">Asana</a>
       <a class="minibar-logout" href="/settings">Settings</a>
-      {% if demo_mode %}
+      {% if demo_mode and not demo_locked %}
       <a class="minibar-logout demo-toggle-on" href="/demo/off" title="Show live data">Demo on</a>
-      {% else %}
+      {% elif not demo_mode %}
       <a class="minibar-logout" href="/demo/on" title="Anonymise for presentation">Demo</a>
+      {% else %}
+      <span class="minibar-logout demo-toggle-on" title="Demo login — live data not available">Demo only</span>
       {% endif %}
       <a class="minibar-logout" href="/logout">Logout</a>
     </div>
     <div class="minibar-right minibar-nav-phone">
-      {% if demo_mode %}
+      {% if demo_mode and not demo_locked %}
       <a class="minibar-logout demo-toggle-on" href="/demo/off">Demo on</a>
-      {% else %}
+      {% elif not demo_mode %}
       <a class="minibar-logout" href="/demo/on">Demo</a>
+      {% else %}
+      <span class="minibar-logout demo-toggle-on">Demo</span>
       {% endif %}
       <a class="minibar-logout" href="/settings">Settings</a>
       <a class="minibar-logout" href="/logout">Logout</a>
@@ -72,7 +95,7 @@
     <a href="/purchase">Purchase</a>
     <a href="/bank">Bank</a>
     <a href="/vat">VAT</a>
-    <a href="/tasks">Tasks</a>
+    <a href="/tasks">Task ledger</a>
     <a href="/services">Services</a>
     <a href="/groups">Groups</a>
     <a href="/notes">Notes</a>
@@ -80,7 +103,53 @@
     <a href="/settings">Settings</a>
     <a href="/logout">Logout</a>
   </nav>
-  <footer class="site-footer">Accologise · Practice CRM</footer>
+  <footer class="site-footer">Accology · Accounting Science · Practice CRM</footer>
   {% endif %}
+
+  {# Si — Accologise assistant (dashboard + all authenticated pages) #}
+  <div id="ai-assistant" class="ai-assistant">
+    <button type="button" id="ai-fab" class="ai-fab" aria-expanded="false" aria-controls="ai-panel" title="Si — Accologise assistant">
+      <span class="ai-fab-stars" aria-hidden="true">
+        <span class="ai-star ai-star-1">✦</span>
+        <span class="ai-star ai-star-2">✦</span>
+        <span class="ai-star ai-star-3">✦</span>
+      </span>
+      <span class="ai-fab-label"><span class="ai-fab-S">S</span><span class="ai-fab-i">i</span></span>
+    </button>
+    <div id="ai-panel" class="ai-panel" hidden aria-hidden="true" role="dialog" aria-label="Si assistant">
+      <header class="ai-panel-head">
+        <div>
+          <div class="ai-panel-title">Si</div>
+          <div class="ai-panel-sub" id="ai-status">Your Accologise assistant</div>
+        </div>
+        <button type="button" id="ai-close" class="ai-close" aria-label="Close">×</button>
+      </header>
+      <div id="ai-chat-log" class="ai-chat-log" aria-live="polite">
+        <div class="ai-bubble ai-bubble-assistant" id="ai-welcome">
+          Hi — I’m <strong>Si</strong>. I follow Accologise rules: CRM first, confirm before save,
+          SAR is for people (not Ltd), dates by job type. Say <strong>go to WIP</strong>,
+          <strong>open job #…</strong>, <strong>create SAR for director of …</strong>,
+          <strong>fill dates</strong>, <strong>mark job complete</strong>. Say <strong>Yes</strong> to confirm.
+        </div>
+      </div>
+      <div id="ai-plan-card" class="ai-plan-card" hidden>
+        <div class="ai-plan-title">Confirm before saving</div>
+        <p id="ai-plan-summary" class="ai-plan-summary"></p>
+        <ul id="ai-plan-steps" class="ai-plan-steps"></ul>
+        <div class="ai-plan-actions">
+          <button type="button" id="ai-plan-yes" class="ai-btn ai-btn-yes">Yes — do it</button>
+          <button type="button" id="ai-plan-no" class="ai-btn ai-btn-no">No</button>
+        </div>
+      </div>
+      <form id="ai-form" class="ai-form" autocomplete="off">
+        <button type="button" id="ai-mic" class="ai-mic" title="Speak to Si" aria-label="Voice input">
+          <span class="ai-mic-icon" aria-hidden="true">🎤</span>
+        </button>
+        <input id="ai-input" class="ai-input" type="text" name="message"
+               placeholder="Ask Si… or tap the mic" enterkeyhint="send" maxlength="2000">
+        <button type="submit" id="ai-send" class="ai-btn ai-btn-send">Send</button>
+      </form>
+    </div>
+  </div>
 </body>
 </html>

@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ inv.number }} · Invoice · Accologise{% endblock %}
+{% block content %}
+<div class="page-header no-print">
+  <div>
+    <p class="small muted"><a href="/sales/invoices/{{ inv.id }}">← Back to invoice</a></p>
+    <h1>Edit invoice</h1>
+    <p class="muted small">Looks like the invoice — change number, dates, lines, then save.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-outline" href="/sales/invoices/{{ inv.id }}">Cancel</a>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error no-print">{{ error }}</div>
+{% endif %}
+
+<form method="post" action="/sales/invoices/{{ inv.id }}/edit" class="invoice-edit-form">
+  <article class="invoice-doc invoice-doc-edit" aria-label="Edit invoice {{ inv.number }}">
+    {% if practice_letterhead_image_ready and practice_letterhead_image_url %}
+    <div class="invoice-doc-letterhead">
+      <img src="{{ practice_letterhead_image_url }}" alt="{{ practice_name }} letterhead">
+    </div>
+    {% endif %}
+    <header class="invoice-doc-header {% if practice_letterhead_image_ready %}invoice-doc-header-under-lh{% endif %}">
+      <div class="invoice-doc-brand">
+        {% if not practice_letterhead_image_ready %}
+          {% if practice_logo_url %}
+          <img class="invoice-doc-logo" src="{{ practice_logo_url }}" alt="{{ practice_name }} logo">
+          {% else %}
+          <div class="invoice-doc-logo-placeholder" title="Settings → Letterhead &amp; logo">
+            <span class="invoice-doc-logo-mark">{{ (practice_name or 'A')[0] }}</span>
+            <span class="invoice-doc-logo-hint">Logo</span>
+          </div>
+          {% endif %}
+        {% endif %}
+        <div class="invoice-doc-practice">
+          {% if not practice_letterhead_image_ready %}
+          <div class="invoice-doc-practice-name">{{ practice_name or 'Accology' }}</div>
+          {% if practice_email %}<div class="muted small">{{ practice_email }}</div>{% endif %}
+          {% if practice_phone %}<div class="muted small">{{ practice_phone }}</div>{% endif %}
+          {% endif %}
+          <p class="muted small no-print" style="margin:0.35rem 0 0">
+            <a href="/settings#settings-branding">Upload letterhead / logo in Settings</a>
+          </p>
+        </div>
+      </div>
+      <div class="invoice-doc-meta">
+        <div class="invoice-doc-title">INVOICE</div>
+        <label class="invoice-doc-label" for="number">Invoice number</label>
+        <input class="invoice-doc-number-input" id="number" name="number" value="{{ inv.number }}"
+          required autocomplete="off" title="e.g. 793 or INV-0793 (matches Xero sequence)">
+        <div class="invoice-doc-edit-dates">
+          <div>
+            <label class="invoice-doc-label" for="issue_date">Issue date</label>
+            <input id="issue_date" type="date" name="issue_date"
+              value="{{ inv.issue_date.isoformat() if inv.issue_date else '' }}">
+          </div>
+          <div>
+            <label class="invoice-doc-label" for="due_date">Due date</label>
+            <input id="due_date" type="date" name="due_date"
+              value="{{ inv.due_date.isoformat() if inv.due_date else '' }}">
+          </div>
+          <div>
+            <label class="invoice-doc-label" for="status">Status</label>
+            <select id="status" name="status">
+              <option value="draft" {% if inv.status == 'draft' %}selected{% endif %}>Draft</option>
+              <option value="sent" {% if inv.status == 'sent' %}selected{% endif %}>Sent</option>
+              <option value="part_paid" {% if inv.status == 'part_paid' %}selected{% endif %}>Part paid</option>
+              <option value="paid" {% if inv.status == 'paid' %}selected{% endif %}>Paid</option>
+              <option value="void" {% if inv.status == 'void' %}selected{% endif %}>Void</option>
+              <option value="written_off" {% if inv.status == 'written_off' %}selected{% endif %}>Written off</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="invoice-doc-parties">
+      <div>
+        <label class="invoice-doc-label" for="client_id">Bill to</label>
+        <select id="client_id" name="client_id" required class="invoice-doc-client-select">
+          {% for c in clients %}
+          <option value="{{ c.id }}" {% if inv.client_id == c.id %}selected{% endif %}>{{ c.display_name() }}</option>
+          {% endfor %}
+        </select>
+        {% if client %}
+        <div class="muted small" style="margin-top:0.35rem">
+          {% if client.address_line1 %}{{ client.address_line1 }}{% endif %}
+          {% if client.town %} · {{ client.town }}{% endif %}
+          {% if client.postcode %} {{ client.postcode }}{% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <div>
+        {% if job %}
+        <h2 class="invoice-doc-label">Job</h2>
+        <p class="small">
+          <a href="/jobs/{{ job.id }}">{{ job.title or job.type or ('Job #' ~ job.id) }}</a>
+          {% if job.period_end %}<br><span class="muted">Period end {{ job.period_end|uk_date }}</span>{% endif %}
+        </p>
+        {% endif %}
+      </div>
+    </section>
+
+    <div class="table-wrap invoice-doc-lines-wrap">
+      <table class="invoice-doc-lines invoice-doc-lines-edit">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="num">Qty</th>
+            <th class="num">Unit £</th>
+            <th class="num">VAT rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ln in edit_lines %}
+          {% set n = loop.index %}
+          <tr>
+            <td>
+              <input name="line_desc_{{ n }}" value="{{ ln.description if ln else '' }}"
+                placeholder="Description" class="invoice-line-input">
+              <input type="hidden" name="line_service_{{ n }}" value="{{ ln.service_id if ln and ln.service_id else '' }}">
+            </td>
+            <td class="num">
+              <input name="line_qty_{{ n }}" value="{{ '%.2f'|format(ln.qty) if ln else '1' }}"
+                class="invoice-line-input num-input" inputmode="decimal">
+            </td>
+            <td class="num">
+              <input name="line_price_{{ n }}" value="{{ '%.2f'|format(ln.unit_price) if ln else '' }}"
+                class="invoice-line-input num-input" inputmode="decimal" placeholder="0.00">
+            </td>
+            <td class="num">
+              <input name="line_vat_{{ n }}" value="{{ '%.2f'|format(ln.vat_rate) if ln else '0' }}"
+                class="invoice-line-input num-input" inputmode="decimal" title="e.g. 0.2 for 20%">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="muted small" style="margin:0.5rem 0 0">Leave blank rows empty. VAT rate as decimal (0.2 = 20%).</p>
+    </div>
+
+    <section class="invoice-doc-totals">
+      <div class="invoice-doc-notes">
+        <label class="invoice-doc-label" for="notes">Notes</label>
+        <textarea id="notes" name="notes" rows="3" class="invoice-notes-input">{{ inv.notes or '' }}</textarea>
+      </div>
+      <dl class="invoice-doc-sum">
+        <div><dt>Subtotal</dt><dd>£{{ '%.2f'|format(inv.subtotal or 0) }}</dd></div>
+        <div><dt>VAT</dt><dd>£{{ '%.2f'|format(inv.vat_total or 0) }}</dd></div>
+        <div class="invoice-doc-sum-total"><dt>Total</dt><dd>£{{ '%.2f'|format(inv.total or 0) }}</dd></div>
+        <div class="muted small" style="grid-column:1/-1;margin-top:0.35rem">Totals recalculate on save.</div>
+      </dl>
+    </section>
+
+    <div class="invoice-doc-actions no-print">
+      <button class="btn wc-touch" type="submit">Save invoice</button>
+      <a class="btn btn-outline" href="/sales/invoices/{{ inv.id }}">Cancel</a>
+    </div>
+  </article>
+</form>
+{% endblock %}

@@ -78,7 +78,7 @@ class Supplier(Base):
     town = Column(String, nullable=True)
     postcode = Column(String, nullable=True)
     vat_number = Column(String, nullable=True)
-    payment_terms_days = Column(Integer, default=30)
+    payment_terms_days = Column(Integer, default=0)  # 0 = due on invoice/bill date
     default_category = Column(String, default="supplier")
     is_active = Column(Boolean, default=True)
     notes = Column(Text, nullable=True)
@@ -89,7 +89,12 @@ class Supplier(Base):
     payments = relationship("SupplierPayment", back_populates="supplier")
 
     def display_name(self) -> str:
-        return self.name or f"Supplier #{self.id}"
+        """Proper-cased supplier name for lists (display only)."""
+        from app.text_format import normalize_caps
+
+        if self.name:
+            return normalize_caps(self.name)
+        return f"Supplier #{self.id}"
 
 
 class CreditorBill(Base):

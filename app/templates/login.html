@@ -1,44 +1,59 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-GB">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f172a">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Accologise">
-  <meta name="application-name" content="Accologise CRM">
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#0A0A0A">
+  <meta name="apple-mobile-web-app-title" content="Accology">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
-  <title>Login · Accologise CRM</title>
-  <link rel="stylesheet" href="/static/style.css?v=pwa1">
+  <title>Log in · Accology</title>
+  <link rel="stylesheet" href="/static/accology_public.css?v=19">
   <script src="/static/pwa.js?v=1" defer></script>
 </head>
-<body class="body-login">
-  <div class="login-wrap">
-    <div class="login-card">
-      <div class="login-brand">
-        <span class="login-mark" aria-hidden="true">A</span>
-        <h1>Accologise</h1>
-      </div>
-      <p class="muted">Practice working capital · Sign in</p>
+<body class="ac-landing">
+  <div class="ac-shell" style="min-height:100vh;align-items:center;grid-template-columns:1fr">
+    <div class="ac-login-col" style="width:100%">
+    <div class="ac-login-card" style="margin:2rem auto">
+      <a class="ac-brand" href="/" style="justify-content:center;margin-bottom:1.5rem">
+        <svg class="ac-cube" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <g stroke="#FFFFFF" stroke-width="0.55" stroke-linejoin="miter" stroke-linecap="square">
+            <path d="M32 5L55 18V46L32 59L9 46V18L32 5Z"/>
+            <path d="M32 5V32M32 32L9 18M32 32L55 18M32 32V59M9 46L32 32L55 46"/>
+          </g>
+          <path d="M32 15.5L46 23.5V40.5L32 48.5L18 40.5V23.5L32 15.5Z" fill="#00E5FF"/>
+          <g stroke="#FFFFFF" stroke-width="0.55" stroke-linejoin="miter" stroke-linecap="square">
+            <path d="M32 15.5L46 23.5V40.5L32 48.5L18 40.5V23.5L32 15.5Z"/>
+            <path d="M18 23.5L32 32"/>
+            <path d="M46 23.5L32 32"/>
+            <path d="M32 32V48.5"/>
+          </g>
+        </svg>
+        <span class="ac-brand-text">
+          <span class="ac-brand-word"><span class="ac-acc">Acc</span><span class="ac-ology">ology</span></span>
+          <hr class="ac-brand-rule" aria-hidden="true">
+          <span class="ac-brand-tag">Accounting Science</span>
+        </span>
+      </a>
+      <h1>Welcome Back</h1>
+      <p class="ac-login-sub">Sign in to your account</p>
       {% if error %}
-      <div class="alert alert-error">{{ error }}</div>
+      <div class="ac-login-alert" role="alert">{{ error }}</div>
       {% endif %}
-      <form method="post" action="/login" class="stack">
-        <label for="username">Username</label>
-        <input id="username" type="text" name="username" autocomplete="username" required autofocus>
+      <form method="post" action="/login" autocomplete="on">
+        <label for="username">User ID</label>
+        <input id="username" name="username" type="text" autocomplete="username" required autofocus>
         <label for="password">Password</label>
-        <input id="password" type="password" name="password" autocomplete="current-password" required>
-        <div class="form-actions">
-          <button class="btn wc-touch" type="submit">Login</button>
-        </div>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button class="ac-login-btn" type="submit">Login</button>
       </form>
-      <p class="small muted login-install-hint">
-        On your phone: browser menu → <strong>Add to Home Screen</strong> for an app-like experience.
-      </p>
+      {% if demo_available %}
+      <div class="ac-login-demo">
+        Demo access uses the credentials provided separately.
+        <a href="/demo/tour">Demo guide</a>
+      </div>
+      {% endif %}
+      <p class="ac-login-meta"><a href="/">← Accology site</a></p>
+    </div>
     </div>
   </div>
 </body>

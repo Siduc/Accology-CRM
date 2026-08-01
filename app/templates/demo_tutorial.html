@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Demo guide · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/dashboard">← Dashboard</a> · <a href="/demo/tour">Full tour (shareable)</a></p>
+    <h1>Welcome to the Accologise demo</h1>
+    <p class="muted">
+      Follow this short checklist — about 10 minutes.
+      {% if demo_locked %}You are on a <strong>demo login</strong> (anonymised data only).{% elif demo_mode %}Demo mode is on.{% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    <form method="post" action="/demo/tutorial/done" style="display:inline">
+      <button class="btn" type="submit">I’m ready — open dashboard</button>
+    </form>
+  </div>
+</div>
+
+<div class="tour-callout" style="max-width:48rem;margin-bottom:1.25rem">
+  <strong>Remember:</strong> names and fees are sample / anonymised.
+  Real client data is not shown on a demo login. Use the orange banner at the top as a reminder.
+</div>
+
+<div class="tutorial-grid">
+  <article class="card tutorial-step">
+    <div class="tutorial-num">1</div>
+    <h2>Dashboard · working capital</h2>
+    <p class="muted small">See the practice as one money cycle.</p>
+    <ul class="tour-bullets">
+      <li>WIP — work not yet billed</li>
+      <li>Debtors — unpaid invoices</li>
+      <li>Cash &amp; creditors</li>
+      <li>Prospects &amp; tasks at the top</li>
+    </ul>
+    <a class="btn btn-sm" href="/dashboard">Open dashboard</a>
+  </article>
+
+  <article class="card tutorial-step">
+    <div class="tutorial-num">2</div>
+    <h2>WIP · jobs by time &amp; type</h2>
+    <p class="muted small">Where fee-earners live day to day.</p>
+    <ul class="tour-bullets">
+      <li>Today / Tomorrow / This week</li>
+      <li>Accounts · SAR · Other type tiles</li>
+      <li>Open any client row for the job card</li>
+    </ul>
+    <a class="btn btn-sm" href="/working-capital/wip">Open WIP</a>
+  </article>
+
+  <article class="card tutorial-step">
+    <div class="tutorial-num">3</div>
+    <h2>Job list · Done → invoice</h2>
+    <p class="muted small">Complete work and raise the bill in one step.</p>
+    <ul class="tour-bullets">
+      <li>Browse Confirmation Statements or Accounts</li>
+      <li>Open a job — dates, fee, status</li>
+      <li><strong>Done</strong> completes, recurs next year if needed, opens invoice</li>
+    </ul>
+    <div class="actions" style="flex-wrap:wrap;gap:0.4rem">
+      <a class="btn btn-sm" href="/jobs">All jobs</a>
+      <a class="btn btn-sm btn-outline" href="/jobs/confirmation-statements">CS list</a>
+      <a class="btn btn-sm btn-outline" href="/jobs/accounts">Accounts</a>
+    </div>
+  </article>
+
+  <article class="card tutorial-step">
+    <div class="tutorial-num">4</div>
+    <h2>Sales · invoices</h2>
+    <p class="muted small">Invoices look like invoices — editable layout.</p>
+    <ul class="tour-bullets">
+      <li>List outstanding and recent invoices</li>
+      <li>Open one — bill-to, lines, totals</li>
+      <li>Edit if you want to try changing a line or number</li>
+    </ul>
+    <a class="btn btn-sm" href="/sales">Sales home</a>
+    <a class="btn btn-sm btn-outline" href="/sales/invoices">Invoices</a>
+  </article>
+
+  <article class="card tutorial-step">
+    <div class="tutorial-num">5</div>
+    <h2>Task ledger</h2>
+    <p class="muted small">Smaller work and follow-ups with a Done button.</p>
+    <ul class="tour-bullets">
+      <li>Filter by status</li>
+      <li>Press Done on a task</li>
+      <li>Tasks can link to clients / jobs</li>
+    </ul>
+    <a class="btn btn-sm" href="/tasks">Task ledger</a>
+  </article>
+
+  <article class="card tutorial-step">
+    <div class="tutorial-num">6</div>
+    <h2>Optional extras</h2>
+    <p class="muted small">If you have more time.</p>
+    <ul class="tour-bullets">
+      <li><a href="/prospecting">Prospecting</a> — pipeline / CH prospects</li>
+      <li><a href="/purchase">Purchase</a> — suppliers &amp; bills</li>
+      <li><a href="/clients">Clients</a> — firm cards &amp; connections</li>
+      <li><strong>Si</strong> — assistant badge (bottom corner) for CRM help</li>
+    </ul>
+  </article>
+</div>
+
+<div class="card" style="margin-top:1.25rem;max-width:48rem">
+  <h2 style="margin-top:0">Finished?</h2>
+  <p class="muted">
+    When you are happy exploring, go to the dashboard. You can reopen this guide any time from
+    <a href="/demo/tutorial">/demo/tutorial</a> or the shareable tour at
+    <a href="/demo/tour">/demo/tour</a>.
+  </p>
+  <form method="post" action="/demo/tutorial/done">
+    <button class="btn wc-touch" type="submit">I’m ready — open dashboard</button>
+  </form>
+</div>
+{% endblock %}

@@ -110,6 +110,18 @@ class Document(Base):
         name = (self.original_filename or "").lower()
         return name.endswith((".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp"))
 
+    def is_office(self) -> bool:
+        """Word / Excel / PowerPoint — prefer Microsoft online viewer."""
+        name = (self.original_filename or self.title or "").lower()
+        return name.endswith(
+            (".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".rtf")
+        )
+
+    def is_pdf(self) -> bool:
+        ct = (self.content_type or "").lower()
+        name = (self.original_filename or "").lower()
+        return ct in PREVIEW_PDF_TYPES or name.endswith(".pdf")
+
     def preview_kind(self) -> str:
         ct = (self.content_type or "").lower()
         name = (self.original_filename or "").lower()
@@ -119,7 +131,19 @@ class Document(Base):
             (".png", ".jpg", ".jpeg", ".gif", ".webp")
         ):
             return "image"
+        if self.is_office():
+            return "office"
         return "other"
+
+    def open_url(self) -> str:
+        """
+        Best place to open the live file without downloading a second copy.
+        Prefers OneDrive webUrl (Office Online / OneDrive viewer).
+        """
+        url = (self.onedrive_web_url or "").strip()
+        if url:
+            return url
+        return f"/documents/{self.id}/open"
 
     def tags_list(self) -> list:
         if not self.tags:

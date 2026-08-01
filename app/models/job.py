@@ -62,6 +62,9 @@ class Job(Base):
         "Planned",
         "In Progress",
         "Review",
+        "Today",
+        "Tomorrow",
+        "This week",
         "Overdue",
         "Overdue and Imminent",
         "Planning",
@@ -97,13 +100,16 @@ class Job(Base):
 
     def display_status(self, today: Optional[date] = None) -> str:
         """
-        Status shown in lists from WIP horizon:
-        Overdue | Imminent | Planning | Pre Planning | Later
-        (workflow status in DB kept unless user edits).
+        Status shown in lists:
+        Today | Tomorrow | This week | Overdue | Imminent | Planning | …
+        Explicit pins (Today / Tomorrow / This week) win; else due-date rules.
         On hold / closed show as stored.
         """
         if self.is_closed() or self.is_on_hold():
             return self.status or "—"
+        st = (self.status or "").strip()
+        if st in ("Today", "Tomorrow", "This week"):
+            return st
         today = today or date.today()
         try:
             from app.services.working_capital import wip_list_status

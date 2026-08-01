@@ -33,6 +33,7 @@ logger = logging.getLogger("accountant_crm.auth")
 
 from app.routers import (
     auth,
+    website,
     dashboard,
     clients,
     jobs,
@@ -48,6 +49,7 @@ from app.routers import (
     sales,
     bank,
     purchase,
+    assistant,
     vat,
     asana_integration,
     notes,
@@ -75,15 +77,18 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 # Paths that do not require a logged-in browser session (HTML UI only)
 _PUBLIC_EXACT = frozenset(
     {
-        "/",
+        "/",  # Accology public site
         "/login",
         "/logout",
+        "/contact",
+        "/contact/thanks",
         "/health",
         "/favicon.ico",
         "/manifest.webmanifest",
         "/sw.js",
         "/oauth/companies-house/callback",
         "/oauth/microsoft/callback",
+        "/demo/tour",
     }
 )
 _PUBLIC_PREFIXES = ("/static/",)
@@ -148,13 +153,17 @@ def _security_headers(response):
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    # Allow Microsoft OneDrive / Office Online embeds and opens
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob:; "
-        "connect-src 'self' https://cdn.jsdelivr.net; "
-        "frame-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data: blob: https://*.sharepoint.com https://*.onedrive.com https://*.live.com; "
+        "connect-src 'self' https://cdn.jsdelivr.net https://*.microsoft.com https://*.sharepoint.com; "
+        "frame-src 'self' https://*.sharepoint.com https://*.onedrive.com "
+        "https://*.office.com https://*.officeapps.live.com https://*.live.com "
+        "https://view.officeapps.live.com; "
         "object-src 'self'; "
         "manifest-src 'self'; "
         "worker-src 'self'; "
@@ -239,11 +248,19 @@ async def security_and_auth(request: Request, call_next):
 
     # ─── Browser UI: session required (HTML redirects OK) ───
     if not _is_public_path(path) and not request.session.get("user"):
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/login", status_code=303)
 
-    if request.session.get("demo_mode") and method in ("GET", "POST", "HEAD"):
-        from app.services.demo_mode import should_block_export
+    from app.services.demo_mode import (
+        SESSION_KEY as _DEMO_KEY,
+        SESSION_LOCKED_KEY as _DEMO_LOCK,
+        should_block_export,
+    )
 
+    # Demo-only logins stay locked in demo mode for the whole session
+    if request.session.get(_DEMO_LOCK):
+        request.session[_DEMO_KEY] = True
+
+    if request.session.get(_DEMO_KEY) and method in ("GET", "POST", "HEAD"):
         if should_block_export(path):
             return RedirectResponse(
                 "/settings?demo_msg=export_blocked#settings-demo",
@@ -266,6 +283,8 @@ app.add_middleware(
 )
 
 
+# Public Accology site at / ; CRM login at /login
+app.include_router(website.router)
 app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(lost.router)
@@ -294,6 +313,7 @@ app.include_router(csv_exchange.router)
 app.include_router(settings.router)
 app.include_router(sales.router)
 app.include_router(prospecting.router)
+app.include_router(assistant.router)
 
 
 @app.get("/manifest.webmanifest")

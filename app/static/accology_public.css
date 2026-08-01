@@ -1,0 +1,501 @@
+/* Accology landing — Imagine mockup (1280×720) at 160% zoom
+   All sizes derived from mock base × --ac-s so ratios stay locked. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+
+:root {
+  --ac-black: #0A0A0A;
+  --ac-white: #FFFFFF;
+  --ac-muted: #9ca3af;
+  --ac-cyan: #00E5FF;
+  --ac-font: "Inter", "Segoe UI", "Helvetica Neue", system-ui, -apple-system, sans-serif;
+
+  /* User-validated: mock at 100% × 1.6 */
+  --ac-s: 1.6;
+
+  /* Imagine base sizes (px at 1280 mock) → scaled */
+  --ac-pad-x: calc(48px * var(--ac-s));
+  --ac-pad-y: calc(32px * var(--ac-s));
+  --ac-max: calc(1180px * var(--ac-s)); /* content width inside mock margins */
+
+  --ac-word: calc(30px * var(--ac-s));
+  --ac-tag: calc(11px * var(--ac-s));
+  --ac-rule: calc(2px * var(--ac-s));
+  --ac-brand-gap: calc(12px * var(--ac-s));
+
+  --ac-h1: calc(60px * var(--ac-s));
+  --ac-sub: calc(40px * var(--ac-s));
+  --ac-quote: calc(14px * var(--ac-s));
+  --ac-cite: calc(13px * var(--ac-s));
+  --ac-cta-fs: calc(13px * var(--ac-s));
+  --ac-cta-pad-y: calc(12px * var(--ac-s));
+  --ac-cta-pad-x: calc(22px * var(--ac-s));
+
+  --ac-login-h: calc(28px * var(--ac-s));
+  --ac-login-sub: calc(15px * var(--ac-s));
+  --ac-login-label: calc(11px * var(--ac-s));
+  --ac-login-input: calc(15px * var(--ac-s));
+  --ac-login-btn: calc(15px * var(--ac-s));
+  --ac-login-w: calc(340px * var(--ac-s));
+  --ac-login-pad: calc(28px * var(--ac-s));
+  --ac-input-h: calc(42px * var(--ac-s));
+  --ac-btn-h: calc(46px * var(--ac-s));
+
+  --ac-gap-logo-hero: calc(52px * var(--ac-s));
+  --ac-gap-cols: calc(56px * var(--ac-s));
+  --ac-gap-h1-sub: calc(16px * var(--ac-s));
+  --ac-gap-sub-quote: calc(18px * var(--ac-s));
+  --ac-gap-quote-cite: calc(10px * var(--ac-s));
+  --ac-gap-cite-cta: calc(28px * var(--ac-s));
+  --ac-radius: calc(10px * var(--ac-s));
+  --ac-footer: calc(12px * var(--ac-s));
+}
+
+/* Fit smaller viewports without breaking ratios */
+@media (max-width: 1600px) {
+  :root { --ac-s: 1.35; }
+}
+@media (max-width: 1280px) {
+  :root { --ac-s: 1.15; }
+}
+@media (max-width: 960px) {
+  :root { --ac-s: 1; }
+}
+@media (max-width: 640px) {
+  :root { --ac-s: 0.85; }
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body { margin: 0; min-height: 100%; }
+
+body.ac-landing {
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-family: var(--ac-font);
+  color: var(--ac-white);
+  background:
+    radial-gradient(ellipse 55% 70% at 78% 48%, rgba(0, 229, 255, 0.22), transparent 58%),
+    radial-gradient(ellipse 40% 50% at 82% 42%, rgba(0, 229, 255, 0.12), transparent 50%),
+    #0a0a0a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: var(--ac-cyan); text-decoration: none; }
+a:hover { color: #7ff3ff; }
+
+.ac-skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--ac-cyan);
+  color: var(--ac-black);
+  padding: 0.5rem 1rem;
+  font-weight: 700;
+}
+.ac-skip:focus { left: 0.5rem; top: 0.5rem; }
+
+/* —— Top bar —— */
+.ac-nav {
+  max-width: var(--ac-max);
+  margin: 0 auto;
+  padding: var(--ac-pad-y) var(--ac-pad-x) 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+.ac-brand {
+  --ac-lockup-h: calc(
+    var(--ac-word) + calc(4px * var(--ac-s)) + var(--ac-rule) + calc(5px * var(--ac-s)) + (var(--ac-tag) * 1.3)
+  );
+  /* First hero line "Unlock the" — rein Accology stretch so it ends near the h */
+  --ac-unlock-w: calc(var(--ac-h1) * 4.35);
+  /* Accology starts after cube + gap; stretch so its end matches end of “Unlock the” */
+  --ac-accology-w: calc(var(--ac-unlock-w) - var(--ac-lockup-h) - var(--ac-brand-gap));
+  display: inline-flex;
+  align-items: flex-start;
+  column-gap: var(--ac-brand-gap);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+}
+.ac-cube {
+  display: block;
+  flex: 0 0 auto;
+  height: var(--ac-lockup-h);
+  width: var(--ac-lockup-h);
+  overflow: visible;
+  filter: drop-shadow(0 0 calc(5px * var(--ac-s)) rgba(0, 229, 255, 0.4));
+}
+.ac-brand-text {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  line-height: 1;
+  min-width: 0;
+  min-height: var(--ac-lockup-h);
+  width: var(--ac-accology-w);
+}
+.ac-brand-word {
+  font-family: var(--ac-font);
+  font-weight: 700;
+  font-size: var(--ac-word);
+  letter-spacing: 0.02em;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+  display: block;
+  width: max-content;
+  /* Natural Accology width ≈ 4.35em of word size; scale to fill --ac-accology-w */
+  transform: scaleX(calc(var(--ac-accology-w) / (var(--ac-word) * 4.35)));
+  transform-origin: left center;
+}
+.ac-brand-word .ac-acc {
+  color: var(--ac-white);
+  font-weight: 700;
+}
+.ac-brand-word .ac-ology {
+  color: var(--ac-cyan);
+  font-weight: 700;
+}
+.ac-brand-rule {
+  display: block;
+  width: 100%;
+  height: var(--ac-rule);
+  background: var(--ac-cyan);
+  margin: calc(4px * var(--ac-s)) 0 calc(5px * var(--ac-s));
+  border: 0;
+  padding: 0;
+  flex-shrink: 0;
+}
+.ac-brand-tag {
+  font-family: var(--ac-font);
+  font-size: var(--ac-tag);
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+  color: var(--ac-white);
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+  width: 100%;
+  text-align: center;
+}
+
+/* —— Main split —— */
+.ac-shell {
+  max-width: var(--ac-max);
+  margin: 0 auto;
+  padding: var(--ac-gap-logo-hero) var(--ac-pad-x) calc(24px * var(--ac-s));
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--ac-gap-cols);
+  align-items: center;
+  min-height: calc(100vh - calc(120px * var(--ac-s)));
+  min-height: calc(100dvh - calc(120px * var(--ac-s)));
+}
+@media (min-width: 900px) {
+  .ac-shell {
+    grid-template-columns: 1.08fr 0.92fr;
+    gap: var(--ac-gap-cols);
+    align-items: center;
+  }
+}
+
+.ac-hero-col {
+  max-width: calc(520px * var(--ac-s));
+}
+.ac-hero-title {
+  margin: 0 0 var(--ac-gap-h1-sub);
+  font-family: var(--ac-font);
+  font-size: var(--ac-h1);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  color: var(--ac-white);
+}
+.ac-hero-tagline {
+  margin: 0 0 var(--ac-gap-sub-quote);
+  font-family: var(--ac-font);
+  font-size: var(--ac-sub);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--ac-cyan);
+}
+.ac-quote {
+  margin: 0 0 var(--ac-gap-quote-cite);
+  max-width: calc(460px * var(--ac-s));
+  font-size: var(--ac-quote);
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1.55;
+  color: #d8d8e0;
+}
+.ac-quote-cite {
+  display: block;
+  margin: 0 0 var(--ac-gap-cite-cta);
+  font-size: var(--ac-cite);
+  font-style: normal;
+  font-weight: 400;
+  color: #a8a8b2;
+  line-height: 1.45;
+}
+.ac-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(44px * var(--ac-s));
+  padding: var(--ac-cta-pad-y) var(--ac-cta-pad-x);
+  background: var(--ac-cyan);
+  color: var(--ac-black) !important;
+  font-family: var(--ac-font);
+  font-weight: 700;
+  font-size: var(--ac-cta-fs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: none;
+  border-radius: calc(8px * var(--ac-s));
+  cursor: pointer;
+  text-decoration: none !important;
+  box-shadow: 0 0 calc(24px * var(--ac-s)) rgba(0, 229, 255, 0.35);
+}
+.ac-cta:hover {
+  background: #7ff3ff;
+  color: var(--ac-black) !important;
+}
+
+/* Login */
+.ac-login-col {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  isolation: isolate;
+}
+.ac-login-col::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  width: min(140%, calc(420px * var(--ac-s)));
+  height: min(140%, calc(420px * var(--ac-s)));
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 50% 45%,
+      rgba(0, 229, 255, 0.38) 0%,
+      rgba(0, 229, 255, 0.16) 34%,
+      rgba(0, 229, 255, 0.05) 55%,
+      transparent 72%
+    );
+  pointer-events: none;
+  filter: blur(3px);
+}
+.ac-login-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: var(--ac-login-w);
+  margin: 0 auto;
+  background: rgba(10, 10, 14, 0.92);
+  border: calc(1.5px * var(--ac-s)) solid rgba(0, 229, 255, 0.55);
+  border-radius: var(--ac-radius);
+  padding: var(--ac-login-pad);
+  box-shadow:
+    0 0 0 1px rgba(0, 229, 255, 0.12),
+    0 0 calc(32px * var(--ac-s)) rgba(0, 229, 255, 0.32),
+    0 0 calc(80px * var(--ac-s)) rgba(0, 229, 255, 0.18),
+    0 calc(20px * var(--ac-s)) calc(40px * var(--ac-s)) rgba(0, 0, 0, 0.55);
+}
+.ac-login-card h1 {
+  margin: 0 0 calc(6px * var(--ac-s));
+  text-align: center;
+  font-family: var(--ac-font);
+  font-size: var(--ac-login-h);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ac-white);
+}
+.ac-login-card .ac-login-sub {
+  margin: 0 0 calc(22px * var(--ac-s));
+  text-align: center;
+  font-size: var(--ac-login-sub);
+  font-weight: 400;
+  color: var(--ac-muted);
+}
+.ac-login-card label {
+  display: block;
+  font-size: var(--ac-login-label);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #b8b8c0;
+  margin: calc(14px * var(--ac-s)) 0 calc(6px * var(--ac-s));
+}
+.ac-login-card label:first-of-type { margin-top: 0; }
+.ac-login-card input {
+  width: 100%;
+  min-height: var(--ac-input-h);
+  border: 1px solid #2a2a32;
+  border-radius: calc(7px * var(--ac-s));
+  padding: calc(10px * var(--ac-s)) calc(12px * var(--ac-s));
+  font: inherit;
+  font-size: var(--ac-login-input);
+  font-weight: 400;
+  color: var(--ac-white);
+  background: #0a0a0e;
+}
+.ac-login-card input::placeholder { color: #6b6b76; }
+.ac-login-card input:focus {
+  outline: none;
+  border-color: var(--ac-cyan);
+  box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.22);
+}
+.ac-login-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--ac-btn-h);
+  margin-top: calc(20px * var(--ac-s));
+  border: none;
+  border-radius: calc(7px * var(--ac-s));
+  background: var(--ac-cyan);
+  color: var(--ac-black);
+  font: inherit;
+  font-family: var(--ac-font);
+  font-size: var(--ac-login-btn);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 0 calc(22px * var(--ac-s)) rgba(0, 229, 255, 0.35);
+}
+.ac-login-btn:hover { background: #7ff3ff; }
+.ac-login-forgot {
+  margin: calc(14px * var(--ac-s)) 0 0;
+  text-align: center;
+  font-size: var(--ac-login-sub);
+}
+.ac-login-forgot a {
+  color: var(--ac-cyan);
+  font-weight: 500;
+}
+.ac-login-alert {
+  background: rgba(180, 30, 30, 0.2);
+  border: 1px solid rgba(255, 100, 100, 0.4);
+  color: #ffb4b4;
+  border-radius: calc(6px * var(--ac-s));
+  padding: calc(10px * var(--ac-s)) calc(12px * var(--ac-s));
+  margin-bottom: calc(14px * var(--ac-s));
+  font-size: var(--ac-quote);
+}
+.ac-login-meta {
+  margin: calc(14px * var(--ac-s)) 0 0;
+  text-align: center;
+  font-size: var(--ac-cite);
+}
+.ac-login-meta a { color: var(--ac-cyan); font-weight: 600; }
+.ac-login-demo {
+  margin-top: calc(16px * var(--ac-s));
+  padding-top: calc(14px * var(--ac-s));
+  border-top: 1px solid #22222a;
+  font-size: calc(12px * var(--ac-s));
+  color: var(--ac-muted);
+  text-align: center;
+  line-height: 1.45;
+}
+.ac-login-demo a { font-weight: 600; }
+
+/* Footer */
+.ac-landing-footer {
+  text-align: center;
+  padding: calc(8px * var(--ac-s)) var(--ac-pad-x) calc(24px * var(--ac-s));
+  font-size: var(--ac-footer);
+  color: #6b6b76;
+}
+.ac-landing-footer a {
+  color: #8a8a94;
+  margin-left: calc(12px * var(--ac-s));
+}
+.ac-landing-footer a:hover { color: var(--ac-cyan); }
+
+/* Contact (below fold) */
+.ac-contact-band {
+  max-width: var(--ac-max);
+  margin: 0 auto;
+  padding: calc(20px * var(--ac-s)) var(--ac-pad-x) calc(48px * var(--ac-s));
+}
+.ac-contact-panel {
+  max-width: calc(400px * var(--ac-s));
+  margin: 0 auto;
+  border: 1px solid #22222a;
+  border-radius: var(--ac-radius);
+  padding: calc(24px * var(--ac-s));
+  background: rgba(10, 10, 12, 0.7);
+}
+.ac-contact-panel h2 {
+  margin: 0 0 calc(6px * var(--ac-s));
+  font-size: calc(20px * var(--ac-s));
+  font-weight: 700;
+}
+.ac-contact-panel .ac-muted {
+  margin: 0 0 calc(18px * var(--ac-s));
+  color: var(--ac-muted);
+  font-size: var(--ac-login-sub);
+}
+.ac-contact-panel label {
+  display: block;
+  font-size: var(--ac-login-label);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #c4c4cc;
+  margin: calc(12px * var(--ac-s)) 0 calc(5px * var(--ac-s));
+}
+.ac-contact-panel input,
+.ac-contact-panel textarea {
+  width: 100%;
+  min-height: calc(40px * var(--ac-s));
+  border: 1px solid #2a2a32;
+  border-radius: calc(6px * var(--ac-s));
+  padding: calc(8px * var(--ac-s)) calc(12px * var(--ac-s));
+  font: inherit;
+  font-size: var(--ac-login-input);
+  color: var(--ac-white);
+  background: #0a0a0e;
+}
+.ac-contact-panel textarea { min-height: calc(100px * var(--ac-s)); resize: vertical; }
+.ac-contact-panel input:focus,
+.ac-contact-panel textarea:focus {
+  outline: none;
+  border-color: var(--ac-cyan);
+}
+.ac-success {
+  color: var(--ac-cyan);
+  font-weight: 600;
+  margin: 0;
+}
+.ac-hp {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .ac-shell {
+    min-height: auto;
+    padding-top: calc(32px * var(--ac-s));
+  }
+  .ac-login-card { max-width: none; }
+  .ac-hero-col { max-width: none; }
+}

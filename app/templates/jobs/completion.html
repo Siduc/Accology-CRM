@@ -141,9 +141,11 @@
               aria-label="Net value for job {{ j.id }}"
             >
           </td>
-          <td class="actions-cell">
+          <td class="actions-cell nowrap">
             <a class="btn btn-sm btn-outline" href="/jobs/{{ j.id }}">Job</a>
             {% if not r.is_billed %}
+            <button class="btn btn-sm" type="submit" form="completion-done-{{ j.id }}"
+              title="Raise invoice for this job">Done / Invoice</button>
             <span class="badge">unbilled</span>
             {% else %}
             <span class="badge badge-active">invoiced</span>
@@ -178,4 +180,13 @@
   </p>
   {% endif %}
 </form>
+{% if rows %}
+{% for r in rows %}
+{% if not r.is_billed %}
+<form id="completion-done-{{ r.job.id }}" method="post" action="/jobs/{{ r.job.id }}/done" style="display:none">
+  <input type="hidden" name="next" value="/jobs/completion?period={{ period }}{% if job_type %}&type={{ job_type }}{% endif %}">
+</form>
+{% endif %}
+{% endfor %}
+{% endif %}
 {% endblock %}

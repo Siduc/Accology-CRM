@@ -54,11 +54,18 @@ def _company_clients_of(person: Person) -> list[Client]:
 
 def _person_row(person: Person) -> dict:
     """Plain dict for templates (avoids Jinja method-call issues)."""
+    from app.text_format import normalize_person_name
+
     cos = _company_clients_of(person)
     individual = bool(person.is_individual_client)
+    raw_name = (person.full_name or "").strip()
+    display = (
+        normalize_person_name(raw_name) if raw_name else f"Person #{person.id}"
+    )
     return {
         "id": person.id,
         "full_name": person.full_name,
+        "display_name": display,
         "email": person.email,
         "phone": person.phone,
         "role": person.role,

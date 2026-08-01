@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0944F4">
+  <meta name="description" content="{% block meta_description %}Accology — Accounting Science. Compliance and advisory for UK SMEs since 2010.{% endblock %}">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <title>{% block title %}Accology · Accounting Science{% endblock %}</title>
+  <link rel="stylesheet" href="/static/website.css?v=2">
+</head>
+<body class="site-body">
+  <a class="site-skip" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="site-brand" href="/" aria-label="Accology home">
+        {# Real Accology wordmark (logo.png) — never typeset as plain text #}
+        <img class="site-logo"
+          src="{{ practice_logo_url or '/static/branding/logo.png' }}"
+          alt="Accology — Accounting Science"
+          width="220" height="55">
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/#services">Services</a>
+        <a href="/contact">Contact</a>
+        {% if logged_in %}
+        <a class="site-nav-login" href="/dashboard">Open CRM</a>
+        {% else %}
+        <a class="site-nav-login" href="/login">Log in</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="site-main">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div class="site-footer-brand">
+        <div class="site-footer-name">Accology</div>
+        <div class="site-footer-tag">Accounting Science</div>
+        <p class="site-footer-est">Established 2010</p>
+      </div>
+      <div class="site-footer-col">
+        <h2 class="site-footer-h">Contact</h2>
+        <p>
+          {{ site_address_one_line }}<br>
+          <a href="mailto:{{ site_email }}">{{ site_email }}</a><br>
+          <span class="site-muted">Phone: {{ site_phone }}</span>
+        </p>
+      </div>
+      <div class="site-footer-col">
+        <h2 class="site-footer-h">Practice</h2>
+        <p>
+          <a href="/contact">Get in touch</a><br>
+          <a href="/login">Log in</a>
+        </p>
+      </div>
+    </div>
+    <div class="site-footer-base">
+      <span>© {{ site_name }} · Accounting Science</span>
+    </div>
+  </footer>
+</body>
+</html>

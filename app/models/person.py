@@ -43,6 +43,14 @@ class Person(Base):
         lazy="joined",
     )
 
+    def display_name(self) -> str:
+        """Proper-cased person name for lists (no Mr/Mrs; display only)."""
+        from app.text_format import normalize_person_name
+
+        if self.full_name:
+            return normalize_person_name(self.full_name)
+        return f"Person #{self.id}"
+
     def client_names(self) -> str:
         if not self.clients:
             return ""

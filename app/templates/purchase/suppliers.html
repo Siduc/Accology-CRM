@@ -22,9 +22,9 @@
       <tbody>
         {% for s in suppliers %}
         <tr>
-          <td><strong>{{ s.name }}</strong>{% if s.contact_name %}<div class="small muted">{{ s.contact_name }}</div>{% endif %}</td>
+          <td><strong>{{ s.display_name() }}</strong>{% if s.contact_name %}<div class="small muted">{{ s.contact_name|norm_person }}</div>{% endif %}</td>
           <td>{{ s.vat_number or '—' }}</td>
-          <td>{{ s.payment_terms_days or 30 }} days</td>
+          <td>{{ s.payment_terms_days if s.payment_terms_days is not none else 0 }} days</td>
           <td>{% if s.is_active %}<span class="badge badge-active">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td>
           <td><a class="btn btn-sm btn-outline wc-touch" href="/purchase/suppliers/{{ s.id }}/edit">Edit</a>
               <a class="btn btn-sm wc-touch" href="/purchase/bills/new?supplier_id={{ s.id }}">Bill</a></td>

@@ -198,6 +198,7 @@ def _add_missing_columns():
         ],
         "practice_tasks": [
             ("priority", "VARCHAR"),
+            ("sort_order", "INTEGER"),
             ("source_email_date", "DATE"),
             ("import_source", "VARCHAR"),
             ("import_hash", "VARCHAR"),

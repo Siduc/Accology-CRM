@@ -61,7 +61,25 @@ class Client(Base):
     jobs = relationship("Job", back_populates="client", foreign_keys="Job.client_id")
 
     def display_name(self) -> str:
-        return self.company_name or self.company_number or f"Client #{self.id}"
+        """Proper-cased name for lists and labels (display only; DB unchanged).
+
+        Individual / IND- shells and names that start with Mr/Mrs/Ms/Miss
+        drop honorifics so list sort is by the real name.
+        """
+        from app.text_format import normalize_caps, normalize_person_name, strip_name_titles
+
+        if not self.company_name:
+            return self.company_number or f"Client #{self.id}"
+
+        name = (self.company_name or "").strip()
+        ct = (self.client_type or "").strip().lower()
+        cn = (self.company_number or "").strip().upper()
+        is_person = ct == "individual" or cn.startswith("IND-")
+        # Name already carries a title (common on SA person shells)
+        titled = bool(name) and strip_name_titles(name) != name
+        if is_person or titled:
+            return normalize_person_name(name)
+        return normalize_caps(name)
 
     def address_block(self) -> str:
         parts = [

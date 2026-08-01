@@ -1,60 +1,174 @@
 {% extends "base.html" %}
-{% block title %}{{ inv.number }} · Accologise{% endblock %}
+{% block title %}{{ inv.number }} · Invoice · Accologise{% endblock %}
 {% block content %}
-<div class="page-header">
+<div class="page-header no-print">
   <div>
     <p class="small muted"><a href="/sales/invoices">← Invoices</a></p>
     <h1>{{ inv.number }}</h1>
     <p class="muted small">
-      {% if client %}<a href="/clients/{{ client.id }}">{{ client.display_name() }}</a> ·{% endif %}
       <span class="badge">{{ inv.status }}</span>
       · age {{ age }}d{% if overdue %} · overdue {{ overdue }}d{% endif %}
       {% if job %} · <a href="/jobs/{{ job.id }}">Job #{{ job.id }}</a>{% endif %}
     </p>
   </div>
   <div class="actions">
+    <a class="btn" href="/sales/invoices/{{ inv.id }}/edit">Edit invoice</a>
     {% if inv.balance > 0 %}
-    <a class="btn" href="/sales/payments/new?client_id={{ inv.client_id }}&invoice_id={{ inv.id }}">Record payment</a>
+    <a class="btn btn-outline" href="/sales/payments/new?client_id={{ inv.client_id }}&invoice_id={{ inv.id }}">Record payment</a>
     {% if overdue >= 7 %}
     <a class="btn btn-secondary wc-touch" href="/sales/chase/preview/{{ inv.id }}?stage={{ suggest }}">Preview chase email</a>
     {% endif %}
     {% endif %}
+    <button class="btn btn-outline" type="button" onclick="window.print()">Print</button>
   </div>
 </div>
-<div class="grid-2">
-  <div class="card">
-    <dl class="dl-grid">
-      <dt>Issued</dt><dd>{{ inv.issue_date }}</dd>
-      <dt>Due</dt><dd>{{ inv.due_date or '—' }}</dd>
-      <dt>Subtotal</dt><dd>£{{ '%.2f'|format(inv.subtotal or 0) }}</dd>
-      <dt>VAT</dt><dd>£{{ '%.2f'|format(inv.vat_total or 0) }}</dd>
-      <dt>Total</dt><dd>£{{ '%.2f'|format(inv.total or 0) }}</dd>
-      <dt>Paid</dt><dd>£{{ '%.2f'|format(inv.amount_paid or 0) }}</dd>
-      <dt>Balance</dt><dd><strong>£{{ '%.2f'|format(inv.balance or 0) }}</strong></dd>
-    </dl>
-    <h3>Lines</h3>
-    <ul>
-      {% for ln in inv.lines %}
-      <li>{{ ln.description }} — {{ ln.qty }} × £{{ '%.2f'|format(ln.unit_price) }} = £{{ '%.2f'|format(ln.line_total) }}</li>
+
+{% if msg %}
+<div class="chase-banner chase-banner-info no-print">{{ msg }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error no-print">{{ error }}</div>
+{% endif %}
+
+{# ========== Invoice document ========== #}
+<article class="invoice-doc" aria-label="Invoice {{ inv.number }}">
+  {% if practice_letterhead_image_ready and practice_letterhead_image_url %}
+  <div class="invoice-doc-letterhead">
+    <img src="{{ practice_letterhead_image_url }}" alt="{{ practice_name }} letterhead">
+  </div>
+  {% endif %}
+  <header class="invoice-doc-header {% if practice_letterhead_image_ready %}invoice-doc-header-under-lh{% endif %}">
+    <div class="invoice-doc-brand">
+      {% if not practice_letterhead_image_ready %}
+        {% if practice_logo_url %}
+        <img class="invoice-doc-logo" src="{{ practice_logo_url }}" alt="{{ practice_name }} logo">
+        {% else %}
+        <div class="invoice-doc-logo-placeholder" title="Settings → Letterhead &amp; logo">
+          <span class="invoice-doc-logo-mark">{{ (practice_name or 'A')[0] }}</span>
+          <span class="invoice-doc-logo-hint">Logo</span>
+        </div>
+        {% endif %}
+      {% endif %}
+      <div class="invoice-doc-practice">
+        {% if not practice_letterhead_image_ready %}
+        <div class="invoice-doc-practice-name">{{ practice_name or 'Accology' }}</div>
+        {% if practice_email %}<div class="muted small">{{ practice_email }}</div>{% endif %}
+        {% if practice_phone %}<div class="muted small">{{ practice_phone }}</div>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+    <div class="invoice-doc-meta">
+      <div class="invoice-doc-title">INVOICE</div>
+      <div class="invoice-doc-number">{{ inv.number }}</div>
+      <dl class="invoice-doc-dates">
+        <div><dt>Issue date</dt><dd>{{ inv.issue_date|uk_date }}</dd></div>
+        <div><dt>Due date</dt><dd>{{ inv.due_date|uk_date if inv.due_date else '—' }}</dd></div>
+        <div><dt>Status</dt><dd>{{ inv.status }}</dd></div>
+      </dl>
+    </div>
+  </header>
+
+  <section class="invoice-doc-parties">
+    <div>
+      <h2 class="invoice-doc-label">Bill to</h2>
+      {% if client %}
+      <div class="invoice-doc-client">
+        <strong><a href="/clients/{{ client.id }}">{{ client.display_name() }}</a></strong>
+        {% if client.address_line1 %}<div>{{ client.address_line1 }}</div>{% endif %}
+        {% if client.address_line2 %}<div>{{ client.address_line2 }}</div>{% endif %}
+        {% if client.town or client.postcode %}
+        <div>{% if client.town %}{{ client.town }}{% endif %}{% if client.town and client.postcode %}, {% endif %}{{ client.postcode or '' }}</div>
+        {% endif %}
+        {% if client.email %}<div class="muted small">{{ client.email }}</div>{% endif %}
+      </div>
       {% else %}
-      <li class="muted">No lines loaded — open after refresh</li>
-      {% endfor %}
-    </ul>
-    <form method="post" action="/sales/invoices/{{ inv.id }}/status" class="actions" style="margin-top:1rem">
+      <p class="muted">No client linked</p>
+      {% endif %}
+    </div>
+    <div>
+      {% if job %}
+      <h2 class="invoice-doc-label">Job</h2>
+      <p class="small">
+        <a href="/jobs/{{ job.id }}">{{ job.title or job.type or ('Job #' ~ job.id) }}</a>
+        {% if job.period_end %}<br><span class="muted">Period end {{ job.period_end|uk_date }}</span>{% endif %}
+      </p>
+      {% endif %}
+    </div>
+  </section>
+
+  <div class="table-wrap invoice-doc-lines-wrap">
+    <table class="invoice-doc-lines">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th class="num">Qty</th>
+          <th class="num">Unit price</th>
+          <th class="num">VAT</th>
+          <th class="num">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ln in inv.lines %}
+        <tr>
+          <td>{{ ln.description }}</td>
+          <td class="num">{{ '%.2f'|format(ln.qty or 0) }}</td>
+          <td class="num">£{{ '%.2f'|format(ln.unit_price or 0) }}</td>
+          <td class="num">{% if ln.vat_rate %}{{ '%.0f'|format((ln.vat_rate or 0) * 100) }}%{% else %}—{% endif %}</td>
+          <td class="num">£{{ '%.2f'|format(ln.line_total or 0) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">No lines</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <section class="invoice-doc-totals">
+    <div class="invoice-doc-notes">
+      {% if inv.notes %}
+      <h2 class="invoice-doc-label">Notes</h2>
+      <p>{{ inv.notes }}</p>
+      {% endif %}
+    </div>
+    <dl class="invoice-doc-sum">
+      <div><dt>Subtotal</dt><dd>£{{ '%.2f'|format(inv.subtotal or 0) }}</dd></div>
+      <div><dt>VAT</dt><dd>£{{ '%.2f'|format(inv.vat_total or 0) }}</dd></div>
+      <div class="invoice-doc-sum-total"><dt>Total</dt><dd>£{{ '%.2f'|format(inv.total or 0) }}</dd></div>
+      <div><dt>Paid</dt><dd>£{{ '%.2f'|format(inv.amount_paid or 0) }}</dd></div>
+      <div class="invoice-doc-sum-balance"><dt>Balance due</dt><dd>£{{ '%.2f'|format(inv.balance or 0) }}</dd></div>
+    </dl>
+  </section>
+
+  <footer class="invoice-doc-footer muted small">
+    Thank you for your business.
+    <span class="no-print">
+      · Branding:
+      <a href="/settings#settings-branding">Settings → Letterhead &amp; logo</a>
+      {% if practice_letterhead_pdf_ready %}
+      · <a href="{{ practice_letterhead_pdf_url }}" target="_blank" rel="noopener">Letterhead PDF</a>
+      {% endif %}
+    </span>
+  </footer>
+</article>
+
+{# ========== Admin / chase (screen only) ========== #}
+<div class="grid-2 no-print" style="margin-top:1.25rem">
+  <div class="card">
+    <h2 style="margin-top:0">Status</h2>
+    <form method="post" action="/sales/invoices/{{ inv.id }}/status" class="actions">
       <select name="status">
-        <option value="sent">Sent</option>
-        <option value="draft">Draft</option>
-        <option value="void">Void</option>
-        <option value="written_off">Written off</option>
+        <option value="sent" {% if inv.status == 'sent' %}selected{% endif %}>Sent</option>
+        <option value="draft" {% if inv.status == 'draft' %}selected{% endif %}>Draft</option>
+        <option value="void" {% if inv.status == 'void' %}selected{% endif %}>Void</option>
+        <option value="written_off" {% if inv.status == 'written_off' %}selected{% endif %}>Written off</option>
       </select>
       <button class="btn btn-sm btn-outline" type="submit">Update status</button>
     </form>
   </div>
   <div class="card" id="debt-chase">
-    <h2>Debt chase</h2>
+    <h2 style="margin-top:0">Debt chase</h2>
     <p class="muted small">
       Suggested tone: <strong>{{ stage_labels.get(suggest, suggest) if stage_labels is defined else suggest }}</strong>
-      (Working Capital · credit control)
     </p>
     {% if not chase_live %}
     <p class="small chase-inline-practice">Practice mode — email sends are blocked system-wide.</p>
@@ -68,27 +182,16 @@
       </select>
       <input type="hidden" name="channel" id="chase-channel" value="note">
       <label>Notes <span class="muted small">(type or use voice)</span></label>
-      <textarea name="notes" id="chase-notes" rows="4" placeholder="Call outcome, promise to pay, dispute…"></textarea>
+      <textarea name="notes" id="chase-notes" rows="3" placeholder="Call outcome, promise to pay, dispute…"></textarea>
       <div class="voice-bar" data-voice-target="chase-notes" data-voice-channel="chase-channel">
-        <button type="button" class="btn btn-sm btn-outline wc-touch" id="voice-start" data-voice-start>
-          🎙 Voice note
-        </button>
-        <button type="button" class="btn btn-sm btn-outline wc-touch" id="voice-stop" data-voice-stop hidden>
-          Stop
-        </button>
-        <span class="small muted" data-voice-status>Browser speech-to-text (Chrome / Edge)</span>
+        <button type="button" class="btn btn-sm btn-outline wc-touch" id="voice-start" data-voice-start>🎙 Voice note</button>
+        <button type="button" class="btn btn-sm btn-outline wc-touch" id="voice-stop" data-voice-stop hidden>Stop</button>
+        <span class="small muted" data-voice-status>Browser speech-to-text</span>
       </div>
       <label>Next action date</label>
       <input type="date" name="next_action_date">
       <button class="btn wc-touch" type="submit">Log chase action</button>
     </form>
-    {% if overdue >= 7 and inv.balance > 0 %}
-    <p style="margin-top:0.75rem">
-      <a class="btn btn-secondary btn-sm wc-touch" href="/sales/chase/preview/{{ inv.id }}?stage={{ suggest }}">
-        Compose escalating email…
-      </a>
-    </p>
-    {% endif %}
     {% if chase %}
     <h3>History</h3>
     <ul class="chase-history">
@@ -96,10 +199,7 @@
       <li>
         <strong>{{ a.action_date }}</strong>
         · {{ a.stage or a.action_type }}
-        {% if a.channel %}<span class="badge">{{ a.channel }}</span>{% endif %}
-        {% if a.send_status %}<span class="small muted">({{ a.send_status }})</span>{% endif %}
         {% if a.notes %}<div class="small">{{ a.notes }}</div>{% endif %}
-        {% if a.email_subject %}<div class="small muted">Subj: {{ a.email_subject }}</div>{% endif %}
       </li>
       {% endfor %}
     </ul>

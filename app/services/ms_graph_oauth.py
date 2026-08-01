@@ -17,23 +17,21 @@ from urllib.request import Request, urlopen
 
 from sqlalchemy.orm import Session
 
-from app.config import (
-    GRAPH_API_BASE,
-    MS_GRAPH_AUTHORISE_URL,
-    MS_GRAPH_CLIENT_ID,
-    MS_GRAPH_CLIENT_SECRET,
-    MS_GRAPH_REDIRECT_URI,
-    MS_GRAPH_SCOPES,
-    MS_GRAPH_TOKEN_URL,
-    SESSION_SECRET,
-    ms_graph_configured,
-)
+import app.config as _cfg
 from app.models.ms_graph_token import MsGraphToken
 
 logger = logging.getLogger("accountant_crm.ms_graph_oauth")
 
 STATE_MAX_AGE_SECONDS = 600
 TOKEN_SKEW_SECONDS = 60
+
+
+def _sync_cfg() -> None:
+    """Refresh MS Graph env (MS_GRAPH_CLIENT_ID / SECRET / REDIRECT_URI)."""
+    try:
+        _cfg.refresh_ms_graph_settings(force_dotenv=True)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @dataclass
@@ -49,15 +47,20 @@ class TokenResult:
 
 
 def oauth_is_ready() -> bool:
-    return ms_graph_configured()
+    return _cfg.ms_graph_configured(refresh=True)
 
 
 def default_redirect_uri() -> str:
-    return (MS_GRAPH_REDIRECT_URI or "").strip()
+    _sync_cfg()
+    return (_cfg.MS_GRAPH_REDIRECT_URI or "").strip()
 
 
 def mask_client_id(client_id: Optional[str] = None) -> str:
-    cid = (client_id if client_id is not None else MS_GRAPH_CLIENT_ID) or ""
+    if client_id is None:
+        _sync_cfg()
+        cid = _cfg.MS_GRAPH_CLIENT_ID or ""
+    else:
+        cid = client_id or ""
     cid = cid.strip()
     if not cid:
         return ""
@@ -67,7 +70,10 @@ def mask_client_id(client_id: Optional[str] = None) -> str:
 
 
 def build_scopes() -> str:
-    return (MS_GRAPH_SCOPES or "offline_access User.Read Files.ReadWrite").strip()
+    _sync_cfg()
+    return (
+        _cfg.MS_GRAPH_SCOPES or "offline_access User.Read Files.ReadWrite"
+    ).strip()
 
 
 def sign_state(*, return_to: str = "") -> str:
@@ -82,7 +88,7 @@ def sign_state(*, return_to: str = "") -> str:
         json.dumps(payload, separators=(",", ":")).encode("utf-8")
     ).decode("ascii")
     sig = hmac.new(
-        (SESSION_SECRET or "dev").encode("utf-8"),
+        (_cfg.SESSION_SECRET or "dev").encode("utf-8"),
         body.encode("ascii"),
         hashlib.sha256,
     ).hexdigest()
@@ -94,7 +100,7 @@ def parse_state(state: str) -> Tuple[bool, Dict[str, Any], str]:
         return False, {}, "Invalid state."
     body, sig = state.rsplit(".", 1)
     expected = hmac.new(
-        (SESSION_SECRET or "dev").encode("utf-8"),
+        (_cfg.SESSION_SECRET or "dev").encode("utf-8"),
         body.encode("ascii"),
         hashlib.sha256,
     ).hexdigest()
@@ -113,20 +119,30 @@ def parse_state(state: str) -> Tuple[bool, Dict[str, Any], str]:
 def build_authorise_url(*, state: str, redirect_uri: Optional[str] = None) -> str:
     if not oauth_is_ready():
         raise RuntimeError("Microsoft Graph is not configured.")
+    _sync_cfg()
+    redir = (redirect_uri or default_redirect_uri()).strip()
+    if not redir:
+        raise RuntimeError("MS_GRAPH_REDIRECT_URI is empty.")
+    logger.info(
+        "MS Graph authorize redirect_uri=%s client_id=%s",
+        redir,
+        mask_client_id(),
+    )
     params = {
-        "client_id": (MS_GRAPH_CLIENT_ID or "").strip(),
+        "client_id": (_cfg.MS_GRAPH_CLIENT_ID or "").strip(),
         "response_type": "code",
-        "redirect_uri": (redirect_uri or default_redirect_uri()).strip(),
+        "redirect_uri": redir,
         "response_mode": "query",
         "scope": build_scopes(),
         "state": state,
     }
-    base = (MS_GRAPH_AUTHORISE_URL or "").strip()
+    base = (_cfg.MS_GRAPH_AUTHORISE_URL or "").strip()
     return f"{base}?{urlencode(params)}"
 
 
 def _post_token(form: Dict[str, str]) -> TokenResult:
-    url = (MS_GRAPH_TOKEN_URL or "").strip()
+    _sync_cfg()
+    url = (_cfg.MS_GRAPH_TOKEN_URL or "").strip()
     if not url:
         return TokenResult(ok=False, error="Token URL not configured.")
     body = urlencode(form).encode("utf-8")
@@ -171,10 +187,11 @@ def _post_token(form: Dict[str, str]) -> TokenResult:
 
 
 def exchange_code(code: str, *, redirect_uri: Optional[str] = None) -> TokenResult:
+    _sync_cfg()
     return _post_token(
         {
-            "client_id": (MS_GRAPH_CLIENT_ID or "").strip(),
-            "client_secret": (MS_GRAPH_CLIENT_SECRET or "").strip(),
+            "client_id": (_cfg.MS_GRAPH_CLIENT_ID or "").strip(),
+            "client_secret": (_cfg.MS_GRAPH_CLIENT_SECRET or "").strip(),
             "code": (code or "").strip(),
             "redirect_uri": (redirect_uri or default_redirect_uri()).strip(),
             "grant_type": "authorization_code",
@@ -184,10 +201,11 @@ def exchange_code(code: str, *, redirect_uri: Optional[str] = None) -> TokenResu
 
 
 def refresh_access_token(refresh_token: str) -> TokenResult:
+    _sync_cfg()
     return _post_token(
         {
-            "client_id": (MS_GRAPH_CLIENT_ID or "").strip(),
-            "client_secret": (MS_GRAPH_CLIENT_SECRET or "").strip(),
+            "client_id": (_cfg.MS_GRAPH_CLIENT_ID or "").strip(),
+            "client_secret": (_cfg.MS_GRAPH_CLIENT_SECRET or "").strip(),
             "refresh_token": (refresh_token or "").strip(),
             "grant_type": "refresh_token",
             "scope": build_scopes(),
@@ -196,7 +214,7 @@ def refresh_access_token(refresh_token: str) -> TokenResult:
 
 
 def graph_get(path: str, access_token: str) -> Tuple[bool, Dict[str, Any], str]:
-    base = (GRAPH_API_BASE or "https://graph.microsoft.com/v1.0").rstrip("/")
+    base = (_cfg.GRAPH_API_BASE or "https://graph.microsoft.com/v1.0").rstrip("/")
     url = path if path.startswith("http") else f"{base}{path}"
     req = Request(
         url,
@@ -361,7 +379,7 @@ def connection_status(db: Session) -> Dict[str, Any]:
         "expires_at": row.expires_at if row else None,
         "status": (row.status if row else "none"),
         "client_mask": mask_client_id(),
-        "secret_set": bool((MS_GRAPH_CLIENT_SECRET or "").strip()),
+        "secret_set": bool((_cfg.MS_GRAPH_CLIENT_SECRET or "").strip()),
         "redirect_uri": default_redirect_uri(),
     }
 

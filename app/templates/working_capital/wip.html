@@ -9,69 +9,100 @@
       · as at {{ today.strftime('%d-%m-%Y') }}
     </p>
   </div>
-  {# Desk: same quick actions as dashboard #}
-  <div class="actions wip-top-actions wip-actions-desk">
-    <a class="btn btn-sm" href="/jobs/new?next=/working-capital/wip">New Job</a>
-    <a class="btn btn-sm btn-secondary" href="/clients/new">New Client</a>
-    <a class="btn btn-sm btn-outline" href="/prospecting/prospects/new">New Prospect</a>
-  </div>
-</div>
-
-{# Phone: action tiles like main dashboard #}
-<div class="action-tiles wip-action-tiles" role="navigation" aria-label="Quick actions">
-  <a class="action-tile action-job" href="/jobs/new?next=/working-capital/wip">
-    <span class="action-plus">+</span>
-    <span class="action-label">New Job</span>
-  </a>
-  <a class="action-tile action-client" href="/clients/new">
-    <span class="action-plus">+</span>
-    <span class="action-label">New Client</span>
-  </a>
-  <a class="action-tile action-prospect" href="/prospecting/prospects/new">
-    <span class="action-plus">+</span>
-    <span class="action-label">New Prospect</span>
-  </a>
 </div>
 
 {% if show_age_home %}
-<p class="small muted subdash-hint wip-hint-desk">
-  <strong>Today</strong> = overdue + this month + status Today · then next three months · everything else.
-</p>
+{# ========== DESKTOP WIP HOME ========== #}
+<div class="wip-desk subdash-desk">
 
-<div class="wip-desk subdash-desk wc-cycle">
-  {# Today — same format as Total WIP banner #}
+  {# 1) Accounts · SAR · Other — title + £ + count #}
+  <div class="wc-grid wip-type-home" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:1rem" aria-label="Job types">
+    {% for t in type_home_totals %}
+    <a class="wc-box {{ type_box_class.get(t.key, 'wc-box-wip') }} wc-touch" href="{{ t.href }}">
+      <div class="wc-box-head">
+        <span class="wc-box-title">{{ t.label }}</span>
+        <span class="wc-box-link">List →</span>
+      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(t.amount) }}</div>
+      <div class="wc-box-meta"><span class="wc-box-meta-num">{{ t.count }}</span> jobs</div>
+    </a>
+    {% else %}
+    <a class="wc-box wc-box-wip wc-touch" href="/jobs/accounts">
+      <div class="wc-box-head"><span class="wc-box-title">Accounts</span></div>
+      <div class="wc-box-value">£0</div>
+      <div class="wc-box-meta">0 jobs</div>
+    </a>
+    <a class="wc-box wc-box-cash wc-touch" href="/jobs/self-assessment">
+      <div class="wc-box-head"><span class="wc-box-title">SAR</span></div>
+      <div class="wc-box-value">£0</div>
+      <div class="wc-box-meta">0 jobs</div>
+    </a>
+    <a class="wc-box wc-box-creditors wc-touch" href="/jobs/other">
+      <div class="wc-box-head"><span class="wc-box-title">Other</span></div>
+      <div class="wc-box-value">£0</div>
+      <div class="wc-box-meta">0 jobs</div>
+    </a>
+    {% endfor %}
+  </div>
+
+  <p class="small muted" style="margin:0 0 0.75rem">
+    <strong>Today</strong> = overdue + pin ·
+    <strong>Tomorrow</strong> / <strong>This week</strong> = near term ·
+    then next three months and thereafter.
+  </p>
+
+  {# 2) Today — wide only once #}
   <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch"
      href="/working-capital/wip?horizon=today">
     <div class="wc-net-main">
       <div class="wc-net-label">Today</div>
       <div class="wc-net-value">£{{ '{:,.0f}'.format(today_band.amount) }}</div>
-      <div class="wc-net-formula small">
-        {{ today_band.count }} jobs · overdue · imminent · status Today
-      </div>
+      <div class="wc-net-formula small">{{ today_band.count }} jobs · overdue · due today · status Today</div>
     </div>
     <p class="wc-net-hint small">Types + list →</p>
   </a>
 
-  <div class="wc-grid" aria-label="WIP months">
-    {% for b in mid_bands %}
-    {% set n = loop.index %}
+  {# 3) Tomorrow + This week — exactly one pair of narrow boxes #}
+  <div class="wc-grid" style="margin-top:0.75rem" aria-label="Near term">
+    <a class="wc-box wc-box-debtors wc-touch" href="/working-capital/wip?horizon=tomorrow">
+      <div class="wc-box-head">
+        <span class="wc-box-title">Tomorrow</span>
+        <span class="wc-box-link">List →</span>
+      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(tomorrow_band.amount|default(0)) }}</div>
+      <div class="wc-box-meta"><span class="wc-box-meta-num">{{ tomorrow_band.count|default(0) }}</span> jobs · imminent</div>
+    </a>
+    <a class="wc-box wc-box-cash wc-touch" href="/working-capital/wip?horizon=this_week">
+      <div class="wc-box-head">
+        <span class="wc-box-title">This week</span>
+        <span class="wc-box-link">List →</span>
+      </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(this_week_band.amount|default(0)) }}</div>
+      <div class="wc-box-meta"><span class="wc-box-meta-num">{{ this_week_band.count|default(0) }}</span> jobs · rest of week</div>
+    </a>
+  </div>
+
+  {# 4) Four aged calendar boxes only (m1 · m2 · m3 · later) #}
+  <div class="wc-grid" style="margin-top:0.75rem" aria-label="Aged WIP">
+    {% for b in calendar_bands %}
     <a class="wc-box {{ mid_box_class.get(b.key, 'wc-box-wip') }} wc-touch"
        href="/working-capital/wip?horizon={{ b.key }}">
       <div class="wc-box-head">
-        <span class="wc-box-title">{{ n }} · {{ b.label }}</span>
+        <span class="wc-box-title">{{ loop.index }} · {{ b.label }}</span>
         <span class="wc-box-link">Types →</span>
       </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(b.amount) }}</div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(b.amount|default(0)) }}</div>
       <div class="wc-box-meta">
-        <span class="wc-box-meta-num">{{ b.count }}</span>
-        jobs · {{ b.detail|default('') }}
+        <span class="wc-box-meta-num">{{ b.count|default(0) }}</span>
+        jobs{% if b.detail %} · {{ b.detail }}{% endif %}
       </div>
     </a>
     {% endfor %}
   </div>
 
+  {# 5) Total #}
   <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch"
-     href="/working-capital/wip?horizon=all">
+     href="/working-capital/wip?horizon=all" style="margin-top:0.75rem">
     <div class="wc-net-main">
       <div class="wc-net-label">Total WIP</div>
       <div class="wc-net-value">£{{ '{:,.0f}'.format(total) }}</div>
@@ -81,30 +112,67 @@
         {% if (tasks_value|default(0)) > 0 %}+ tasks £{{ '{:,.0f}'.format(tasks_value) }}{% endif %}
       </div>
     </div>
-    <p class="wc-net-hint small">Types + full list →</p>
+    <p class="wc-net-hint small">Full open book →</p>
   </a>
 </div>
 
+{# ========== MOBILE LIVE TILES (mirror desk, no duplicates) ========== #}
 <div class="wip-mobile subdash-mobile">
+  {# Accounts wide · SAR + Other underneath #}
+  {% set th = type_home_totals|default([]) %}
+  {% if th|length >= 1 %}
+  <a class="live-tile live-tile-wide {{ type_tile_class.get(th[0].key, 'tile-wip') }}"
+     href="{{ th[0].href }}" style="margin-bottom:0.55rem">
+    <span class="live-kicker">{{ th[0].label }}</span>
+    <span class="live-value">£{{ '{:,.0f}'.format(th[0].amount) }}</span>
+    <span class="live-sub">{{ th[0].count }} jobs · full list →</span>
+  </a>
+  {% endif %}
+  {% if th|length >= 3 %}
+  <div class="live-grid" style="margin-bottom:0.65rem">
+    <a class="live-tile {{ type_tile_class.get(th[1].key, 'tile-cash') }}" href="{{ th[1].href }}">
+      <span class="live-kicker">{{ th[1].label }}</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(th[1].amount) }}</span>
+      <span class="live-sub">{{ th[1].count }} jobs</span>
+    </a>
+    <a class="live-tile {{ type_tile_class.get(th[2].key, 'tile-creditors') }}" href="{{ th[2].href }}">
+      <span class="live-kicker">{{ th[2].label }}</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(th[2].amount) }}</span>
+      <span class="live-sub">{{ th[2].count }} jobs</span>
+    </a>
+  </div>
+  {% endif %}
   <a class="live-tile live-tile-wide tile-creditors" href="/working-capital/wip?horizon=today">
     <span class="live-kicker">Today</span>
     <span class="live-value">£{{ '{:,.0f}'.format(today_band.amount) }}</span>
-    <span class="live-sub">{{ today_band.count }} jobs</span>
+    <span class="live-sub">{{ today_band.count }} jobs · overdue</span>
   </a>
   <div class="live-grid">
-    {% for b in mid_bands %}
+    <a class="live-tile tile-debtors" href="/working-capital/wip?horizon=tomorrow">
+      <span class="live-kicker">Tomorrow</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(tomorrow_band.amount|default(0)) }}</span>
+      <span class="live-sub">{{ tomorrow_band.count|default(0) }} jobs</span>
+    </a>
+    <a class="live-tile tile-cash" href="/working-capital/wip?horizon=this_week">
+      <span class="live-kicker">This week</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(this_week_band.amount|default(0)) }}</span>
+      <span class="live-sub">{{ this_week_band.count|default(0) }} jobs</span>
+    </a>
+  </div>
+  <div class="live-grid">
+    {% for b in calendar_bands %}
     <a class="live-tile {{ mid_tile_class.get(b.key, 'tile-wip') }}"
        href="/working-capital/wip?horizon={{ b.key }}">
       <span class="live-kicker">{{ b.label }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(b.amount) }}</span>
-      <span class="live-sub">{{ b.count }} jobs</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(b.amount|default(0)) }}</span>
+      <span class="live-sub">{{ b.count|default(0) }} jobs</span>
     </a>
     {% endfor %}
   </div>
   <a class="live-tile live-tile-wide tile-wip" href="/working-capital/wip?horizon=all">
     <span class="live-kicker">Total WIP</span>
     <span class="live-value">£{{ '{:,.0f}'.format(total) }}</span>
-    <span class="live-sub">Jobs + retainers + tasks · list →</span>
+    <span class="live-sub">Jobs + retainers · list →</span>
   </a>
 </div>
 {% endif %}
@@ -117,14 +185,13 @@
 </p>
 
 <div class="wip-desk subdash-desk">
-  <div class="wc-grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+  {# Always Accounts · SAR · Other (retainers + CS sit in Other) #}
+  <div class="wc-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
     {% for t in type_totals %}
     {% if t.key == 'Accounts' %}
       {% set tq = 'Accounts' %}
     {% elif t.key == 'Self Assessment' %}
       {% set tq = 'Self+Assessment' %}
-    {% elif t.key == 'Confirmation Statement' %}
-      {% set tq = 'Confirmation+Statement' %}
     {% else %}
       {% set tq = 'Other' %}
     {% endif %}
@@ -136,7 +203,8 @@
       </div>
       <div class="wc-box-value">£{{ '{:,.0f}'.format(t.amount) }}</div>
       <div class="wc-box-meta">
-        <span class="wc-box-meta-num">{{ t.count }}</span> jobs
+        <span class="wc-box-meta-num">{{ t.count }}</span>
+        {% if t.key == 'Other' %}items{% else %}jobs{% endif %}
       </div>
     </a>
     {% endfor %}
@@ -148,29 +216,41 @@
   {% endif %}
 </div>
 <div class="wip-mobile subdash-mobile">
+  {# Accounts wide · SAR + Other under (same as home) #}
+  {% if type_totals|length >= 1 %}
+  {% set t0 = type_totals[0] %}
+  <a class="live-tile live-tile-wide {{ type_tile_class.get(t0.key, 'tile-wip') }} {% if filter_type == t0.key %}is-selected{% endif %}"
+     href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type=Accounts#wip-list"
+     style="margin-bottom:0.55rem">
+    <span class="live-kicker">{{ t0.label }}</span>
+    <span class="live-value">£{{ '{:,.0f}'.format(t0.amount) }}</span>
+    <span class="live-sub">{{ t0.count }} jobs</span>
+  </a>
+  {% endif %}
+  {% if type_totals|length >= 3 %}
   <div class="live-grid">
-    {% for t in type_totals %}
-    {% if t.key == 'Accounts' %}
-      {% set tq = 'Accounts' %}
-    {% elif t.key == 'Self Assessment' %}
-      {% set tq = 'Self+Assessment' %}
-    {% elif t.key == 'Confirmation Statement' %}
-      {% set tq = 'Confirmation+Statement' %}
-    {% else %}
-      {% set tq = 'Other' %}
-    {% endif %}
-    <a class="live-tile {{ type_tile_class.get(t.key, 'tile-wip') }} {% if filter_type == t.key %}is-selected{% endif %}"
-       href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type={{ tq }}#wip-list">
-      <span class="live-kicker">{{ t.label }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(t.amount) }}</span>
-      <span class="live-sub">{{ t.count }} jobs</span>
+    {% set t1 = type_totals[1] %}
+    {% set t2 = type_totals[2] %}
+    <a class="live-tile {{ type_tile_class.get(t1.key, 'tile-cash') }} {% if filter_type == t1.key %}is-selected{% endif %}"
+       href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type=Self+Assessment#wip-list">
+      <span class="live-kicker">{{ t1.label }}</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(t1.amount) }}</span>
+      <span class="live-sub">{{ t1.count }} jobs</span>
     </a>
-    {% endfor %}
+    <a class="live-tile {{ type_tile_class.get(t2.key, 'tile-creditors') }} {% if filter_type == t2.key %}is-selected{% endif %}"
+       href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type=Other#wip-list">
+      <span class="live-kicker">{{ t2.label }}</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(t2.amount) }}</span>
+      <span class="live-sub">{{ t2.count }} items · CS + retainers</span>
+    </a>
   </div>
+  {% endif %}
 </div>
 {% endif %}
 
 {% if show_list and filter_horizon %}
+{% set wip_return = list_return|default(request.url.path) %}
+{% set wip_ret_q = list_return_q|default('') %}
 <div class="card" id="wip-list" style="margin-top:1rem">
   <div class="page-header" style="margin-bottom:0.75rem">
     <div>
@@ -212,47 +292,140 @@
   </div>
   {% endif %}
 
+  {% if request.query_params.get('bulk_msg') %}
+  <div class="chase-banner chase-banner-info" style="margin-bottom:0.75rem">{{ request.query_params.get('bulk_msg')|replace('+', ' ') }}</div>
+  {% endif %}
+
   {% if rows %}
+  {% set bulk_ok = filter_horizon in ('today', 'tomorrow', 'this_week') %}
+  <form method="post" action="/jobs/bulk-status" id="wip-bulk-form">
+    <input type="hidden" name="return_to" value="{{ wip_return }}">
+    {% if bulk_ok %}
+    <div class="bulk-bar" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:end;margin-bottom:0.85rem;padding:0.65rem 0.75rem;background:rgba(30,41,59,0.9);border-radius:10px;border:1px solid #334155">
+      <div>
+        <label class="small muted" style="color:#94a3b8">Select</label><br>
+        <label class="small" style="display:inline-flex;align-items:center;gap:0.35rem;min-height:40px;color:#e2e8f0">
+          <input type="checkbox" id="wip-bulk-all" style="width:1.15rem;height:1.15rem">
+          All on this list
+        </label>
+      </div>
+      <div>
+        <label class="small muted" for="wip-bulk-status" style="color:#94a3b8">Set status to</label><br>
+        <select id="wip-bulk-status" name="status" required style="min-height:40px">
+          <option value="">Choose…</option>
+          <option value="Today">Today</option>
+          <option value="Tomorrow">Tomorrow</option>
+          <option value="This week">This week</option>
+          <option value="Planned">Planned</option>
+          <option value="In Progress">In Progress</option>
+          <option value="On hold">On hold</option>
+          <option value="Completed">Completed</option>
+        </select>
+      </div>
+      <button class="btn btn-sm" type="submit"
+        onclick="return document.querySelectorAll('#wip-bulk-form input[name=job_ids]:checked').length > 0 || (alert('Pick at least one job'), false)">
+        Apply to selected
+      </button>
+      <span class="small muted" id="wip-bulk-count" style="align-self:center;color:#94a3b8">0 selected</span>
+    </div>
+    {% endif %}
   <div class="table-wrap">
     <table class="data">
       <thead>
         <tr>
+          {% if bulk_ok %}<th style="width:2.5rem"></th>{% endif %}
           <th>Client</th>
           <th>Type</th>
           <th>Due</th>
           <th>Age</th>
           <th>Display</th>
           <th class="num">Fee</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for r in rows %}
         {% set j = r.job %}
-        <tr class="{% if j|job_overdue %}row-overdue{% endif %}">
+        <tr class="{% if j and j|job_overdue %}row-overdue{% endif %}">
+          {% if bulk_ok %}
           <td>
-            <a href="/jobs/{{ j.id }}">
+            {% if j %}
+            <input type="checkbox" name="job_ids" value="{{ j.id }}" class="wip-bulk-cb"
+              style="width:1.15rem;height:1.15rem" aria-label="Select job {{ j.id }}">
+            {% endif %}
+          </td>
+          {% endif %}
+          <td>
+            {% if j %}
+            <a href="/jobs/{{ j.id }}{{ wip_ret_q }}">
               {% if j.client %}{{ j.client.display_name() }}{% else %}—{% endif %}
             </a>
+            {% elif r.client %}
+            <a href="/clients/{{ r.client.id }}">{{ r.client.display_name() }}</a>
+            {% else %}
+            {{ r.title or '—' }}
+            {% endif %}
             {% if r.is_retainer %}<span class="badge badge-retainer" style="margin-left:0.25rem">Retainer</span>{% endif %}
           </td>
-          <td class="small">{{ j.type or '—' }}</td>
-          <td>{% if j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
+          <td class="small">{% if j %}{{ j.type or '—' }}{% else %}{{ r.type_bucket or 'Retainer' }}{% endif %}</td>
+          <td>{% if j and j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
           <td>{% if r.age_days > 0 %}<span class="badge badge-overdue">{{ r.age_days }}</span>{% else %}0{% endif %}</td>
           <td>
             {% if r.list_status in ('Overdue', 'Today') %}
             <span class="badge badge-overdue">{{ r.list_status }}</span>
             {% elif r.list_status == 'Imminent' %}
             <span class="badge badge-progress">Imminent</span>
+            {% elif r.list_status == 'Retainer' %}
+            <span class="badge badge-retainer">Retainer</span>
             {% else %}
             <span class="badge">{{ r.list_status }}</span>
             {% endif %}
           </td>
           <td class="num"><strong>£{{ '%.2f'|format(r.amount) }}</strong></td>
+          <td class="actions-cell nowrap">
+            {% if j and (j.status or '') != 'Cancelled' and (j.billing_status or '')|lower not in ('invoiced', 'paid') %}
+            <button class="btn btn-sm btn-outline" type="submit"
+              form="wip-job-done-{{ j.id }}" title="Complete, create next year if recurring, open invoice">Done</button>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  </form>
+  {% for r in rows %}
+  {% set j = r.job %}
+  {% if j and (j.status or '') != 'Cancelled' and (j.billing_status or '')|lower not in ('invoiced', 'paid') %}
+  <form id="wip-job-done-{{ j.id }}" method="post" action="/jobs/{{ j.id }}/done" style="display:none">
+    <input type="hidden" name="next" value="{{ wip_return }}">
+  </form>
+  {% endif %}
+  {% endfor %}
+  {% if bulk_ok %}
+  <script>
+  (function () {
+    var all = document.getElementById('wip-bulk-all');
+    var countEl = document.getElementById('wip-bulk-count');
+    function refresh() {
+      var n = document.querySelectorAll('#wip-bulk-form input.wip-bulk-cb:checked').length;
+      if (countEl) countEl.textContent = n + ' selected';
+    }
+    if (all) {
+      all.addEventListener('change', function () {
+        document.querySelectorAll('#wip-bulk-form input.wip-bulk-cb').forEach(function (cb) {
+          cb.checked = all.checked;
+        });
+        refresh();
+      });
+    }
+    document.querySelectorAll('#wip-bulk-form input.wip-bulk-cb').forEach(function (cb) {
+      cb.addEventListener('change', refresh);
+    });
+    refresh();
+  })();
+  </script>
+  {% endif %}
   {% else %}
   <p class="empty">No jobs in this filter.</p>
   {% endif %}
@@ -369,6 +542,8 @@
 </div>
 
 {% if show_list and filter_pe_slice %}
+{% set pe_return = list_return|default(request.url.path) %}
+{% set pe_ret_q = list_return_q|default('') %}
 <div class="card" id="wip-list" style="margin-top:1rem">
   <div class="page-header" style="margin-bottom:0.75rem">
     <div>
@@ -397,16 +572,20 @@
       <tbody>
         {% for r in rows %}
         {% set j = r.job %}
-        <tr class="{% if j|job_overdue %}row-overdue{% endif %}">
+        <tr class="{% if j and j|job_overdue %}row-overdue{% endif %}">
           <td>
-            <a href="/jobs/{{ j.id }}">
+            {% if j %}
+            <a href="/jobs/{{ j.id }}{{ pe_ret_q }}">
               {% if j.client %}{{ j.client.display_name() }}{% else %}—{% endif %}
             </a>
+            {% elif r.client %}
+            <a href="/clients/{{ r.client.id }}">{{ r.client.display_name() }}</a>
+            {% else %}—{% endif %}
             {% if r.is_retainer %}<span class="badge badge-retainer" style="margin-left:0.25rem">Retainer</span>{% endif %}
           </td>
-          <td class="small">{{ j.type or '—' }}</td>
+          <td class="small">{% if j %}{{ j.type or '—' }}{% else %}{{ r.type_bucket or 'Retainer' }}{% endif %}</td>
           <td class="small">{{ r.period_end_fmt }}</td>
-          <td>{% if j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
+          <td>{% if j and j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
           <td><span class="badge">{{ r.list_status }}</span></td>
           <td class="num"><strong>£{{ '%.2f'|format(r.amount) }}</strong></td>
         </tr>

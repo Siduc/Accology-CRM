@@ -2,6 +2,31 @@ from datetime import date, timedelta
 from typing import Optional, Tuple
 
 
+def default_period_end(
+    job_type: str, today: Optional[date] = None
+) -> Optional[date]:
+    """
+    Sensible default period end when creating a job without an explicit PE.
+
+    Self Assessment → most recent UK tax year end (5 April).
+    Accounts / CT → prior calendar year-end (31 Dec) as a planning default.
+    Other types → None (caller must supply or leave blank).
+    """
+    today = today or date.today()
+    jt = job_type or ""
+    if "Self Assessment" in jt or jt in ("SA", "SAR"):
+        # Tax year 6 Apr Y-1 → 5 Apr Y. If before 6 Apr, last complete TY ends prior 5 Apr.
+        if today.month < 4 or (today.month == 4 and today.day < 6):
+            return date(today.year - 1, 4, 5)
+        return date(today.year, 4, 5)
+    if "Accounts" in jt or "Corporation Tax" in jt or jt == "CT":
+        # Most recent 31 Dec that has fully passed
+        if today.month == 12 and today.day == 31:
+            return today
+        return date(today.year - 1, 12, 31)
+    return None
+
+
 def calculate_dates(
     job_type: str, period_end: Optional[date]
 ) -> Tuple[Optional[date], Optional[date], Optional[date]]:
@@ -19,13 +44,18 @@ def calculate_dates(
         statutory = period_end + timedelta(days=14)
         target_start = None
         target_completion = None
-    elif "Self Assessment" in job_type or job_type == "SA":
-        # SA due 31 Jan following the tax year end (5 April)
-        statutory = date(period_end.year + 1, 1, 31)
-        if period_end.month > 1 or (period_end.month == 1 and period_end.day > 31):
-            statutory = date(period_end.year + 1, 1, 31)
-        target_start = None
-        target_completion = None
+    elif "Self Assessment" in job_type or job_type in ("SA", "SAR"):
+        # UK SA: tax year ends 5 April → online filing deadline 31 January following.
+        # e.g. PE 5 Apr 2026 (2025/26) → due 31 Jan 2027
+        if period_end.month > 4 or (period_end.month == 4 and period_end.day > 5):
+            # After 5 April → belongs to tax year ending next 5 April
+            ty_end_year = period_end.year + 1
+        else:
+            ty_end_year = period_end.year
+        statutory = date(ty_end_year + 1, 1, 31)
+        # Planning windows for SAR (practice defaults — not CT +90/+120)
+        target_start = date(statutory.year - 1, 10, 1)  # from Oct before due
+        target_completion = date(statutory.year, 1, 15)  # aim mid-January
     else:
         statutory = period_end + timedelta(days=30)
         target_start = period_end
@@ -50,6 +80,8 @@ JOB_STATUSES = [
     "In Progress",
     "Review",
     "Today",
+    "Tomorrow",
+    "This week",
     "On hold",
     "Overdue and Imminent",
     "Planning",

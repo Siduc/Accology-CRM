@@ -62,7 +62,7 @@
           {% for p in people %}
           <tr>
             <td>
-              <strong>{{ p.full_name }}</strong>
+              <strong>{{ p.display_name() }}</strong>
               {% if p.role %}<div class="small muted">{{ p.role }}</div>{% endif %}
               {% if p.is_individual_client %}
               <div><span class="badge badge-active">Individual client</span></div>
@@ -83,7 +83,7 @@
                 <label>
                   <input type="checkbox" name="person_{{ p.id }}" value="{{ c.id }}"
                     {% if c.id in p.linked_ids %}checked{% endif %}>
-                  {{ c.company_name or c.company_number }}
+                  {{ c.display_name() }}
                 </label>
                 {% endfor %}
               </div>

@@ -8,12 +8,8 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.config import (
-    MS_GRAPH_CLIENT_ID,
-    MS_GRAPH_CLIENT_SECRET,
-    MS_GRAPH_REDIRECT_URI,
-    ms_graph_configured,
-)
+import app.config as app_config
+from app.config import ms_graph_configured, refresh_ms_graph_settings
 from app.database import get_db
 from app.services.ms_graph_oauth import (
     build_authorise_url,
@@ -131,21 +127,23 @@ async def oauth_disconnect(
 
 @router.get("/settings/microsoft-graph", response_class=HTMLResponse)
 async def settings_ms_graph(request: Request, db: Session = Depends(get_db)):
+    refresh_ms_graph_settings(force_dotenv=True)
     status = connection_status(db)
     probe = None
     if request.query_params.get("probe") == "1" and status.get("connected"):
         probe = probe_connection(db)
         status = connection_status(db)
+    configured = ms_graph_configured(refresh=True)
     return render(
         request,
         "settings_ms_graph.html",
         {
             "status": status,
             "probe": probe,
-            "configured": ms_graph_configured(),
-            "client_mask": mask_client_id(MS_GRAPH_CLIENT_ID),
-            "secret_set": bool((MS_GRAPH_CLIENT_SECRET or "").strip()),
-            "redirect_uri": MS_GRAPH_REDIRECT_URI or default_redirect_uri(),
+            "configured": configured,
+            "client_mask": mask_client_id(app_config.MS_GRAPH_CLIENT_ID),
+            "secret_set": bool((app_config.MS_GRAPH_CLIENT_SECRET or "").strip()),
+            "redirect_uri": app_config.MS_GRAPH_REDIRECT_URI or default_redirect_uri(),
             "oauth_error": request.query_params.get("oauth_error", ""),
             "oauth_msg": request.query_params.get("oauth_msg", ""),
         },

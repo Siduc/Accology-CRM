@@ -155,6 +155,51 @@ def next_document_number(db: Session, prefix: str, model, field_name: str = "num
     return f"{prefix}-{year}-{seq:04d}"
 
 
+def invoice_number_seq(number: Optional[str]) -> int:
+    """Extract trailing integer sequence from an invoice number (Xero-style).
+
+    INV-0793 → 793, 793 → 793, INV-2026-0001 → 1.
+    """
+    s = (number or "").strip().replace(" ", "")
+    if not s:
+        return 0
+    m = re.search(r"(\d+)$", s)
+    if not m:
+        return 0
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return 0
+
+
+def format_invoice_number(seq: int) -> str:
+    """Xero-style display: INV-0793."""
+    n = max(0, int(seq or 0))
+    return f"INV-{n:04d}"
+
+
+def next_invoice_number(db: Session) -> str:
+    """Next consecutive invoice number after the highest existing sequence."""
+    numbers = [row[0] for row in db.query(Invoice.number).all()]
+    max_n = 0
+    for num in numbers:
+        max_n = max(max_n, invoice_number_seq(num))
+    return format_invoice_number(max_n + 1)
+
+
+def normalise_invoice_number(raw: str) -> str:
+    """Accept '793', 'INV-793', 'INV-0793' → canonical INV-0793."""
+    s = (raw or "").strip().upper()
+    if not s:
+        return ""
+    seq = invoice_number_seq(s)
+    if seq <= 0 and s.isdigit():
+        seq = int(s)
+    if seq <= 0:
+        return s  # leave exotic values as typed
+    return format_invoice_number(seq)
+
+
 def line_amounts(qty: float, unit_price: float, vat_rate: float) -> Tuple[float, float, float]:
     net = round(float(qty) * float(unit_price), 2)
     vat = round(net * float(vat_rate or 0), 2)
@@ -238,13 +283,19 @@ def create_invoice(
     number: Optional[str] = None,
     import_key: Optional[str] = None,
 ) -> Invoice:
+    inv_number = number
+    if inv_number:
+        inv_number = normalise_invoice_number(inv_number)
+    else:
+        inv_number = next_invoice_number(db)
     inv = Invoice(
-        number=number or next_document_number(db, "INV", Invoice),
+        number=inv_number,
         client_id=client_id,
         job_id=job_id,
         quote_id=quote_id,
         issue_date=issue_date or date.today(),
-        due_date=due_date or (date.today() + timedelta(days=30)),
+        # Credit terms: 0 days (due on issue date)
+        due_date=due_date if due_date is not None else (issue_date or date.today()),
         status=status,
         notes=notes,
         source=source,
@@ -289,6 +340,92 @@ def create_invoice(
     db.commit()
     db.refresh(inv)
     return inv
+
+
+def update_invoice(
+    db: Session,
+    invoice: Invoice,
+    *,
+    client_id: Optional[int] = None,
+    number: Optional[str] = None,
+    issue_date: Optional[date] = None,
+    due_date: Optional[date] = None,
+    notes: Optional[str] = None,
+    status: Optional[str] = None,
+    lines: Optional[Sequence[dict]] = None,
+) -> Invoice:
+    """Update invoice header and optionally replace all lines."""
+    if client_id is not None:
+        invoice.client_id = client_id
+    if number is not None:
+        num = normalise_invoice_number(number)
+        if num:
+            clash = (
+                db.query(Invoice)
+                .filter(Invoice.number == num, Invoice.id != invoice.id)
+                .first()
+            )
+            if clash:
+                raise ValueError(f"Invoice number {num} is already used")
+            invoice.number = num
+    if issue_date is not None:
+        invoice.issue_date = issue_date
+    if due_date is not None:
+        invoice.due_date = due_date
+    if notes is not None:
+        invoice.notes = notes or None
+    if status is not None and status in (
+        "draft",
+        "sent",
+        "part_paid",
+        "paid",
+        "void",
+        "written_off",
+    ):
+        invoice.status = status
+        if status in ("void", "written_off"):
+            invoice.balance = 0.0
+
+    if lines is not None:
+        db.query(InvoiceLine).filter(InvoiceLine.invoice_id == invoice.id).delete()
+        db.flush()
+        for row in lines:
+            qty = float(row.get("qty") or 1)
+            price = float(row.get("unit_price") or 0)
+            vat_rate = float(row.get("vat_rate") or 0)
+            _net, _vat, gross = line_amounts(qty, price, vat_rate)
+            db.add(
+                InvoiceLine(
+                    invoice_id=invoice.id,
+                    service_id=row.get("service_id"),
+                    description=row.get("description") or "Service",
+                    qty=qty,
+                    unit_price=price,
+                    vat_rate=vat_rate,
+                    line_total=gross,
+                )
+            )
+        db.flush()
+
+    invoice.updated_at = datetime.utcnow()
+    recompute_invoice_totals(db, invoice)
+
+    if invoice.job_id:
+        job = db.query(Job).filter(Job.id == invoice.job_id).first()
+        if job:
+            job.invoice_reference = invoice.number
+            if invoice.status not in ("void", "written_off"):
+                job.billing_status = "invoiced"
+            if invoice.subtotal is not None:
+                job.fee = float(invoice.subtotal)
+            if invoice.total is not None:
+                job.gross_amount = float(invoice.total)
+            if invoice.vat_total is not None:
+                job.vat_amount = float(invoice.vat_total)
+
+    db.commit()
+    db.refresh(invoice)
+    return invoice
 
 
 def allocate_payment(
@@ -1262,6 +1399,90 @@ def import_opening_balances(
     }
 
 
+def find_invoice_for_job(db: Session, job: Job) -> Optional[Invoice]:
+    """Return existing sales invoice linked to this job, if any."""
+    if not job or not job.id:
+        return None
+    inv = (
+        db.query(Invoice)
+        .filter(Invoice.job_id == job.id)
+        .order_by(Invoice.id.desc())
+        .first()
+    )
+    if inv:
+        return inv
+    key = f"job-{job.id}"
+    inv = db.query(Invoice).filter(Invoice.import_key == key).first()
+    if inv:
+        return inv
+    ref = (job.invoice_reference or "").strip()
+    if ref:
+        inv = db.query(Invoice).filter(Invoice.number == ref).first()
+        if inv:
+            return inv
+    return None
+
+
+def invoice_from_job(
+    db: Session,
+    job: Job,
+    *,
+    status: str = "sent",
+    source: str = "job",
+) -> Invoice:
+    """
+    Create (or return existing) invoice for a completed job.
+    Line description from job title/type; unit price from fee / gross.
+    """
+    seed_services(db)
+    existing = find_invoice_for_job(db, job)
+    if existing:
+        return existing
+
+    if not job.client_id:
+        raise ValueError("Job has no client — cannot raise invoice")
+
+    amount = float(job.gross_amount) if job.gross_amount else float(job.fee or 0)
+    # Prefer net fee when gross not set (VAT 0 default for practice fees)
+    if job.fee and not job.gross_amount:
+        amount = float(job.fee or 0)
+
+    svc = service_for_job_type(db, job.type or "")
+    vat_rate = 0.0
+    if svc and svc.default_vat_rate is not None:
+        vat_rate = float(svc.default_vat_rate or 0)
+
+    pe = job.period_end
+    desc = (job.title or job.type or "Professional services").strip()
+    if pe and job.type and job.type not in desc:
+        desc = f"{job.type} — period end {pe.isoformat()}"
+    elif pe and "—" not in desc and pe.isoformat() not in desc:
+        desc = f"{desc} — {pe.isoformat()}"
+
+    issue = date.today()
+    inv = create_invoice(
+        db,
+        client_id=int(job.client_id),
+        job_id=job.id,
+        issue_date=issue,
+        due_date=issue,  # 0 days credit
+        source=source,
+        status=status,
+        import_key=f"job-{job.id}",
+        notes=f"Raised from job #{job.id}",
+        lines=[
+            {
+                "service_id": svc.id if svc else None,
+                "description": desc,
+                "qty": 1,
+                "unit_price": amount,
+                "vat_rate": vat_rate,
+            }
+        ],
+    )
+    return inv
+
+
 def backfill_invoices_from_jobs(db: Session) -> dict:
     """Create invoices from historical job billing fields (idempotent)."""
     seed_services(db)
@@ -1297,7 +1518,7 @@ def backfill_invoices_from_jobs(db: Session) -> dict:
             client_id=int(job.client_id),
             job_id=job.id,
             issue_date=issue,
-            due_date=issue + timedelta(days=30) if issue else date.today() + timedelta(days=30),
+            due_date=issue or date.today(),  # 0 days credit
             source="import",
             status="sent",
             number=job.invoice_reference or None,

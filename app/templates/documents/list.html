@@ -5,23 +5,42 @@
   <div>
     <h1 class="desk-page-title" style="font-size:clamp(1.45rem,3vw,1.9rem)">Documents</h1>
     <p class="desk-page-sub muted small">
-      Stored in Microsoft OneDrive ·
+      Live in Microsoft OneDrive · open online (no extra Downloads copy)
       {% if conn.connected and conn.fresh %}
-      <span class="badge badge-success">Connected · {{ conn.email or 'OneDrive' }}</span>
+      · <span class="badge badge-success">Connected · {{ conn.email or 'OneDrive' }}</span>
       {% elif conn.connected %}
-      <span class="badge badge-overdue">Reconnect required</span>
+      · <span class="badge badge-overdue">Reconnect required</span>
       {% elif conn.configured %}
-      <span class="badge">Not connected</span>
+      · <span class="badge">Not connected</span>
       {% else %}
-      <span class="badge">Microsoft not configured</span>
+      · <span class="badge">Microsoft not configured</span>
       {% endif %}
     </p>
   </div>
   <div class="actions">
+    <a class="btn btn-sm wc-touch" href="/documents/letterhead.docx"
+       title="Open Accology Limited letterhead in Word">
+      Open letterhead (Word)
+    </a>
     <a class="btn btn-sm wc-touch" href="/documents/new">Upload</a>
+    {% if conn.connected and conn.fresh %}
+    <form method="post" action="/documents/scan-onedrive" style="display:inline">
+      <input type="hidden" name="return_to" value="/documents">
+      {% if filter_client_id %}<input type="hidden" name="client_id" value="{{ filter_client_id }}">{% endif %}
+      {% if filter_job_id %}<input type="hidden" name="job_id" value="{{ filter_job_id }}">{% endif %}
+      <button class="btn btn-sm btn-secondary wc-touch" type="submit"
+        title="Find files you added in OneDrive and link them to CRM clients">
+        Scan OneDrive
+      </button>
+    </form>
+    {% endif %}
     <a class="btn btn-sm btn-outline wc-touch" href="/settings/microsoft-graph">Microsoft</a>
   </div>
 </div>
+<p class="muted small" style="margin:0 0 0.75rem">
+  OneDrive path: <code>Accologise / Clients / Client name / Job name</code>
+  (e.g. Accounts — not JOB numbers). Scan picks up files you drop in manually.
+</p>
 
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 {% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
@@ -104,18 +123,18 @@
 
 <div class="card">
   {% if documents %}
-  <div class="table-wrap">
-    <table class="data">
+
+  {# —— Desktop table —— #}
+  <div class="table-wrap docs-table-desk">
+    <table class="data docs-table">
       <thead>
         <tr>
           <th></th>
           <th>Title</th>
           <th>Category</th>
           <th>Client</th>
-          <th>Job</th>
           <th>Uploaded</th>
-          <th>By</th>
-          <th></th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -123,27 +142,64 @@
         <tr>
           <td>{% if d.is_key %}<span class="doc-key" title="Key document">★</span>{% endif %}</td>
           <td>
-            <a href="/documents/{{ d.id }}"><strong>{{ d.title }}</strong></a>
-            <div class="small muted">{{ d.original_filename or '' }}</div>
+            <a class="doc-title-link" href="/documents/{{ d.id }}/open?hop=1" target="_blank" rel="noopener"
+               title="Open in OneDrive / Office Online">
+              <strong>{{ d.title }}</strong>
+            </a>
+            <div class="small muted">{{ d.original_filename or '' }}
+              {% if d.is_office() %}<span class="doc-type-pill">Office</span>
+              {% elif d.is_pdf() %}<span class="doc-type-pill">PDF</span>{% endif %}
+            </div>
           </td>
           <td class="small">{{ d.category }}</td>
           <td class="small">
             {% if d.client %}<a href="/clients/{{ d.client.id }}">{{ d.client.display_name() }}</a>{% else %}—{% endif %}
+            {% if d.job %}<div class="muted"><a href="/jobs/{{ d.job.id }}">JOB-{{ d.job.id }}</a></div>{% endif %}
           </td>
           <td class="small">
-            {% if d.job %}<a href="/jobs/{{ d.job.id }}">JOB-{{ d.job.id }}</a>{% else %}—{% endif %}
+            {{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '—' }}
+            <div class="muted">{{ d.uploaded_by or '' }}</div>
           </td>
-          <td class="small">{{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '—' }}</td>
-          <td class="small">{{ d.uploaded_by or '—' }}</td>
-          <td class="actions">
-            <a class="btn btn-sm btn-outline" href="/documents/{{ d.id }}/download">↓</a>
-            <a class="btn btn-sm btn-outline" href="/documents/{{ d.id }}">Open</a>
+          <td class="doc-row-actions">
+            <a class="btn btn-sm wc-touch" href="/documents/{{ d.id }}/open?hop=1" target="_blank" rel="noopener">Open in OneDrive</a>
+            <a class="btn btn-sm btn-outline wc-touch" href="/documents/{{ d.id }}">Details</a>
+            <a class="btn btn-sm btn-outline doc-btn-secondary" href="/documents/{{ d.id }}/download" title="Save a local copy">Download</a>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  {# —— Mobile cards —— #}
+  <div class="docs-cards-mobile" role="list">
+    {% for d in documents %}
+    <article class="doc-card" role="listitem">
+      <div class="doc-card-top">
+        {% if d.is_key %}<span class="doc-key" title="Key">★</span>{% endif %}
+        <div class="doc-card-title-block">
+          <a class="doc-title-link" href="/documents/{{ d.id }}/open?hop=1" target="_blank" rel="noopener">
+            <strong>{{ d.title }}</strong>
+          </a>
+          <div class="small muted">
+            {{ d.category }}
+            {% if d.is_office() %} · Office{% elif d.is_pdf() %} · PDF{% endif %}
+            · {{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '' }}
+          </div>
+          {% if d.client %}
+          <div class="small"><a href="/clients/{{ d.client.id }}">{{ d.client.display_name() }}</a></div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="doc-card-actions">
+        <a class="btn btn-sm wc-touch" href="/documents/{{ d.id }}/open?hop=1" target="_blank" rel="noopener">Open in OneDrive</a>
+        <a class="btn btn-sm btn-outline wc-touch" href="/documents/{{ d.id }}">Details</a>
+        <a class="btn btn-sm btn-outline doc-btn-secondary" href="/documents/{{ d.id }}/download">Download</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+
   {% else %}
   <p class="empty">No documents match these filters.
     {% if conn.connected %}<a href="/documents/new">Upload one</a>.{% endif %}

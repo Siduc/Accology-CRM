@@ -20,11 +20,13 @@ from app.services.working_capital import (
     compute_wip_book,
     compute_wip_type_totals_for_band,
     ensure_default_bank_account,
+    job_focus_band,
     job_period_end_bucket,
     job_service_kind,
     job_type_bucket,
     job_wip_band,
     retainer_book,
+    retainer_wip_band_amounts,
     wip_amount_for_job,
     wip_jobs,
     wip_list_status,
@@ -38,7 +40,68 @@ from app.templating import render
 
 router = APIRouter(prefix="/working-capital", tags=["working-capital"])
 
-VALID_BANDS = {"today", "m1", "m2", "m3", "later", "all", "total"}
+VALID_BANDS = {
+    "today",
+    "tomorrow",
+    "this_week",
+    "m1",
+    "m2",
+    "m3",
+    "later",
+    "all",
+    "total",
+}
+FOCUS_BANDS = {"today", "tomorrow", "this_week"}
+
+
+def _fold_type_tiles(type_totals: list) -> list:
+    """
+    Always three type tiles: Accounts · SAR · Other.
+
+    Confirmation Statement is folded into Other. Calendar retainers already
+    sit in the Other bucket from compute_wip_type_totals_for_band.
+    """
+    by_key = {t.get("key"): t for t in (type_totals or [])}
+    acc = by_key.get("Accounts") or {
+        "key": "Accounts",
+        "label": "Accounts",
+        "count": 0,
+        "amount": 0.0,
+    }
+    sa = by_key.get("Self Assessment") or {
+        "key": "Self Assessment",
+        "label": "SAR",
+        "count": 0,
+        "amount": 0.0,
+    }
+    cs = by_key.get("Confirmation Statement") or {"count": 0, "amount": 0.0}
+    oth = by_key.get("Other") or {"count": 0, "amount": 0.0}
+    other = {
+        "key": "Other",
+        "label": "Other",
+        "count": int(cs.get("count") or 0) + int(oth.get("count") or 0),
+        "amount": round(
+            float(cs.get("amount") or 0) + float(oth.get("amount") or 0), 2
+        ),
+    }
+    return [
+        {**acc, "key": "Accounts", "label": "Accounts"},
+        {**sa, "key": "Self Assessment", "label": "SAR"},
+        other,
+    ]
+
+
+def _type_home_tiles(type_totals: list) -> list:
+    """
+    Top WIP tiles: Accounts · SAR · Other (with links to job type lists).
+    """
+    tiles = _fold_type_tiles(type_totals)
+    hrefs = {
+        "Accounts": "/jobs/accounts",
+        "Self Assessment": "/jobs/self-assessment",
+        "Other": "/jobs/other",
+    }
+    return [{**t, "href": hrefs.get(t["key"], "/jobs")} for t in tiles]
 
 
 def _parse_date(value: str):
@@ -52,6 +115,24 @@ def _parse_money(value: str) -> float:
         return float((value or "0").replace("£", "").replace(",", "").strip() or 0)
     except ValueError:
         return 0.0
+
+
+def _tasks_overdue_count(db: Session, today: date) -> int:
+    try:
+        from app.services.practice_tasks import open_tasks
+
+        return sum(1 for t in open_tasks(db) if t.is_overdue(today))
+    except Exception:
+        return 0
+
+
+def _tasks_email_count(db: Session) -> int:
+    try:
+        from app.services.practice_tasks import open_tasks
+
+        return sum(1 for t in open_tasks(db) if t.is_from_email())
+    except Exception:
+        return 0
 
 
 @router.get("", response_class=HTMLResponse)
@@ -148,7 +229,8 @@ async def wc_wip(
         "sar",
     ):
         filter_type = "Self Assessment"
-    elif filter_type.lower() in ("other", "others"):
+    elif filter_type.lower() in ("retainer", "retainers", "other", "others"):
+        # Retainers are listed under Other
         filter_type = "Other"
     elif filter_type:
         # keep free text for other job types match via _match or exact bucket
@@ -182,8 +264,12 @@ async def wc_wip(
 
     band_labels = {k: v["label"] for k, v in age_home["bands"].items()}
     band_labels["all"] = "Total WIP"
+    band_labels["tomorrow"] = "Tomorrow"
+    band_labels["this_week"] = "This week"
     list_status_options = [
         "Today",
+        "Tomorrow",
+        "This week",
         "Overdue",
         "Imminent",
         "Planning",
@@ -208,8 +294,11 @@ async def wc_wip(
 
     type_totals = []
     if filter_horizon:
-        type_totals = compute_wip_type_totals_for_band(
-            db, "all" if horizon_is_all else filter_horizon, today
+        # Band drill: Accounts · SAR · Other only (CS + retainers → Other)
+        type_totals = _fold_type_tiles(
+            compute_wip_type_totals_for_band(
+                db, "all" if horizon_is_all else filter_horizon, today
+            )
         )
 
     pe_layout = None
@@ -222,12 +311,41 @@ async def wc_wip(
     if show_list and filter_horizon:
         seen_c = {}
         for j in snap.jobs:
-            if not horizon_is_all and job_wip_band(j, today) != filter_horizon:
+            if not horizon_is_all:
+                if filter_horizon in FOCUS_BANDS:
+                    if job_focus_band(j, today) != filter_horizon:
+                        continue
+                elif job_wip_band(j, today) != filter_horizon:
+                    continue
+            # Retainer clients: never under Accounts / SAR — only Other (or
+            # the unfiltered band list). Per-job rows skipped; one row each below.
+            if _client_is_retainer(j.client):
+                if filter_type and filter_type != "Other":
+                    continue
                 continue
             tb = job_type_bucket(j)
+            # SAR list = people only (not Ltd / firm clients)
+            if tb == "Self Assessment" or (
+                filter_type and filter_type in ("Self Assessment",)
+            ):
+                from app.services.individuals import is_individual_shell
+                import re as _re
+
+                c = j.client
+                if c and not is_individual_shell(c):
+                    name = (c.company_name or "").lower()
+                    cn = (c.company_number or "").strip().upper()
+                    if _re.search(r"\b(limited|ltd|llp|plc)\b", name) or (
+                        cn and not cn.startswith("IND-")
+                    ):
+                        if filter_type in ("Self Assessment",):
+                            continue
+                        # Unfiltered band list: treat as Other for display bucket
+                        tb = "Other"
             if filter_type:
                 if filter_type == "Other":
-                    if tb != "Other":
+                    # Other = CS + pure Other + retainers (retainers appended later)
+                    if tb not in ("Other", "Confirmation Statement"):
                         continue
                 elif not _match_job_type(j.type, filter_type) and tb != filter_type:
                     continue
@@ -240,19 +358,30 @@ async def wc_wip(
             if filter_status:
                 if filter_status == "Overdue" and list_st != "Overdue":
                     continue
-                if filter_status == "Imminent" and list_st != "Imminent":
+                elif filter_status == "Imminent" and list_st != "Imminent":
                     continue
-                if filter_status == "Today" and list_st != "Today":
+                elif filter_status == "Today" and list_st not in (
+                    "Today",
+                    "Overdue",
+                ):
                     continue
-                if filter_status not in (
+                elif filter_status == "Tomorrow" and list_st not in (
+                    "Tomorrow",
+                    "Imminent",
+                ):
+                    continue
+                elif filter_status == "This week" and list_st != "This week":
+                    continue
+                elif filter_status not in (
                     "Overdue",
                     "Imminent",
                     "Today",
+                    "Tomorrow",
+                    "This week",
                 ) and list_st != filter_status:
                     continue
             if filter_client_id and j.client_id != filter_client_id:
                 continue
-            is_ret = bool(j.client and j.client.is_retainer())
             wip_amt = wip_amount_for_job(
                 j, open_counts=_open_counts, monthly_by_client=_monthly_by
             )
@@ -261,16 +390,61 @@ async def wc_wip(
             rows.append(
                 {
                     "job": j,
+                    "client": j.client,
                     "age_days": age,
                     "amount": wip_amt,
-                    "is_retainer": is_ret,
+                    "is_retainer": False,
                     "list_status": list_st,
                     "due_fmt": _fmt_d(due),
                     "period_end_fmt": _fmt_d(j.period_end),
                     "type_bucket": tb,
+                    "title": None,
                 }
             )
-        rows.sort(key=lambda r: (-r["age_days"], -r["amount"]))
+
+        # Append retainer client rows under Other (or full band list)
+        if (
+            filter_horizon not in FOCUS_BANDS
+            and (not filter_type or filter_type == "Other")
+        ):
+            book = retainer_book(db)
+            monthly_by = book.get("monthly_by_client") or {}
+            ret_map = retainer_wip_band_amounts(db, today)
+            from app.models import Client as _Client
+
+            for cid, monthly in monthly_by.items():
+                if filter_client_id and int(cid) != filter_client_id:
+                    continue
+                if int(cid) in seen_c and filter_type != "Other":
+                    # already have other jobs for client in unfiltered list — still add retainer line
+                    pass
+                c = db.query(_Client).filter(_Client.id == int(cid)).first()
+                if not c:
+                    continue
+                amt = float(monthly or 0)
+                if horizon_is_all:
+                    months = sum(1 for v in ret_map.values() if float(v or 0) > 0)
+                    amt = amt * months
+                # Only show if this calendar band has retainer WIP
+                if not horizon_is_all and float(ret_map.get(filter_horizon, 0) or 0) <= 0:
+                    continue
+                rows.append(
+                    {
+                        "job": None,
+                        "client": c,
+                        "age_days": 0,
+                        "amount": round(amt, 2),
+                        "is_retainer": True,
+                        "list_status": "Retainer",
+                        "due_fmt": "1st of month",
+                        "period_end_fmt": "—",
+                        "type_bucket": "Other",
+                        "title": f"Retainer · {c.display_name() if hasattr(c, 'display_name') else c.company_name}",
+                    }
+                )
+                seen_c[int(cid)] = c
+
+        rows.sort(key=lambda r: (-r["age_days"], -r.get("amount") or 0))
         clients_for_filter = sorted(
             seen_c.values(),
             key=lambda c: (c.display_name() or "").lower(),
@@ -419,12 +593,16 @@ async def wc_wip(
         type_query = "Other"
 
     mid_box_class = {
+        "tomorrow": "wc-box-debtors",
+        "this_week": "wc-box-cash",
         "m1": "wc-box-wip",
         "m2": "wc-box-debtors",
         "m3": "wc-box-cash",
         "later": "wc-box-creditors",
     }
     mid_tile_class = {
+        "tomorrow": "tile-debtors",
+        "this_week": "tile-cash",
         "m1": "tile-wip",
         "m2": "tile-debtors",
         "m3": "tile-cash",
@@ -443,6 +621,13 @@ async def wc_wip(
         "Other": "tile-creditors",
     }
 
+    # Full current list URL for “return after edit” + bulk status
+    from urllib.parse import quote as _q
+
+    q = request.url.query
+    list_return = request.url.path + (f"?{q}" if q else "")
+    list_return_q = "?return_to=" + _q(list_return, safe="")
+
     return render(
         request,
         "working_capital/wip.html",
@@ -450,6 +635,8 @@ async def wc_wip(
             "snap": snap,
             "rows": rows,
             "today": today,
+            "list_return": list_return,
+            "list_return_q": list_return_q,
             "total": snap.value,
             "count": snap.count,
             "retainer_count": getattr(snap, "retainer_count", 0) or 0,
@@ -457,6 +644,9 @@ async def wc_wip(
             "retainer_annual": getattr(snap, "retainer_annual", 0) or 0,
             "jobs_value": getattr(snap, "jobs_value", 0) or 0,
             "tasks_value": getattr(snap, "tasks_value", 0) or 0,
+            "tasks_count": getattr(snap, "tasks_count", 0) or 0,
+            "tasks_overdue": _tasks_overdue_count(db, today),
+            "tasks_email": _tasks_email_count(db),
             "filter_type": filter_type,
             "filter_horizon": filter_horizon,
             "filter_status": filter_status,
@@ -470,12 +660,44 @@ async def wc_wip(
             "show_list": show_list,
             "age_home": age_home,
             "today_band": age_home["today"],
-            "mid_bands": age_home["mid"],
+            "tomorrow_band": age_home.get("tomorrow") or {},
+            "this_week_band": age_home.get("this_week") or {},
+            # Narrow focus pair under Today
+            "focus_pair": [
+                age_home.get("tomorrow") or {},
+                age_home.get("this_week") or {},
+            ],
+            # Calendar aged boxes: next month · +1 · +2 · thereafter
+            "calendar_bands": [
+                age_home["bands"]["m1"],
+                age_home["bands"]["m2"],
+                age_home["bands"]["m3"],
+                age_home["bands"]["later"],
+            ],
+            "mid_bands": [
+                age_home["bands"]["m1"],
+                age_home["bands"]["m2"],
+                age_home["bands"]["m3"],
+                age_home["bands"]["later"],
+            ],
             "all_bands": [
                 age_home["today"],
-                *age_home["mid"],
+                age_home.get("tomorrow") or {},
+                age_home.get("this_week") or {},
+                age_home["bands"]["m1"],
+                age_home["bands"]["m2"],
+                age_home["bands"]["m3"],
+                age_home["bands"]["later"],
             ],
             "type_totals": type_totals,
+            # Always compute for home; empty list only when not on age home
+            "type_home_totals": (
+                _type_home_tiles(
+                    compute_wip_type_totals_for_band(db, "all", today)
+                )
+                if show_age_home
+                else []
+            ),
             "mid_box_class": mid_box_class,
             "mid_tile_class": mid_tile_class,
             "type_box_class": type_box_class,

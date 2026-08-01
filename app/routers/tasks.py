@@ -19,6 +19,7 @@ from app.services.practice_tasks import (
     complete_task,
     create_task,
     list_tasks,
+    reorder_tasks,
 )
 from app.services import task_import as task_imp
 from app.templating import render
@@ -56,6 +57,16 @@ def _active_clients(db: Session, limit: int = 400):
     )
 
 
+def _safe_return_path(value: str, default: str = "/tasks") -> str:
+    """Only allow same-app relative paths for post-save redirects."""
+    dest = (value or "").strip() or default
+    if not dest.startswith("/") or dest.startswith("//"):
+        return default
+    if "\n" in dest or "\r" in dest:
+        return default
+    return dest
+
+
 @router.get("/tasks", response_class=HTMLResponse)
 async def tasks_list(
     request: Request,
@@ -74,6 +85,10 @@ async def tasks_list(
     )
     clients = _active_clients(db)
     total_fees = round(sum(float(t.fee or 0) for t in tasks if not t.is_closed()), 2)
+    open_n = sum(1 for t in tasks if not t.is_closed())
+    email_n = sum(1 for t in tasks if t.is_from_email() and not t.is_closed())
+    overdue_n = sum(1 for t in tasks if t.is_overdue())
+    unlinked_n = sum(1 for t in tasks if not t.client_id and not t.is_closed())
     return render(
         request,
         "tasks/list.html",
@@ -86,11 +101,37 @@ async def tasks_list(
             "clients": clients,
             "filter_client_id": cid,
             "total_fees": total_fees,
+            "open_n": open_n,
+            "email_n": email_n,
+            "overdue_n": overdue_n,
+            "unlinked_n": unlinked_n,
             "today": date.today(),
             "import_msg": request.query_params.get("import_msg", ""),
             "msg": request.query_params.get("msg", ""),
+            # Drag reorder when not filtered to a single client (full open list)
+            "reorder_enabled": not cid,
         },
     )
+
+
+@router.post("/tasks/reorder")
+async def tasks_reorder(request: Request, db: Session = Depends(get_db)):
+    """JSON body: {\"order\": [task_id, …]} top → bottom. Returns JSON."""
+    from fastapi.responses import JSONResponse
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "Invalid JSON"}
+        )
+    raw = data.get("order") if isinstance(data, dict) else None
+    if not isinstance(raw, list):
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "order must be a list of ids"}
+        )
+    n = reorder_tasks(db, raw)
+    return JSONResponse(content={"ok": True, "updated": n, "count": len(raw)})
 
 
 @router.get("/tasks/import", response_class=HTMLResponse)
@@ -281,6 +322,7 @@ async def task_new_form(
             .limit(50)
             .all()
         )
+    ret = _safe_return_path(request.query_params.get("next") or "/tasks")
     return render(
         request,
         "tasks/form.html",
@@ -292,6 +334,7 @@ async def task_new_form(
             "priorities": TASK_PRIORITIES,
             "pre_client_id": cid,
             "pre_job_id": jid,
+            "next_url": ret,
         },
     )
 
@@ -335,13 +378,16 @@ async def task_create_route(
         task.outlook_message_id = oid
         task.outlook_archive_status = "none"
         db.commit()
-    dest = (next or "/tasks").strip() or "/tasks"
+    dest = _safe_return_path(next, "/tasks")
     return RedirectResponse(dest, status_code=303)
 
 
 @router.get("/tasks/{task_id:int}/edit", response_class=HTMLResponse)
 async def task_edit_form(
-    task_id: int, request: Request, db: Session = Depends(get_db)
+    task_id: int,
+    request: Request,
+    next: str = "",
+    db: Session = Depends(get_db),
 ):
     task = db.query(PracticeTask).filter(PracticeTask.id == task_id).first()
     if not task:
@@ -356,6 +402,25 @@ async def task_edit_form(
             .limit(50)
             .all()
         )
+    # Prefer explicit next=, else referer if it was a task list, else /tasks
+    ret = _safe_return_path(next)
+    if not (next or "").strip():
+        ref = (request.headers.get("referer") or "").strip()
+        if "/tasks" in ref and "/edit" not in ref:
+            # Keep path+query of the list they came from
+            try:
+                from urllib.parse import urlparse
+
+                p = urlparse(ref)
+                if p.path.startswith("/tasks"):
+                    ret = _safe_return_path(
+                        p.path + (("?" + p.query) if p.query else ""),
+                        "/tasks",
+                    )
+            except Exception:
+                ret = "/tasks"
+        else:
+            ret = "/tasks"
     return render(
         request,
         "tasks/form.html",
@@ -367,6 +432,7 @@ async def task_edit_form(
             "priorities": TASK_PRIORITIES,
             "pre_client_id": task.client_id,
             "pre_job_id": task.job_id,
+            "next_url": ret,
         },
     )
 
@@ -411,7 +477,8 @@ async def task_update(
         task.outlook_archived_at = None
     task.updated_at = datetime.utcnow()
     db.commit()
-    dest = (next or f"/tasks/{task_id}/edit").strip()
+    # After save, return to the list (or page) the user came from
+    dest = _safe_return_path(next, "/tasks")
     return RedirectResponse(dest, status_code=303)
 
 

@@ -27,7 +27,7 @@
         {% for t in tasks %}
         <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
           <td>
-            <a href="/tasks/{{ t.id }}/edit"><strong>{{ t.title }}</strong></a>
+            <a href="/tasks/{{ t.id }}/edit?next={{ (next_url|default('/tasks'))|urlencode }}"><strong>{{ t.title }}</strong></a>
           </td>
           <td>
             {% set p = t.display_priority() %}

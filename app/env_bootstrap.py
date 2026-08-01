@@ -37,14 +37,58 @@ def _ensure_logging() -> None:
     logging.getLogger("accountant_crm").setLevel(logging.INFO)
 
 
-def bootstrap_environment() -> bool:
+def _apply_dotenv_file(path: Path, *, log) -> bool:
     """
-    Load dotenv files once. Returns True if at least one .env file was loaded.
+    Load a dotenv file without clobbering real host env values.
 
-    Safe to call repeatedly.
+    - Never overrides a non-empty OS env var (Render / shell win).
+    - Does fill keys that are missing or blank, so empty placeholders
+      cannot block MS_GRAPH_* / secrets from project ``.env``.
+    """
+    if not path.is_file():
+        log.info("dotenv path=%s exists=False", path)
+        return False
+
+    try:
+        from dotenv import dotenv_values
+
+        values = dotenv_values(path, encoding="utf-8") or {}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("dotenv parse failed path=%s err=%s", path, exc)
+        # Fallback: classic load (no override)
+        ok = load_dotenv(path, override=False, encoding="utf-8")
+        log.info("dotenv path=%s exists=True loaded=%s (fallback)", path, bool(ok))
+        return bool(ok)
+
+    filled = 0
+    for key, val in values.items():
+        if key is None or val is None:
+            continue
+        current = os.environ.get(key)
+        if current is not None and str(current).strip() != "":
+            continue  # host / already-set wins
+        os.environ[key] = str(val)
+        filled += 1
+
+    log.info(
+        "dotenv path=%s exists=True keys=%s filled_blank_or_missing=%s",
+        path,
+        len(values),
+        filled,
+    )
+    return True
+
+
+def bootstrap_environment(*, force: bool = False) -> bool:
+    """
+    Load dotenv files once (or again when force=True).
+
+    Returns True if at least one .env file was applied.
+    Safe to call repeatedly; use force=True after editing .env while the
+    process is running (Settings / OAuth will re-check MS Graph).
     """
     global _BOOTSTRAPPED, DOTENV_LOADED, DOTENV_FILES_LOADED
-    if _BOOTSTRAPPED:
+    if _BOOTSTRAPPED and not force:
         return DOTENV_LOADED
 
     _ensure_logging()
@@ -53,28 +97,20 @@ def bootstrap_environment() -> bool:
     loaded_any = False
     DOTENV_FILES_LOADED = []
 
-    # Base .env first, then optional production overlay (still override=False)
+    # Base .env first, then optional production overlay
     for path in (DOTENV_PATH, DOTENV_PRODUCTION_PATH):
-        exists = path.is_file()
-        if exists:
-            ok = load_dotenv(path, override=False, encoding="utf-8")
-            if ok:
-                loaded_any = True
-                DOTENV_FILES_LOADED.append(str(path))
-            log.info(
-                "dotenv path=%s exists=True loaded=%s override=False",
-                path,
-                bool(ok),
-            )
-        else:
-            log.info("dotenv path=%s exists=False", path)
+        if _apply_dotenv_file(path, log=log):
+            loaded_any = True
+            DOTENV_FILES_LOADED.append(str(path))
 
-    # Also honour process cwd .env only if different (rare) — still no override
+    # Also honour process cwd .env only if different (rare)
     cwd_env = Path.cwd() / ".env"
-    if cwd_env.is_file() and cwd_env.resolve() != DOTENV_PATH.resolve():
-        ok = load_dotenv(cwd_env, override=False, encoding="utf-8")
-        log.info("dotenv cwd path=%s loaded=%s", cwd_env, bool(ok))
-        if ok:
+    try:
+        same = cwd_env.is_file() and cwd_env.resolve() == DOTENV_PATH.resolve()
+    except OSError:
+        same = False
+    if cwd_env.is_file() and not same:
+        if _apply_dotenv_file(cwd_env, log=log):
             loaded_any = True
             DOTENV_FILES_LOADED.append(str(cwd_env))
 
@@ -83,10 +119,15 @@ def bootstrap_environment() -> bool:
 
     env_name = (os.environ.get("ENV") or os.environ.get("ENVIRONMENT") or "").strip()
     has_db = bool((os.environ.get("DATABASE_URL") or "").strip())
+    ms_id = bool((os.environ.get("MS_GRAPH_CLIENT_ID") or "").strip())
+    ms_secret = bool((os.environ.get("MS_GRAPH_CLIENT_SECRET") or "").strip())
     log.info(
-        "bootstrap complete ENV=%r DATABASE_URL_set=%s dotenv_files=%s",
+        "bootstrap complete ENV=%r DATABASE_URL_set=%s "
+        "MS_GRAPH_CLIENT_ID_set=%s MS_GRAPH_CLIENT_SECRET_set=%s dotenv_files=%s",
         env_name or "(unset)",
         has_db,
+        ms_id,
+        ms_secret,
         DOTENV_FILES_LOADED or "[]",
     )
     return DOTENV_LOADED

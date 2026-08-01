@@ -222,6 +222,11 @@ else:
         or "dev-only-change-me-in-production"
     )
 
+# Demo-only visitor login (always anonymised; cannot switch to live data)
+# Share DEMO_AUTH_USERNAME / DEMO_AUTH_PASSWORD with prospects; keep staff AUTH_* private.
+DEMO_AUTH_USERNAME = _env("DEMO_AUTH_USERNAME", "demo") or "demo"
+DEMO_AUTH_PASSWORD = _env("DEMO_AUTH_PASSWORD", "") or ""
+
 # Cookie / session
 SESSION_COOKIE_NAME = "crm_session"
 SESSION_MAX_AGE = int(_env("SESSION_MAX_AGE", str(60 * 60 * 12)) or str(60 * 60 * 12))
@@ -296,12 +301,18 @@ def ch_oauth_configured() -> bool:
 
 
 # Microsoft Graph / OneDrive (delegated OAuth for practice OneDrive)
+# Exact env names (required for Connect):
+#   MS_GRAPH_CLIENT_ID
+#   MS_GRAPH_CLIENT_SECRET
+#   MS_GRAPH_REDIRECT_URI
+_MS_GRAPH_REDIRECT_DEFAULT = "http://127.0.0.1:8000/oauth/microsoft/callback"
+
 MS_GRAPH_CLIENT_ID = _env("MS_GRAPH_CLIENT_ID")
 MS_GRAPH_CLIENT_SECRET = _env("MS_GRAPH_CLIENT_SECRET")
 MS_GRAPH_TENANT_ID = _env("MS_GRAPH_TENANT_ID", "common") or "common"
 MS_GRAPH_REDIRECT_URI = _env(
     "MS_GRAPH_REDIRECT_URI",
-    "http://127.0.0.1:8000/oauth/microsoft/callback",
+    _MS_GRAPH_REDIRECT_DEFAULT,
 )
 MS_GRAPH_SCOPES = (
     _env(
@@ -333,12 +344,154 @@ MS_GRAPH_ENABLED = _env_bool_early("MS_GRAPH_ENABLED", True) and bool(
 )
 
 
-def ms_graph_configured() -> bool:
+# MS Graph keys re-applied from project .env on each refresh (so redirect URI
+# changes like http→https are picked up without a full process restart).
+_MS_GRAPH_ENV_KEYS = (
+    "MS_GRAPH_CLIENT_ID",
+    "MS_GRAPH_CLIENT_SECRET",
+    "MS_GRAPH_TENANT_ID",
+    "MS_GRAPH_REDIRECT_URI",
+    "MS_GRAPH_SCOPES",
+    "MS_GRAPH_AUTHORISE_URL",
+    "MS_GRAPH_TOKEN_URL",
+    "MS_GRAPH_MAX_UPLOAD_MB",
+    "MS_GRAPH_MAIL_ARCHIVE_FOLDER",
+    "MS_GRAPH_ENABLED",
+    "GRAPH_API_BASE",
+)
+
+
+def _apply_ms_graph_keys_from_dotenv() -> None:
+    """
+    Force-load MS_GRAPH_* (and GRAPH_API_BASE) from project ``.env``.
+
+    Unlike general bootstrap (which never overrides non-empty OS env), this
+    **does** overwrite process env for these keys when the file has a value —
+    so editing ``MS_GRAPH_REDIRECT_URI`` (e.g. http → https) takes effect on
+    the next Connect click. Host/Render secrets set only in the environment
+    (not in .env) are left alone when the key is absent from the file.
+    """
+    try:
+        from dotenv import dotenv_values
+        from app.env_bootstrap import DOTENV_PATH, DOTENV_PRODUCTION_PATH
+    except Exception:  # noqa: BLE001
+        return
+
+    merged: dict = {}
+    for path in (DOTENV_PATH, DOTENV_PRODUCTION_PATH):
+        if not path.is_file():
+            continue
+        try:
+            vals = dotenv_values(path, encoding="utf-8") or {}
+        except Exception:  # noqa: BLE001
+            continue
+        for k, v in vals.items():
+            if k in _MS_GRAPH_ENV_KEYS and v is not None and str(v).strip() != "":
+                merged[k] = str(v).strip()
+
+    for k, v in merged.items():
+        os.environ[k] = v
+
+
+def refresh_ms_graph_settings(*, force_dotenv: bool = True) -> dict:
+    """
+    Re-read Microsoft Graph settings from the environment / project ``.env``.
+
+    Uses exactly:
+      MS_GRAPH_CLIENT_ID
+      MS_GRAPH_CLIENT_SECRET
+      MS_GRAPH_REDIRECT_URI
+
+    Called from Settings and OAuth so a process that started before the keys
+    were added (or with blank placeholders) still picks them up.
+    """
+    global MS_GRAPH_CLIENT_ID, MS_GRAPH_CLIENT_SECRET, MS_GRAPH_TENANT_ID
+    global MS_GRAPH_REDIRECT_URI, MS_GRAPH_SCOPES, MS_GRAPH_AUTHORISE_URL
+    global MS_GRAPH_TOKEN_URL, GRAPH_API_BASE, MS_GRAPH_MAX_UPLOAD_MB
+    global MS_GRAPH_MAIL_ARCHIVE_FOLDER, MS_GRAPH_ENABLED, _MS_TENANT
+
+    if force_dotenv:
+        try:
+            from app.env_bootstrap import bootstrap_environment
+
+            bootstrap_environment(force=True)
+        except Exception:  # noqa: BLE001
+            pass
+        # Always re-apply MS Graph keys from .env (http↔https redirect updates)
+        _apply_ms_graph_keys_from_dotenv()
+
+    MS_GRAPH_CLIENT_ID = _env("MS_GRAPH_CLIENT_ID")
+    MS_GRAPH_CLIENT_SECRET = _env("MS_GRAPH_CLIENT_SECRET")
+    MS_GRAPH_TENANT_ID = _env("MS_GRAPH_TENANT_ID", "common") or "common"
+    MS_GRAPH_REDIRECT_URI = (
+        _env("MS_GRAPH_REDIRECT_URI", _MS_GRAPH_REDIRECT_DEFAULT)
+        or _MS_GRAPH_REDIRECT_DEFAULT
+    ).strip()
+    MS_GRAPH_SCOPES = (
+        _env(
+            "MS_GRAPH_SCOPES",
+            "offline_access User.Read Files.ReadWrite Mail.Send Mail.ReadWrite",
+        )
+        or "offline_access User.Read Files.ReadWrite Mail.Send Mail.ReadWrite"
+    )
+    _MS_TENANT = (MS_GRAPH_TENANT_ID or "common").strip()
+    MS_GRAPH_AUTHORISE_URL = _env(
+        "MS_GRAPH_AUTHORISE_URL",
+        f"https://login.microsoftonline.com/{_MS_TENANT}/oauth2/v2.0/authorize",
+    ) or f"https://login.microsoftonline.com/{_MS_TENANT}/oauth2/v2.0/authorize"
+    MS_GRAPH_TOKEN_URL = _env(
+        "MS_GRAPH_TOKEN_URL",
+        f"https://login.microsoftonline.com/{_MS_TENANT}/oauth2/v2.0/token",
+    ) or f"https://login.microsoftonline.com/{_MS_TENANT}/oauth2/v2.0/token"
+    GRAPH_API_BASE = (
+        _env("GRAPH_API_BASE", "https://graph.microsoft.com/v1.0")
+        or "https://graph.microsoft.com/v1.0"
+    )
+    try:
+        MS_GRAPH_MAX_UPLOAD_MB = int(_env("MS_GRAPH_MAX_UPLOAD_MB", "25") or "25")
+    except ValueError:
+        MS_GRAPH_MAX_UPLOAD_MB = 25
+    MS_GRAPH_MAIL_ARCHIVE_FOLDER = (
+        _env("MS_GRAPH_MAIL_ARCHIVE_FOLDER", "archive") or "archive"
+    )
+    MS_GRAPH_ENABLED = _env_bool_early("MS_GRAPH_ENABLED", True) and bool(
+        (MS_GRAPH_CLIENT_ID or "").strip() and (MS_GRAPH_CLIENT_SECRET or "").strip()
+    )
+
+    return {
+        "client_id_set": bool((MS_GRAPH_CLIENT_ID or "").strip()),
+        "secret_set": bool((MS_GRAPH_CLIENT_SECRET or "").strip()),
+        "redirect_uri": (MS_GRAPH_REDIRECT_URI or "").strip(),
+        "enabled": bool(MS_GRAPH_ENABLED),
+        "configured": ms_graph_configured(refresh=False),
+    }
+
+
+def ms_graph_configured(*, refresh: bool = True) -> bool:
+    """
+    True when the three required Microsoft Graph env vars are present:
+
+      MS_GRAPH_CLIENT_ID
+      MS_GRAPH_CLIENT_SECRET
+      MS_GRAPH_REDIRECT_URI
+    """
+    if refresh:
+        refresh_ms_graph_settings(force_dotenv=True)
     return bool(
         (MS_GRAPH_CLIENT_ID or "").strip()
         and (MS_GRAPH_CLIENT_SECRET or "").strip()
         and (MS_GRAPH_REDIRECT_URI or "").strip()
     )
+
+
+# Startup log (no secrets)
+logger.info(
+    "MS Graph config client_id_set=%s secret_set=%s redirect=%s configured=%s",
+    bool((MS_GRAPH_CLIENT_ID or "").strip()),
+    bool((MS_GRAPH_CLIENT_SECRET or "").strip()),
+    MS_GRAPH_REDIRECT_URI or "(default)",
+    ms_graph_configured(refresh=False),
+)
 
 
 # Asana (PAT — single user “me”)
@@ -347,7 +500,7 @@ ASANA_WORKSPACE_GID = _env("ASANA_WORKSPACE_GID")
 ASANA_PROJECT_GID = _env("ASANA_PROJECT_GID")
 
 # Practice identity (letters / email footers)
-PRACTICE_NAME = _env("PRACTICE_NAME", "Accologise Practice") or "Accologise Practice"
+PRACTICE_NAME = _env("PRACTICE_NAME", "Accology") or "Accology"
 PRACTICE_EMAIL = _env("PRACTICE_EMAIL", "") or ""
 PRACTICE_PHONE = _env("PRACTICE_PHONE", "") or ""
 
@@ -376,6 +529,15 @@ def practice_email_live() -> bool:
 
 # Soft enable when token present (override with ASANA_ENABLED=false)
 ASANA_ENABLED = _env_bool("ASANA_ENABLED", True) and bool(ASANA_ACCESS_TOKEN)
+
+# Accologise AI assistant (SpaceXAI / xAI — server-side only)
+XAI_API_KEY = _env("XAI_API_KEY") or ""
+AI_MODEL = _env("AI_MODEL", "grok-4.5") or "grok-4.5"
+AI_PLAN_SECRET = _env("AI_PLAN_SECRET") or SESSION_SECRET
+# Enabled when key present unless explicitly disabled
+AI_ASSISTANT_ENABLED = _env_bool("AI_ASSISTANT_ENABLED", True) and bool(XAI_API_KEY)
+# Allow heuristic-only mode (CH + rules, no LLM) when key missing but CH configured
+AI_ASSISTANT_HEURISTIC = _env_bool("AI_ASSISTANT_HEURISTIC", True)
 SMTP_HOST = _env("SMTP_HOST")
 SMTP_PORT = int(_env("SMTP_PORT", "587") or "587")
 SMTP_USER = _env("SMTP_USER")

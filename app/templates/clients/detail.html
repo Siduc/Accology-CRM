@@ -24,7 +24,7 @@
       <a href="/clients">← Clients</a>
       {% endif %}
     </p>
-    <h1>{{ client.company_name or 'Unnamed client' }}</h1>
+    <h1>{{ client.display_name() if client.company_name or client.company_number else 'Unnamed client' }}</h1>
     <p class="muted">
       {{ client.company_number or '—' }} ·
       {% if cur == 'Inactive' %}
@@ -188,7 +188,7 @@
           {% for p in people %}
           <tr>
             <td>
-              <a href="/people/{{ p.id }}/edit">{{ p.full_name }}</a>
+              <a href="/people/{{ p.id }}/edit">{{ p.display_name() }}</a>
               {% if p.is_primary %} <span class="badge badge-active">Primary</span>{% endif %}
             </td>
             <td>{{ p.role or '—' }}</td>
@@ -351,12 +351,12 @@
 
       <h3>Core</h3>
       <dl class="dl-grid">
-        <dt>Name</dt><dd>{{ client.company_name or '—' }}</dd>
+        <dt>Name</dt><dd>{{ client.display_name() if client.company_name or client.company_number else '—' }}</dd>
         <dt>Company number</dt><dd>{{ client.company_number or '—' }}</dd>
         <dt>Type</dt><dd>{{ client.client_type or '—' }}</dd>
         <dt>Date of engagement</dt><dd>{{ client.engagement_date or '—' }}</dd>
         <dt>Date of disengagement</dt><dd>{{ client.disengagement_date or '—' }}</dd>
-        <dt>Contact</dt><dd>{{ client.contact_name or '—' }}</dd>
+        <dt>Contact</dt><dd>{{ (client.contact_name or '—')|norm_person }}</dd>
         <dt>Email</dt><dd>{{ client.email or '—' }}</dd>
         <dt>Phone</dt><dd>{{ client.phone or '—' }}</dd>
         <dt>Address</dt><dd>{{ client.address_block() or '—' }}</dd>
@@ -418,7 +418,7 @@
       {% if people %}
       <ul class="muted">
         {% for p in people %}
-        <li>{{ p.full_name }}{% if p.is_primary %} (primary){% endif %}{% if p.role %} — {{ p.role }}{% endif %}</li>
+        <li>{{ p.display_name() }}{% if p.is_primary %} (primary){% endif %}{% if p.role %} — {{ p.role|norm_caps }}{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}
@@ -482,7 +482,7 @@
               <option value="">— Keep contact fields as typed —</option>
               {% for p in people %}
               <option value="{{ p.id }}" {% if p.is_primary %}selected{% endif %}>
-                {{ p.full_name }}{% if p.role %} ({{ p.role }}){% endif %}
+                {{ p.display_name() }}{% if p.role %} ({{ p.role|norm_caps }}){% endif %}
               </option>
               {% endfor %}
             </select>
@@ -675,6 +675,13 @@
       </div>
       <div class="actions">
         <a class="btn btn-sm wc-touch" href="/documents/new?client_id={{ client.id }}">Upload</a>
+        {% if docs_conn.connected and docs_conn.fresh %}
+        <form method="post" action="/documents/scan-onedrive" style="display:inline">
+          <input type="hidden" name="client_id" value="{{ client.id }}">
+          <input type="hidden" name="return_to" value="/clients/{{ client.id }}?tab=documents">
+          <button class="btn btn-sm btn-secondary wc-touch" type="submit" title="Link files added manually in OneDrive">Scan OneDrive</button>
+        </form>
+        {% endif %}
         <a class="btn btn-sm btn-outline wc-touch" href="/documents?client_id={{ client.id }}">All for client</a>
       </div>
     </div>
@@ -690,34 +697,25 @@
     </div>
     {% endif %}
     {% if documents %}
-    <div class="table-wrap">
-      <table class="data">
-        <thead>
-          <tr>
-            <th></th>
-            <th>Title</th>
-            <th>Category</th>
-            <th>Uploaded</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for d in documents %}
-          <tr>
-            <td>{% if d.is_key %}<span class="doc-key">★</span>{% endif %}</td>
-            <td>
-              <a href="/documents/{{ d.id }}"><strong>{{ d.title }}</strong></a>
-              <div class="small muted">{{ d.original_filename or '' }}</div>
-            </td>
-            <td class="small">{{ d.category }}</td>
-            <td class="small">{{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '—' }}</td>
-            <td class="actions">
-              <a class="btn btn-sm btn-outline" href="/documents/{{ d.id }}/download">↓</a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="docs-cards-mobile docs-cards-always" role="list" style="margin:0">
+      {% for d in documents %}
+      <article class="doc-card" role="listitem">
+        <div class="doc-card-top">
+          {% if d.is_key %}<span class="doc-key">★</span>{% endif %}
+          <div class="doc-card-title-block">
+            <a class="doc-title-link" href="/documents/{{ d.id }}/open?hop=1" target="_blank" rel="noopener">
+              <strong>{{ d.title }}</strong>
+            </a>
+            <div class="small muted">{{ d.category }} · {{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '' }}</div>
+          </div>
+        </div>
+        <div class="doc-card-actions">
+          <a class="btn btn-sm wc-touch" href="/documents/{{ d.id }}/open?hop=1" target="_blank" rel="noopener">Open in OneDrive</a>
+          <a class="btn btn-sm btn-outline wc-touch" href="/documents/{{ d.id }}">Details</a>
+          <a class="btn btn-sm btn-outline doc-btn-secondary" href="/documents/{{ d.id }}/download">Download</a>
+        </div>
+      </article>
+      {% endfor %}
     </div>
     {% else %}
     <p class="empty">No documents for this client yet.

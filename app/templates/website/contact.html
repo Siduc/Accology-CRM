@@ -1,0 +1,67 @@
+{% extends "website/base_public.html" %}
+{% block title %}Contact · Accology{% endblock %}
+{% block meta_description %}Contact Accology — Bolton Arena, Bolton. Email contact@accology.co{% endblock %}
+{% block content %}
+<section class="site-section site-section-top">
+  <div class="site-section-inner site-contact-grid">
+    <div>
+      <p class="site-eyebrow">Contact</p>
+      <h1 class="site-h1">Get in touch</h1>
+      <p class="site-section-intro">
+        Tell us a little about your business. We respond to new enquiries as soon as we can.
+      </p>
+      <dl class="site-contact-dl">
+        <div>
+          <dt>Address</dt>
+          <dd>
+            Bolton Arena<br>
+            Arena Approach<br>
+            Bolton<br>
+            BL6 6LB
+          </dd>
+        </div>
+        <div>
+          <dt>Email</dt>
+          <dd><a href="mailto:{{ site_email }}">{{ site_email }}</a></dd>
+        </div>
+        <div>
+          <dt>Phone</dt>
+          <dd class="site-muted">{{ site_phone }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="site-form-card">
+      <h2 class="site-h3">Send a message</h2>
+      {% if error %}
+      <div class="site-alert" role="alert">{{ error }}</div>
+      {% endif %}
+      <form class="site-form" method="post" action="/contact" novalidate>
+        {# Honeypot — must stay empty #}
+        <div class="site-hp" aria-hidden="true">
+          <label for="company_url">Company website</label>
+          <input id="company_url" type="text" name="company_url" tabindex="-1" autocomplete="off">
+        </div>
+        <label for="name">Name <span class="site-req">*</span></label>
+        <input id="name" name="name" type="text" required maxlength="200"
+          value="{{ form_name or '' }}" autocomplete="name">
+
+        <label for="email">Email <span class="site-req">*</span></label>
+        <input id="email" name="email" type="email" required maxlength="200"
+          value="{{ form_email or '' }}" autocomplete="email">
+
+        <label for="phone">Phone</label>
+        <input id="phone" name="phone" type="tel" maxlength="40"
+          value="{{ form_phone or '' }}" autocomplete="tel">
+
+        <label for="message">Message <span class="site-req">*</span></label>
+        <textarea id="message" name="message" rows="6" required maxlength="4000"
+          placeholder="How can we help?">{{ form_message or '' }}</textarea>
+
+        <button class="site-btn site-btn-primary site-btn-block" type="submit">Send message</button>
+        <p class="site-form-note">We’ll use your details only to respond to this enquiry.</p>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dashboard · Practice CRM{% endblock %}
+{% block title %}Dashboard · Accology{% endblock %}
 {% block apple_title %}Dashboard{% endblock %}
 {% block apple_touch_icon %}/static/icons/home/dashboard.png?v=home1{% endblock %}
 {% block content %}
@@ -8,17 +8,26 @@
 <div class="dash-view dash-desktop">
   <div class="desk-topbar">
     <div>
-      <h1 class="desk-page-title">Accologise</h1>
+      <div class="desk-brand-row desk-lockup-wrap">
+        <span class="crm-lockup crm-lockup-desk" aria-label="Accology — Accounting Science">
+          <span class="crm-lockup-word">ACCOLOGY</span>
+          <hr class="crm-lockup-rule" aria-hidden="true">
+          <span class="crm-lockup-tag">Accounting Science</span>
+        </span>
+      </div>
+      <h1 class="site-visually-hidden">Accology dashboard</h1>
       <p class="desk-page-sub">Working capital · {{ today }}</p>
     </div>
     <div class="actions">
       <a class="btn btn-sm" href="/jobs/new">New Job</a>
       <a class="btn btn-sm btn-secondary" href="/clients/new">New Client</a>
       <a class="btn btn-sm btn-outline" href="/clients/new?status=Prospect">New Prospect</a>
-      {% if demo_mode %}
+      {% if demo_mode and not demo_locked %}
       <a class="btn btn-sm" href="/demo/off" style="background:#b45309;border-color:#92400e">Exit demo</a>
-      {% else %}
+      {% elif not demo_mode %}
       <a class="btn btn-sm btn-outline" href="/demo/on" title="Anonymise data for presentation">Demo mode</a>
+      {% else %}
+      <span class="btn btn-sm" style="background:#b45309;border-color:#92400e;cursor:default">Demo login</span>
       {% endif %}
       <a class="btn btn-sm btn-outline" href="/settings">Settings</a>
       <a class="btn btn-sm btn-outline" href="/logout">Logout</a>
@@ -26,17 +35,38 @@
   </div>
 
   <div class="wc-cycle" id="working-capital-desktop">
-    {# Prospects — same format + colour as Net assets (wide) #}
-    <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch" href="/prospecting">
-      <div class="wc-net-main">
-        <div class="wc-net-label">Prospects</div>
-        <div class="wc-net-value">£{{ '{:,.0f}'.format(prospecting_value|default(0)) }}</div>
-        <div class="wc-net-formula small">
-          {{ prospecting_open|default(0)|int }} open leads · pipeline value
+    {# Prospects + Tasks — matched layout (aligned labels / formula / hint) #}
+    <div class="dash-top-pair">
+      <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch dash-aligned-banner" href="/prospecting">
+        <div class="wc-net-main">
+          <div class="wc-net-label">Prospects</div>
+          <div class="wc-net-value">£{{ '{:,.0f}'.format(prospecting_value|default(0)) }}</div>
+          <div class="wc-net-formula small">
+            {{ prospecting_open|default(0)|int }} open · pipeline value
+          </div>
         </div>
-      </div>
-      <p class="wc-net-hint small">Prospecting ledger →</p>
-    </a>
+        <p class="wc-net-hint small">Prospecting ledger →</p>
+      </a>
+
+      <a class="wc-net-banner wc-net-result wc-total-banner wc-touch wip-tasks-banner dash-aligned-banner" href="/tasks">
+        <div class="wc-net-main">
+          <div class="wc-net-label">Tasks</div>
+          <div class="wc-net-value">£{{ '{:,.0f}'.format(tasks_value|default(wc_wip_tasks_value)|default(0)) }}</div>
+          <div class="wc-net-formula small">
+            {{ tasks_count|default(wc_wip_tasks_count)|default(0) }} open
+            {% if (tasks_overdue|default(0)) > 0 %}
+            · {{ tasks_overdue }} overdue
+            {% endif %}
+            {% if (tasks_email|default(0)) > 0 %}
+            · {{ tasks_email }} email
+            {% else %}
+            · task ledger
+            {% endif %}
+          </div>
+        </div>
+        <p class="wc-net-hint small">Task ledger →</p>
+      </a>
+    </div>
 
     {# 2×2 Working capital #}
     <div class="wc-grid">
@@ -159,12 +189,13 @@
         <div class="wc-net-value">£{{ '{:,.0f}'.format(wc_net|default(0)) }}</div>
         <div class="wc-net-formula small">
           WIP £{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}
+          (incl. tasks £{{ '{:,.0f}'.format(wc_wip_tasks_value|default(tasks_value)|default(0)) }})
           + Debtors £{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}
           + Cash £{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}
           − Creditors £{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}
         </div>
       </div>
-      <p class="wc-net-hint small">Outcome of the cycle: assets in work, invoices, and bank, less what you owe.</p>
+      <p class="wc-net-hint small">WIP includes job fees, retainers and task £ · Prospects are pipeline only (not in net assets).</p>
     </section>
   </div>
 
@@ -234,14 +265,17 @@
   <div class="hub">
     <header class="hub-header">
       <div>
-        <p class="hub-brand" style="font-weight:900;font-size:1.35rem;letter-spacing:-0.03em">Accologise</p>
+        {# Live Tiles / small: compact mark only — not full lockup #}
+        <p class="hub-brand crm-lockup-compact" style="color:#fff;margin:0">ACCOLOGY</p>
         <p class="hub-date muted small">Working capital · {{ today }}</p>
       </div>
       <div class="hub-header-actions">
-        {% if demo_mode %}
+        {% if demo_mode and not demo_locked %}
         <a class="hub-logout" href="/demo/off" style="color:#fbbf24;font-weight:700">Exit demo</a>
-        {% else %}
+        {% elif not demo_mode %}
         <a class="hub-logout" href="/demo/on">Demo</a>
+        {% else %}
+        <span class="hub-logout" style="color:#fbbf24;font-weight:700">Demo only</span>
         {% endif %}
         <a class="hub-logout" href="/settings">Settings</a>
         <a class="hub-logout" href="/logout">Logout</a>
@@ -263,12 +297,21 @@
       </a>
     </div>
 
-    <a class="live-tile live-tile-wide tile-prospects" href="/prospecting" aria-label="Prospects">
-      <span class="live-kicker">Prospects</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(prospecting_value|default(0)) }}</span>
-      <span class="live-sub">{{ prospecting_open|default(total_prospects)|default(0)|int }} open leads</span>
-      <span class="live-age"><span>Pipeline value</span></span>
-    </a>
+    <div class="dash-top-pair dash-top-pair-mobile">
+      <a class="live-tile live-tile-wide tile-prospects" href="/prospecting" aria-label="Prospects">
+        <span class="live-kicker">Prospects</span>
+        <span class="live-value">£{{ '{:,.0f}'.format(prospecting_value|default(0)) }}</span>
+        <span class="live-sub">{{ prospecting_open|default(total_prospects)|default(0)|int }} open · pipeline</span>
+      </a>
+      <a class="live-tile live-tile-wide tile-debtors" href="/tasks" aria-label="Tasks">
+        <span class="live-kicker">Tasks</span>
+        <span class="live-value">£{{ '{:,.0f}'.format(tasks_value|default(wc_wip_tasks_value)|default(0)) }}</span>
+        <span class="live-sub">
+          {{ tasks_count|default(wc_wip_tasks_count)|default(0) }} open
+          {% if (tasks_overdue|default(0)) > 0 %} · {{ tasks_overdue }} overdue{% endif %}
+        </span>
+      </a>
+    </div>
 
     {# 2×2 WC #}
     <div class="live-grid" id="working-capital-mobile" aria-label="Working capital cycle">

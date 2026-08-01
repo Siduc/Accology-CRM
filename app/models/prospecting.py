@@ -98,7 +98,12 @@ class Prospect(Base):
     )
 
     def display_name(self) -> str:
-        return self.company_name or self.company_number or f"Prospect #{self.id}"
+        """Proper-cased name for lists and labels (display only; DB unchanged)."""
+        from app.text_format import normalize_caps
+
+        if self.company_name:
+            return normalize_caps(self.company_name)
+        return self.company_number or f"Prospect #{self.id}"
 
     def address_block(self) -> str:
         parts = [self.address_line1, self.address_line2, self.town, self.postcode]

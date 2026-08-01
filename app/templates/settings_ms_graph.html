@@ -34,7 +34,22 @@
   <dl class="dl-grid">
     <dt>Client ID</dt><dd><code>{{ client_mask or '—' }}</code></dd>
     <dt>Secret</dt><dd>{% if secret_set %}set{% else %}<em>missing</em>{% endif %}</dd>
-    <dt>Redirect URI</dt><dd><code class="small">{{ redirect_uri }}</code></dd>
+    <dt>Redirect URI</dt>
+    <dd>
+      <code class="small">{{ redirect_uri }}</code>
+      <p class="small muted" style="margin:0.35rem 0 0">
+        Must match Azure → App registration → Authentication → Web redirect URI
+        <em>exactly</em> (including <code>https://</code> vs <code>http://</code>).
+      </p>
+      {% if redirect_uri and (redirect_uri.startswith('https://localhost') or redirect_uri.startswith('https://127.0.0.1')) %}
+      <div class="alert alert-error" style="margin:0.5rem 0 0">
+        <strong>Local HTTPS will fail</strong> with <code>ERR_SSL_PROTOCOL_error</code>
+        because Accologise is served over plain HTTP. For local use set
+        <code>MS_GRAPH_REDIRECT_URI=http://localhost:8000/oauth/microsoft/callback</code>
+        and add that <strong>http</strong> URI in Azure (both can be registered).
+      </div>
+      {% endif %}
+    </dd>
     <dt>Drive id</dt><dd class="small">{{ status.drive_id or '—' }}</dd>
     <dt>Root folder id</dt><dd class="small">{{ status.root_folder_id or '—' }}</dd>
     <dt>Expires</dt><dd class="small">{{ status.expires_at or '—' }}</dd>
@@ -84,7 +99,7 @@
   </ol>
   <p class="small muted">OneDrive folder tree:
     <code>Accologise Documents / Clients / …</code> and
-    <code>Jobs / JOB-…</code>.
+    <code>Accologise / Clients / Client name / Job name</code> (e.g. Accounts).
     Completing a task with an Outlook message id moves that message to Archive (or
     <code>MS_GRAPH_MAIL_ARCHIVE_FOLDER</code>).
   </p>

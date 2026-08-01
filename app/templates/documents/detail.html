@@ -13,11 +13,9 @@
       {% if doc.job %} · <a href="/jobs/{{ doc.job.id }}">JOB-{{ doc.job.id }}</a>{% endif %}
     </p>
   </div>
-  <div class="actions">
-    <a class="btn btn-sm wc-touch" href="/documents/{{ doc.id }}/download">Download</a>
-    {% if doc.onedrive_web_url %}
-    <a class="btn btn-sm btn-outline wc-touch" href="{{ doc.onedrive_web_url }}" target="_blank" rel="noopener">Open in OneDrive</a>
-    {% endif %}
+  <div class="actions doc-detail-actions">
+    <a class="btn wc-touch" href="/documents/{{ doc.id }}/open?hop=1" target="_blank" rel="noopener">Open in OneDrive</a>
+    <a class="btn btn-outline wc-touch doc-btn-secondary" href="/documents/{{ doc.id }}/download">Download</a>
     <form method="post" action="/documents/{{ doc.id }}/key" style="display:inline">
       <button class="btn btn-sm btn-outline wc-touch" type="submit">{% if doc.is_key %}Unmark key{% else %}Mark key{% endif %}</button>
     </form>
@@ -29,26 +27,62 @@
 
 {% if not conn.connected or not conn.fresh %}
 <div class="chase-banner chase-banner-info" style="margin-bottom:1rem">
-  Microsoft session issue — download/preview may fail.
+  Microsoft session issue — open/preview may fail.
   <a class="btn btn-sm" href="/oauth/microsoft/start?return_to=/documents/{{ doc.id }}">Reconnect</a>
 </div>
 {% endif %}
 
 <div class="card" style="margin-bottom:1rem">
-  <h2 style="margin-top:0">Preview</h2>
-  {% set kind = doc.preview_kind() %}
-  {% if kind == 'pdf' %}
-  <div class="doc-preview">
-    <iframe src="/documents/{{ doc.id }}/preview" title="PDF preview"></iframe>
+  <div class="page-header" style="margin-bottom:0.75rem">
+    <div>
+      <h2 style="margin:0">Preview</h2>
+      <p class="small muted" style="margin:0.25rem 0 0">
+        Opens the live OneDrive file when possible — not a second copy in Downloads.
+      </p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-sm wc-touch" href="/documents/{{ doc.id }}/open?hop=1" target="_blank" rel="noopener">Open in OneDrive</a>
+    </div>
   </div>
-  {% elif kind == 'image' %}
+
+  {% if embed_kind == 'pdf' %}
+  <div class="doc-preview">
+    <iframe src="{{ embed_url }}" title="PDF preview"></iframe>
+  </div>
+  {% elif embed_kind == 'image' %}
   <div class="doc-preview doc-preview-img">
-    <img src="/documents/{{ doc.id }}/preview" alt="{{ doc.title }}">
+    <img src="{{ embed_url }}" alt="{{ doc.title }}">
+  </div>
+  {% elif embed_kind == 'office_embed' and embed_url %}
+  <div class="doc-preview">
+    <iframe src="{{ embed_url }}" title="Office Online preview" allowfullscreen></iframe>
+  </div>
+  <p class="small muted" style="margin:0.5rem 0 0">
+    Microsoft online viewer.
+    <a href="/documents/{{ doc.id }}/open?hop=1" target="_blank" rel="noopener">Open full file in OneDrive</a>
+    (desktop app may open from there if installed).
+  </p>
+  {% elif embed_kind == 'onedrive' and open_url %}
+  <div class="doc-open-panel">
+    <p style="margin:0 0 0.75rem">
+      This file is best viewed in <strong>OneDrive / Microsoft 365</strong>
+      {% if doc.is_office() %}(Word, Excel, or PowerPoint Online){% endif %}.
+    </p>
+    <a class="btn wc-touch" href="/documents/{{ doc.id }}/open?hop=1" target="_blank" rel="noopener">Open in OneDrive</a>
+    <p class="small muted" style="margin:0.75rem 0 0">
+      From OneDrive you can also open in the desktop app if installed.
+    </p>
   </div>
   {% else %}
-  <p class="muted">No in-browser preview for this file type.
-    <a href="/documents/{{ doc.id }}/download">Download</a> to open.
-  </p>
+  <div class="doc-open-panel">
+    <p class="muted" style="margin:0 0 0.75rem">
+      {% if embed_err %}{{ embed_err }}{% else %}No in-browser preview for this file type.{% endif %}
+    </p>
+    {% if open_url %}
+    <a class="btn wc-touch" href="/documents/{{ doc.id }}/open?hop=1" target="_blank" rel="noopener">Open in OneDrive</a>
+    {% endif %}
+    <a class="btn btn-outline wc-touch doc-btn-secondary" href="/documents/{{ doc.id }}/download">Download</a>
+  </div>
   {% endif %}
 </div>
 
@@ -59,6 +93,10 @@
     <dt>Size</dt><dd>{% if doc.size_bytes %}{{ '%.1f'|format(doc.size_bytes / 1024) }} KB{% else %}—{% endif %}</dd>
     <dt>Uploaded</dt><dd>{{ doc.uploaded_at.strftime('%d-%m-%Y %H:%M') if doc.uploaded_at else '—' }} · {{ doc.uploaded_by or '—' }}</dd>
     <dt>OneDrive path</dt><dd class="small">{{ doc.onedrive_path or '—' }}</dd>
+    <dt>OneDrive link</dt>
+    <dd class="small">
+      <a href="/documents/{{ doc.id }}/open?hop=1" target="_blank" rel="noopener">Open in OneDrive</a>
+    </dd>
     <dt>Tags</dt><dd>{{ doc.tags or '—' }}</dd>
     <dt>Description</dt><dd>{{ doc.description or '—' }}</dd>
   </dl>

@@ -11,14 +11,12 @@
       <strong>{{ unlinked_count }}</strong> contacts not yet assigned to a company
     </p>
   </div>
-  {# Desk: primary actions (phone uses action tiles below) #}
   <div class="actions page-actions-desk">
     <a class="btn btn-sm" href="/people/new">Add Person</a>
-    <a class="btn btn-sm btn-secondary" href="/clients">Companies</a>
-    <a class="btn btn-sm btn-outline" href="/people">People</a>
     <a class="btn btn-sm btn-outline" href="/people/link">Bulk link</a>
     <a class="btn btn-sm btn-outline" href="/export/people">Export CSV</a>
     <a class="btn btn-sm btn-outline" href="/import/csv?dataset=people">Reimport CSV</a>
+    <a class="btn btn-sm btn-outline" href="/lost/clients">Lost</a>
   </div>
 </div>
 
@@ -26,26 +24,20 @@
 <div class="chase-banner chase-banner-info">{{ msg }}</div>
 {% endif %}
 
-{# Phone: action tiles like clients / dashboard (add + switch book) #}
-<div class="action-tiles page-action-tiles" role="navigation" aria-label="Client book actions">
-  <a class="action-tile action-people" href="/people/new">
+{# Same three primary tiles as Companies — no extra Companies/People row #}
+<div class="action-tiles page-action-tiles page-action-tiles-always" role="navigation" aria-label="Client book actions">
+  <a class="action-tile action-client" href="/clients/new">
     <span class="action-plus">+</span>
-    <span class="action-label">Add Person</span>
+    <span class="action-label">Add Client</span>
   </a>
   <a class="action-tile action-companies" href="/clients">
     <span class="action-plus">◎</span>
     <span class="action-label">Companies</span>
   </a>
-  <a class="action-tile action-client" href="/clients/new">
-    <span class="action-plus">+</span>
-    <span class="action-label">Add Client</span>
+  <a class="action-tile action-people is-selected" href="/people">
+    <span class="action-plus">◎</span>
+    <span class="action-label">People</span>
   </a>
-</div>
-
-<div class="actions page-subnav-desk" style="margin-bottom:1rem">
-  <a class="btn btn-sm btn-outline" href="/clients">Companies</a>
-  <a class="btn btn-sm" href="/people">People</a>
-  <a class="btn btn-sm btn-outline" href="/lost/clients">Lost</a>
 </div>
 
 <form class="filters" method="get" action="/people">
@@ -84,7 +76,7 @@
       <tbody>
         {% for p in people %}
         <tr>
-          <td><a href="/people/{{ p.id }}/edit"><strong>{{ p.full_name or '—' }}</strong></a></td>
+          <td><a href="/people/{{ p.id }}/edit"><strong>{{ p.display_name or (p.full_name or '—')|norm_person }}</strong></a></td>
           <td>
             {% if p.is_individual_client %}
             <span class="badge badge-active">Individual client</span>
@@ -94,7 +86,7 @@
             <span class="badge">Contact</span>
             {% endif %}
           </td>
-          <td>{{ p.role or '—' }}</td>
+          <td>{{ (p.role or '—')|norm_caps }}</td>
           <td>{{ p.email or '—' }}</td>
           <td>{{ p.phone or '—' }}</td>
           <td>

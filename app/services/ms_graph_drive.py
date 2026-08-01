@@ -18,7 +18,10 @@ from app.services.ms_graph_oauth import get_valid_access_token, latest_active_to
 
 logger = logging.getLogger("accountant_crm.ms_graph_drive")
 
-ROOT_FOLDER_NAME = "Accologise Documents"
+# Root folder in the connected OneDrive (readable practice tree)
+ROOT_FOLDER_NAME = "Accologise"
+# Older installs used this name — still accepted when scanning
+LEGACY_ROOT_FOLDER_NAMES = ("Accologise Documents",)
 SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024  # 4 MiB Graph simple upload limit
 
 
@@ -39,28 +42,59 @@ def category_folder_name(category: str) -> str:
 
 
 def client_folder_slug(client) -> str:
+    """
+    Human-readable client folder: company / person name only.
+    Easy to scan in OneDrive (no JOB- or cryptic refs).
+    """
     name = ""
     if client is not None:
         if hasattr(client, "display_name"):
-            name = client.display_name() or ""
-        else:
-            name = getattr(client, "company_name", None) or getattr(
-                client, "name", ""
-            ) or ""
-        cn = (getattr(client, "company_number", None) or "").strip()
-        cid = getattr(client, "id", None)
-        if cn:
-            return sanitize_segment(f"{name} – {cn}")
-        if cid:
-            return sanitize_segment(f"{name} – C{cid}")
-    return sanitize_segment(name or "Client")
+            try:
+                name = client.display_name() or ""
+            except Exception:
+                name = ""
+        if not name:
+            name = (
+                getattr(client, "company_name", None)
+                or getattr(client, "name", None)
+                or ""
+            )
+    base = sanitize_segment(name or "")
+    if base:
+        return base
+    cid = getattr(client, "id", None) if client is not None else None
+    return sanitize_segment(f"Client {cid}" if cid else "Client")
+
+
+def job_folder_slug(job) -> str:
+    """
+    Human-readable job folder — type / title, not JOB-123.
+    e.g. Accounts — 2025-03-31, Confirmation Statement — 2026-07-09
+    """
+    if job is None:
+        return "Job"
+    jtype = (getattr(job, "type", None) or "").strip()
+    title = (getattr(job, "title", None) or "").strip()
+    pe = getattr(job, "period_end", None)
+
+    # Prefer full title when it already carries type + period
+    if title and (not jtype or jtype.lower() in title.lower() or "—" in title or "-" in title):
+        base = title
+    elif jtype and pe is not None and hasattr(pe, "isoformat"):
+        base = f"{jtype} — {pe.isoformat()}"
+    elif jtype:
+        base = jtype
+    elif title:
+        base = title
+    else:
+        jid = getattr(job, "id", None)
+        base = f"Job {jid}" if jid else "Job"
+    return sanitize_segment(base) or "Job"
 
 
 def job_ref(job) -> str:
-    jid = getattr(job, "id", None) if job is not None else None
-    if jid:
-        return f"JOB-{jid}"
-    return "JOB-unknown"
+    """Legacy helper — prefer job_folder_slug for new paths."""
+    return job_folder_slug(job)
 
 
 def _request(
@@ -163,28 +197,33 @@ def ensure_child_folder(
 
 
 def ensure_root_folder(db: Session, access_token: str) -> Tuple[Optional[str], str]:
-    """Ensure Accologise Documents under drive root; cache id on token row."""
+    """
+    Ensure practice root under drive root; cache id on token row.
+
+    Prefers ``Accologise``. If an older ``Accologise Documents`` folder already
+    exists, reuses it so existing libraries keep working.
+    """
     row = latest_active_token(db)
     if row and row.root_folder_id:
-        # verify exists
         ok, data, err, status = _request(
             "GET", f"/me/drive/items/{row.root_folder_id}", access_token
         )
         if ok and isinstance(data, dict) and data.get("id"):
             return data["id"], ""
-        # stale cache
         row.root_folder_id = None
         db.commit()
 
-    # try by path
-    path = f"/me/drive/root:/{quote(ROOT_FOLDER_NAME)}:"
-    ok, data, err, status = _request("GET", path, access_token)
-    if ok and isinstance(data, dict) and data.get("id"):
-        if row:
-            row.root_folder_id = data["id"]
-            db.commit()
-        return data["id"], ""
+    candidates = (ROOT_FOLDER_NAME,) + tuple(LEGACY_ROOT_FOLDER_NAMES)
+    for name in candidates:
+        path = f"/me/drive/root:/{quote(name)}:"
+        ok, data, err, status = _request("GET", path, access_token)
+        if ok and isinstance(data, dict) and data.get("id"):
+            if row:
+                row.root_folder_id = data["id"]
+                db.commit()
+            return data["id"], ""
 
+    # Create the new readable root
     body = json.dumps(
         {
             "name": ROOT_FOLDER_NAME,
@@ -205,6 +244,7 @@ def ensure_root_folder(db: Session, access_token: str) -> Tuple[Optional[str], s
             db.commit()
         return data["id"], ""
     if status == 409:
+        path = f"/me/drive/root:/{quote(ROOT_FOLDER_NAME)}:"
         ok2, data2, err2, _ = _request("GET", path, access_token)
         if ok2 and isinstance(data2, dict) and data2.get("id"):
             if row:
@@ -212,7 +252,7 @@ def ensure_root_folder(db: Session, access_token: str) -> Tuple[Optional[str], s
                 db.commit()
             return data2["id"], ""
         return None, err2 or err
-    return None, err or "Could not create Accologise Documents folder"
+    return None, err or "Could not create Accologise root folder"
 
 
 def ensure_folder_path(
@@ -248,17 +288,82 @@ def resolve_storage_folder(
     category: str = "Other",
 ) -> Tuple[Optional[str], str, str]:
     """
-    Jobs path when job set; else Clients path.
+    Readable OneDrive tree:
+
+      Accologise / Clients / {Client Name} / {Job Name} [/ Category]
+
+    Job Name is type/title (e.g. Accounts), never JOB-123.
     Returns (folder_id, path, error).
     """
     cat = category_folder_name(category)
-    if job is not None:
-        segments = ["Jobs", job_ref(job), cat]
+    # Resolve client from job when needed
+    if job is not None and client is None:
+        client = getattr(job, "client", None)
+        if client is None and getattr(job, "client_id", None):
+            try:
+                from app.models.client import Client
+
+                client = (
+                    db.query(Client).filter(Client.id == job.client_id).first()
+                )
+            except Exception:
+                client = None
+
+    if job is not None and client is not None:
+        segments = ["Clients", client_folder_slug(client), job_folder_slug(job)]
+        if cat and cat != "Other":
+            segments.append(cat)
     elif client is not None:
-        segments = ["Clients", client_folder_slug(client), cat]
+        segments = ["Clients", client_folder_slug(client)]
+        if cat and cat != "Other":
+            segments.append(cat)
+    elif job is not None:
+        # Job without client — still avoid JOB-id style
+        segments = ["Clients", "Unassigned", job_folder_slug(job)]
+        if cat and cat != "Other":
+            segments.append(cat)
     else:
         segments = ["Other", cat]
     return ensure_folder_path(db, access_token, segments)
+
+
+def list_children(
+    access_token: str,
+    folder_id: str,
+    *,
+    top: int = 200,
+) -> Tuple[List[Dict[str, Any]], str]:
+    """List immediate children of a drive folder (files + folders)."""
+    items: List[Dict[str, Any]] = []
+    page_size = max(1, min(int(top or 200), 200))
+    url: Optional[str] = (
+        f"/me/drive/items/{folder_id}/children"
+        f"?$top={page_size}"
+        f"&$select=id,name,size,file,folder,webUrl,eTag,cTag,lastModifiedDateTime"
+    )
+    while url:
+        ok, data, err, _ = _request("GET", url, access_token)
+        if not ok or not isinstance(data, dict):
+            return items, err or "Could not list folder"
+        for row in data.get("value") or []:
+            if isinstance(row, dict):
+                items.append(row)
+        nxt = (data.get("@odata.nextLink") or "").strip()
+        url = nxt if nxt else None
+    return items, ""
+
+
+def find_root_folder_id(db: Session, access_token: str) -> Tuple[Optional[str], str]:
+    """Prefer new Accologise root; fall back to legacy Accologise Documents."""
+    root_id, err = ensure_root_folder(db, access_token)
+    if root_id:
+        return root_id, ""
+    for legacy in LEGACY_ROOT_FOLDER_NAMES:
+        path = f"/me/drive/root:/{quote(legacy)}:"
+        ok, data, _, _ = _request("GET", path, access_token)
+        if ok and isinstance(data, dict) and data.get("id"):
+            return data["id"], ""
+    return None, err or "Practice root folder not found"
 
 
 def _unique_name(filename: str) -> str:
@@ -453,3 +558,55 @@ def get_item(access_token: str, item_id: str) -> Tuple[Optional[Dict[str, Any]],
     if ok and isinstance(data, dict):
         return data, ""
     return None, err or "Item not found"
+
+
+def create_preview(
+    access_token: str, item_id: str
+) -> Tuple[Optional[str], str]:
+    """
+    Graph file preview embed URL (Office Online / PDF viewer).
+
+    POST /me/drive/items/{id}/preview → { getUrl }
+    """
+    ok, data, err, _ = _request(
+        "POST",
+        f"/me/drive/items/{item_id}/preview",
+        access_token,
+        data=b"{}",
+        content_type="application/json",
+    )
+    if ok and isinstance(data, dict):
+        url = (data.get("getUrl") or data.get("url") or "").strip()
+        if url:
+            return url, ""
+        return None, "Preview response had no getUrl"
+    return None, err or "Could not create OneDrive preview"
+
+
+def create_view_link(
+    access_token: str, item_id: str
+) -> Tuple[Optional[str], str]:
+    """
+    Create a view link for the item (opens in browser without re-uploading).
+
+    Tries organisation, then users, then anonymous (tenant policy dependent).
+    """
+    last_err = ""
+    for scope in ("organization", "users", "anonymous"):
+        body = json.dumps({"type": "view", "scope": scope}).encode("utf-8")
+        ok, data, err, status = _request(
+            "POST",
+            f"/me/drive/items/{item_id}/createLink",
+            access_token,
+            data=body,
+            content_type="application/json",
+        )
+        if ok and isinstance(data, dict):
+            link = data.get("link") if isinstance(data.get("link"), dict) else {}
+            url = (link.get("webUrl") or data.get("webUrl") or "").strip()
+            if url:
+                return url, ""
+            last_err = "createLink returned no webUrl"
+        else:
+            last_err = err or f"createLink failed ({status})"
+    return None, last_err or "Could not create view link"

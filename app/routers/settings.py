@@ -1,8 +1,9 @@
 """User settings (client-side preferences for now)."""
 
 from datetime import datetime
+from urllib.parse import quote as url_quote
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -15,9 +16,6 @@ from app.config import (
     CH_OAUTH_CLIENT_SECRET,
     CH_OAUTH_REDIRECT_URI,
     CHASE_LIVE_MODE,
-    MS_GRAPH_CLIENT_ID,
-    MS_GRAPH_CLIENT_SECRET,
-    MS_GRAPH_REDIRECT_URI,
     PRACTICE_EMAIL,
     PRACTICE_NAME,
     PRACTICE_PHONE,
@@ -25,7 +23,9 @@ from app.config import (
     SMTP_HOST,
     ch_oauth_configured,
     ms_graph_configured,
+    refresh_ms_graph_settings,
 )
+import app.config as app_config
 from app.database import get_db
 from app.models.dev_backlog import DevBacklogItem
 from app.services.chase_emails import smtp_configured
@@ -61,24 +61,48 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
         backlog = []
     oauth_last = latest_oauth_summary()
     oauth_stu = diagnose_stu_from_events()
+    # Always re-read MS_GRAPH_CLIENT_ID / SECRET / REDIRECT_URI from .env
+    ms_snap = refresh_ms_graph_settings(force_dotenv=True)
     try:
         ms_status = ms_connection_status(db)
     except Exception:
         ms_status = {
-            "configured": ms_graph_configured(),
+            "configured": bool(ms_snap.get("configured")),
             "connected": False,
             "fresh": False,
             "email": "",
         }
-    from app.config import TASK_PUSH_API_KEY
-    from app.services.demo_mode import is_demo_request
+    from app.config import (
+        AI_ASSISTANT_ENABLED,
+        AI_ASSISTANT_HEURISTIC,
+        AI_MODEL,
+        DEMO_AUTH_PASSWORD,
+        DEMO_AUTH_USERNAME,
+        TASK_PUSH_API_KEY,
+        XAI_API_KEY,
+    )
+    from app.services.demo_mode import is_demo_locked, is_demo_request
+    from app.services.branding import branding_status
+
+    ms_ok = ms_graph_configured(refresh=True)
+    branding = branding_status()
 
     return render(
         request,
         "settings.html",
         {
             "chase_live": CHASE_LIVE_MODE,
+            "branding": branding,
+            "branding_msg": request.query_params.get("branding_msg", ""),
+            "branding_error": request.query_params.get("branding_error", ""),
             "task_push_key_set": bool((TASK_PUSH_API_KEY or "").strip()),
+            "ai_key_set": bool((XAI_API_KEY or "").strip()),
+            "ai_enabled": bool(AI_ASSISTANT_ENABLED),
+            "ai_heuristic": bool(AI_ASSISTANT_HEURISTIC),
+            "ai_model": AI_MODEL,
+            "demo_locked": is_demo_locked(request),
+            "demo_login_configured": bool((DEMO_AUTH_PASSWORD or "").strip()),
+            "demo_login_username": (DEMO_AUTH_USERNAME or "demo"),
             "smtp_ok": smtp_configured(),
             "smtp_host": SMTP_HOST or "",
             "smtp_from": SMTP_FROM or "",
@@ -98,10 +122,12 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "ch_oauth_tokens": oauth_tokens,
             "ch_oauth_last": oauth_last,
             "ch_oauth_stu": oauth_stu,
-            "ms_graph_configured": ms_graph_configured(),
-            "ms_graph_client_mask": ms_mask_client_id(MS_GRAPH_CLIENT_ID),
-            "ms_graph_secret_set": bool((MS_GRAPH_CLIENT_SECRET or "").strip()),
-            "ms_graph_redirect": MS_GRAPH_REDIRECT_URI or "",
+            "ms_graph_configured": ms_ok,
+            "ms_graph_client_mask": ms_mask_client_id(app_config.MS_GRAPH_CLIENT_ID),
+            "ms_graph_secret_set": bool(
+                (app_config.MS_GRAPH_CLIENT_SECRET or "").strip()
+            ),
+            "ms_graph_redirect": app_config.MS_GRAPH_REDIRECT_URI or "",
             "ms_status": ms_status,
             "oauth_error": request.query_params.get("oauth_error", ""),
             "oauth_msg": request.query_params.get("oauth_msg", ""),
@@ -119,26 +145,87 @@ async def settings_demo_mode(
     enabled: str = Form(""),
 ):
     """Toggle presentation demo mode (session only — database unchanged)."""
-    from app.services.demo_mode import set_demo_mode
+    from app.services.demo_mode import is_demo_locked, set_demo_mode
 
+    if is_demo_locked(request):
+        return RedirectResponse(
+            "/settings?demo_msg=locked#settings-demo", status_code=303
+        )
     on = (enabled or "").strip().lower() in ("1", "yes", "on", "true")
     set_demo_mode(request, on)
     msg = "on" if on else "off"
     return RedirectResponse(f"/settings?demo_msg={msg}#settings-demo", status_code=303)
 
 
+@router.post("/settings/branding/upload")
+async def settings_branding_upload(
+    request: Request,
+    kind: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Upload practice logo or letterhead for invoices / letter templates."""
+    from app.services.demo_mode import is_demo_locked
+    from app.services.branding import save_upload
+
+    if is_demo_locked(request):
+        return RedirectResponse(
+            "/settings?branding_error="
+            + url_quote("Demo login cannot change branding")
+            + "#settings-branding",
+            status_code=303,
+        )
+    ok, msg = await save_upload(file, kind=kind)
+    if ok:
+        return RedirectResponse(
+            f"/settings?branding_msg={url_quote(msg)}#settings-branding",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/settings?branding_error={url_quote(msg)}#settings-branding",
+        status_code=303,
+    )
+
+
+@router.post("/settings/branding/remove")
+async def settings_branding_remove(
+    request: Request,
+    kind: str = Form(...),
+):
+    from app.services.demo_mode import is_demo_locked
+    from app.services.branding import delete_asset
+
+    if is_demo_locked(request):
+        return RedirectResponse(
+            "/settings?branding_error="
+            + url_quote("Demo login cannot change branding")
+            + "#settings-branding",
+            status_code=303,
+        )
+    ok, msg = delete_asset(kind)
+    key = "branding_msg" if ok else "branding_error"
+    return RedirectResponse(
+        f"/settings?{key}={url_quote(msg)}#settings-branding",
+        status_code=303,
+    )
+
+
 @router.get("/demo/on")
 async def demo_on(request: Request):
-    from app.services.demo_mode import set_demo_mode
+    from app.services.demo_mode import is_demo_locked, set_demo_mode
 
+    if is_demo_locked(request):
+        return RedirectResponse("/dashboard", status_code=303)
     set_demo_mode(request, True)
     return RedirectResponse("/dashboard", status_code=303)
 
 
 @router.get("/demo/off")
 async def demo_off(request: Request):
-    from app.services.demo_mode import set_demo_mode
+    from app.services.demo_mode import is_demo_locked, set_demo_mode
 
+    # Demo-only visitors cannot switch to live data
+    if is_demo_locked(request):
+        return RedirectResponse("/dashboard?demo_msg=locked", status_code=303)
     set_demo_mode(request, False)
     return RedirectResponse("/dashboard", status_code=303)
 

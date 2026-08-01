@@ -27,6 +27,8 @@ class PracticeTask(Base):
     notes = Column(Text, nullable=True)
     # High | Medium | Low
     priority = Column(String, nullable=True, index=True)
+    # Manual ledger order (drag-and-drop); lower = higher on list
+    sort_order = Column(Integer, nullable=True, index=True, default=0)
     source_email_date = Column(Date, nullable=True)
     import_source = Column(String, nullable=True)  # e.g. outlook_grok | outlook_push
     import_hash = Column(String, nullable=True, index=True)

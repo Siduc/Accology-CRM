@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{% if job %}Edit Job{% else %}New Job{% endif %} · CRM{% endblock %}
 {% block content %}
+{% set back_href = return_to if return_to else (('/jobs/' ~ job.id) if job else '/jobs') %}
 <div class="page-header">
   <div>
-    <p class="small muted"><a href="{% if job %}/jobs/{{ job.id }}{% else %}/dashboard{% endif %}">← Accologise</a></p>
+    <p class="small muted"><a href="{{ back_href }}">← Back to list</a></p>
     <h1>{% if job %}Edit Job{% else %}New Job{% endif %}</h1>
   </div>
 </div>
@@ -14,6 +15,7 @@
 
 <div class="card">
   <form class="stack" method="post" action="{% if job %}/jobs/{{ job.id }}/edit{% else %}/jobs/new{% endif %}">
+    {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
     <div class="form-grid">
       <div>
         <label for="client_id">Client *</label>
@@ -99,7 +101,7 @@
     <p class="small muted">Statutory and target dates can be calculated from job type and period end; actual dates are entered when work starts/finishes.</p>
     <div class="form-actions">
       <button class="btn" type="submit">Save</button>
-      <a class="btn btn-outline" href="{% if job %}/jobs/{{ job.id }}{% else %}/jobs{% endif %}">Cancel</a>
+      <a class="btn btn-outline" href="{{ back_href }}">Cancel</a>
     </div>
   </form>
 </div>

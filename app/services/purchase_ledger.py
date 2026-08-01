@@ -165,7 +165,7 @@ def create_supplier(
     town: str = "",
     postcode: str = "",
     vat_number: str = "",
-    payment_terms_days: int = 30,
+    payment_terms_days: int = 0,
     default_category: str = "supplier",
     notes: str = "",
 ) -> Supplier:
@@ -178,7 +178,7 @@ def create_supplier(
         town=(town or "").strip() or None,
         postcode=(postcode or "").strip() or None,
         vat_number=(vat_number or "").strip() or None,
-        payment_terms_days=int(payment_terms_days or 30),
+        payment_terms_days=int(payment_terms_days if payment_terms_days is not None else 0),
         default_category=(default_category or "supplier").strip() or "supplier",
         notes=(notes or "").strip() or None,
         is_active=True,
@@ -245,7 +245,7 @@ def create_bill(
         sup = get_or_create_supplier_by_name(db, supplier_name)
     sname = sup.display_name() if sup else (supplier_name or "Supplier")
     issue = issue_date or date.today()
-    terms = int(sup.payment_terms_days or 30) if sup else 30
+    terms = int(sup.payment_terms_days if sup and sup.payment_terms_days is not None else 0)
     due = due_date or (issue + timedelta(days=terms))
     cat = (category or (sup.default_category if sup else "supplier") or "supplier")
 

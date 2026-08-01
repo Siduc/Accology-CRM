@@ -1,0 +1,189 @@
+/* Accology login — matt black / white / electric cyan + bold lockup */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+
+:root {
+  --ac-black: #0A0A0A;
+  --ac-white: #FFFFFF;
+  --ac-cyan: #00E5FF;
+  --ac-muted: #5a5a5a;
+  --ac-line: #e5e5e5;
+  --ac-font: "Inter", "Segoe UI", "Helvetica Neue", system-ui, -apple-system, sans-serif;
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body { margin: 0; min-height: 100%; }
+
+body.login-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-family: var(--ac-font);
+  color: var(--ac-black);
+  background: var(--ac-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 1rem;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 1;
+}
+
+.login-shell {
+  width: 100%;
+  max-width: 24.5rem;
+}
+
+.login-panel {
+  background: var(--ac-white);
+  border: 1px solid var(--ac-line);
+  padding: 2.75rem 1.85rem 2.15rem;
+}
+
+.login-logo-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 2.15rem;
+}
+
+.ac-lockup {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  color: var(--ac-black);
+  text-decoration: none;
+}
+.ac-lockup-word {
+  font-weight: 900;
+  font-size: 1.65rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin: 0;
+  -webkit-text-stroke: 0.2px var(--ac-black);
+}
+.ac-lockup-rule {
+  width: 100%;
+  height: 1.5px;
+  background: var(--ac-black);
+  border: 0;
+  margin: 0.22em 0 0.28em;
+  padding: 0;
+}
+.ac-lockup-tag {
+  font-weight: 400;
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin: 0;
+  text-align: center;
+}
+
+.login-title {
+  margin: 0 0 0.35rem;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.login-sub {
+  margin: 0 0 1.5rem;
+  text-align: center;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--ac-muted);
+  line-height: 1.4;
+}
+
+.login-alert {
+  background: #fff5f5;
+  border-left: 3px solid #c00;
+  color: #600;
+  padding: 0.7rem 0.85rem;
+  margin: 0 0 1rem;
+  font-size: 0.92rem;
+}
+
+.login-form label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin: 0.95rem 0 0.35rem;
+}
+.login-form label:first-of-type { margin-top: 0; }
+
+.login-form input {
+  width: 100%;
+  min-height: 2.9rem;
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 0.65rem 0.9rem;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--ac-black);
+  background: var(--ac-white);
+}
+.login-form input:focus {
+  outline: 2px solid var(--ac-cyan);
+  border-color: var(--ac-black);
+}
+
+.login-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 3rem;
+  margin-top: 1.45rem;
+  border: none;
+  border-radius: 0;
+  background: var(--ac-black);
+  color: var(--ac-white);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.login-btn:hover { background: #000; }
+
+.login-demo {
+  margin-top: 1.4rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--ac-line);
+  font-size: 0.85rem;
+  color: var(--ac-muted);
+  line-height: 1.45;
+  text-align: center;
+}
+.login-demo p { margin: 0 0 0.5rem; }
+.login-demo a {
+  color: var(--ac-black);
+  font-weight: 650;
+  text-decoration: none;
+  border-bottom: 1px solid var(--ac-cyan);
+}
+.login-demo a:hover { border-bottom-color: var(--ac-black); }
+
+.login-back {
+  display: block;
+  text-align: center;
+  margin-top: 1.35rem;
+  font-size: 0.78rem;
+  color: #a0a0a0;
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+.login-back:hover { color: var(--ac-black); }
+
+@media (max-width: 420px) {
+  .login-panel { padding: 2.15rem 1.25rem 1.85rem; }
+  .ac-lockup-word { font-size: 1.4rem; }
+}
