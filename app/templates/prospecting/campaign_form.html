@@ -47,6 +47,51 @@
     <label>Sequence (JSON, optional)</label>
     <textarea name="sequence_json" rows="3" placeholder='[{"type":"letter","offset_days":0},{"type":"email","offset_days":7}]'></textarea>
 
+    <h2 style="margin:1rem 0 0.35rem;font-size:1.05rem">Fees</h2>
+    <p class="muted small" style="margin:0 0 0.5rem">
+      Prospect pipeline value = <strong>initial + ongoing</strong>
+      (monthly ongoing is annualised ×12). <strong>Renewal is not</strong> included in prospect value.
+    </p>
+    <div class="form-grid">
+      <div>
+        <label>Initial fee (£)</label>
+        <input name="fee_initial" inputmode="decimal" value="{{ campaign.fee_initial if campaign else '0' }}" placeholder="0">
+      </div>
+      <div>
+        <label>Ongoing fee (£)</label>
+        <input name="fee_ongoing" inputmode="decimal" value="{{ campaign.fee_ongoing if campaign else '0' }}" placeholder="0">
+      </div>
+      <div>
+        <label>Ongoing frequency</label>
+        <select name="fee_ongoing_frequency">
+          <option value="annual" {% if not campaign or (campaign.fee_ongoing_frequency or 'annual') == 'annual' %}selected{% endif %}>Annual</option>
+          <option value="monthly" {% if campaign and campaign.fee_ongoing_frequency == 'monthly' %}selected{% endif %}>Monthly</option>
+        </select>
+      </div>
+      <div>
+        <label>Renewal fee (£)</label>
+        <input name="fee_renewal" inputmode="decimal" value="{{ campaign.fee_renewal if campaign else '0' }}" placeholder="0">
+        <p class="small muted" style="margin:0.25rem 0 0">Stored for reference only — not added to prospect value.</p>
+      </div>
+    </div>
+
+    <h2 style="margin:1rem 0 0.35rem;font-size:1.05rem">Campaign email draft</h2>
+    <p class="muted small" style="margin:0 0 0.5rem">
+      Optional default email. Placeholders:
+      <code>{% raw %}{{company}}{% endraw %}</code>,
+      <code>{% raw %}{{contact}}{% endraw %}</code>,
+      <code>{% raw %}{{initial_fee}}{% endraw %}</code>,
+      <code>{% raw %}{{ongoing_fee}}{% endraw %}</code>,
+      <code>{% raw %}{{renewal_fee}}{% endraw %}</code>,
+      <code>{% raw %}{{campaign}}{% endraw %}</code>.
+      You can push drafts into Outlook from the campaign page.
+    </p>
+    <label>Email subject</label>
+    <input name="email_subject" value="{{ campaign.email_subject if campaign and campaign.email_subject else '' }}"
+           placeholder="e.g. Personal Allowance Payroll — proposal">
+    <label>Email body</label>
+    <textarea name="email_body" rows="6" placeholder="Dear Sir/Madam, …">{{ campaign.email_body if campaign and campaign.email_body else '' }}</textarea>
+
     <h2 style="margin:1rem 0 0.35rem;font-size:1.05rem">Target list — companies from client book</h2>
     <p class="muted small" style="margin:0 0 0.5rem">
       Tick existing clients to seed the campaign membership now.

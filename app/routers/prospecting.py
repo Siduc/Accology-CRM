@@ -372,6 +372,12 @@ async def campaign_create(
     channel: str = Form("mixed"),
     status: str = Form("draft"),
     sequence_json: str = Form(""),
+    fee_initial: str = Form("0"),
+    fee_ongoing: str = Form("0"),
+    fee_ongoing_frequency: str = Form("annual"),
+    fee_renewal: str = Form("0"),
+    email_subject: str = Form(""),
+    email_body: str = Form(""),
     db: Session = Depends(get_db),
 ):
     from app.services.prospecting import add_clients_to_campaign
@@ -385,6 +391,12 @@ async def campaign_create(
         channel=channel,
         status=status,
         sequence_json=sequence_json,
+        fee_initial=fee_initial,
+        fee_ongoing=fee_ongoing,
+        fee_ongoing_frequency=fee_ongoing_frequency,
+        fee_renewal=fee_renewal,
+        email_subject=email_subject,
+        email_body=email_body,
     )
     form = await request.form()
     raw_ids = form.getlist("client_ids")
@@ -437,7 +449,12 @@ async def campaign_detail(
         banner = f"Target list updated: {a} added, {s} already on list / skipped."
     elif msg == "added":
         banner = "Member(s) added to campaign."
+    elif msg == "fees":
+        banner = "Fees and email draft saved. Member pipeline values updated where applicable."
 
+    from app.services.ms_graph_oauth import connection_status
+
+    graph = connection_status(db)
     return render(
         request,
         "prospecting/campaign_detail.html",
@@ -448,7 +465,168 @@ async def campaign_detail(
             "pipeline_labels": PIPELINE_LABELS,
             "clients": _company_client_choices(db),
             "member_client_ids": member_client_ids,
+            "pipeline_value": c.pipeline_value_per_prospect(),
+            "graph_connected": bool(graph.get("connected") and graph.get("fresh")),
         },
+    )
+
+
+@router.post("/campaigns/{campaign_id:int}/fees")
+async def campaign_update_fees(
+    campaign_id: int,
+    fee_initial: str = Form("0"),
+    fee_ongoing: str = Form("0"),
+    fee_ongoing_frequency: str = Form("annual"),
+    fee_renewal: str = Form("0"),
+    email_subject: str = Form(""),
+    email_body: str = Form(""),
+    apply_to_members: str = Form("yes"),
+    db: Session = Depends(get_db),
+):
+    from app.services.prospecting import update_campaign_fees
+
+    c = db.query(ProspectCampaign).filter(ProspectCampaign.id == campaign_id).first()
+    if not c:
+        return RedirectResponse("/prospecting/campaigns", status_code=303)
+    update_campaign_fees(
+        db,
+        c,
+        fee_initial=fee_initial,
+        fee_ongoing=fee_ongoing,
+        fee_ongoing_frequency=fee_ongoing_frequency,
+        fee_renewal=fee_renewal,
+        apply_to_members=(apply_to_members or "").lower() in ("1", "yes", "on", "true"),
+    )
+    c.email_subject = (email_subject or "").strip() or None
+    c.email_body = (email_body or "").strip() or None
+    c.updated_at = __import__("datetime").datetime.utcnow()
+    db.commit()
+    return RedirectResponse(
+        f"/prospecting/campaigns/{campaign_id}?msg=fees", status_code=303
+    )
+
+
+@router.post("/campaigns/{campaign_id:int}/email-drafts")
+async def campaign_push_email_drafts(
+    campaign_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Create Outlook drafts for campaign members (review & send in Outlook).
+    Does not send immediately — drafts land in the signed-in mailbox.
+    """
+    from app.services.ms_graph_mail import create_outlook_draft
+    from app.services.ms_graph_oauth import get_valid_access_token
+    from app.services.prospecting import log_activity
+
+    c = db.query(ProspectCampaign).filter(ProspectCampaign.id == campaign_id).first()
+    if not c:
+        return RedirectResponse("/prospecting/campaigns", status_code=303)
+
+    form = await request.form()
+    only_ids = set()
+    for v in form.getlist("member_prospect_ids"):
+        if str(v).strip().isdigit():
+            only_ids.add(int(v))
+
+    token, err = get_valid_access_token(db)
+    if not token:
+        return RedirectResponse(
+            f"/prospecting/campaigns/{campaign_id}?msg="
+            + __import__("urllib.parse").quote(
+                err or "Connect Microsoft Graph with Mail.Send to create Outlook drafts"
+            ),
+            status_code=303,
+        )
+
+    subject_tmpl = (c.email_subject or "").strip() or f"{c.name} — proposal"
+    body_tmpl = (c.email_body or "").strip() or (
+        "Dear {{contact}},\n\n"
+        "Please find details of our {{campaign}} offering.\n\n"
+        "Initial fee: £{{initial_fee}}\n"
+        "Ongoing: £{{ongoing_fee}} ({{ongoing_frequency}})\n\n"
+        "Kind regards\n"
+    )
+
+    def render_tpl(tmpl: str, p) -> str:
+        initial = f"{float(c.fee_initial or 0):,.2f}"
+        ongoing = f"{float(c.fee_ongoing or 0):,.2f}"
+        renewal = f"{float(c.fee_renewal or 0):,.2f}"
+        freq = (c.fee_ongoing_frequency or "annual").lower()
+        mapping = {
+            "{{company}}": p.display_name() if p else "",
+            "{{contact}}": (p.contact_name if p else None) or "Sir/Madam",
+            "{{initial_fee}}": initial,
+            "{{ongoing_fee}}": ongoing,
+            "{{ongoing_frequency}}": freq,
+            "{{renewal_fee}}": renewal,
+            "{{campaign}}": c.name or "",
+            "{{email}}": (p.email if p else None) or "",
+        }
+        out = tmpl
+        for k, v in mapping.items():
+            out = out.replace(k, str(v))
+        return out
+
+    members = (
+        db.query(CampaignMember)
+        .filter(
+            CampaignMember.campaign_id == c.id,
+            CampaignMember.status != "removed",
+        )
+        .all()
+    )
+    created = 0
+    skipped = 0
+    failed = 0
+    for m in members:
+        p = m.prospect
+        if not p:
+            skipped += 1
+            continue
+        if only_ids and p.id not in only_ids:
+            continue
+        to = (p.email or "").strip()
+        if not to or "@" not in to:
+            skipped += 1
+            continue
+        subj = render_tpl(subject_tmpl, p)
+        body = render_tpl(body_tmpl, p)
+        draft, derr = create_outlook_draft(token, to=to, subject=subj, body=body)
+        if draft:
+            created += 1
+            link = draft.get("webLink") or ""
+            log_activity(
+                db,
+                p.id,
+                activity_type="email",
+                subject=f"Outlook draft: {subj[:180]}",
+                body=f"Draft created in Outlook for review/send.\n{link}",
+                direction="outbound",
+                campaign_id=c.id,
+                commit=False,
+            )
+            m.last_touch_at = __import__("datetime").datetime.utcnow()
+        else:
+            failed += 1
+            log_activity(
+                db,
+                p.id,
+                activity_type="email",
+                subject="Outlook draft failed",
+                body=derr or "unknown error",
+                direction="outbound",
+                campaign_id=c.id,
+                commit=False,
+            )
+    db.commit()
+    from urllib.parse import quote as uq
+
+    return RedirectResponse(
+        f"/prospecting/campaigns/{campaign_id}?msg="
+        + uq(f"Outlook drafts: {created} created, {skipped} skipped (no email), {failed} failed"),
+        status_code=303,
     )
 
 

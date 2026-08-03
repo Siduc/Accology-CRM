@@ -22,6 +22,74 @@
 <div class="chase-banner chase-banner-info">{{ msg }}</div>
 {% endif %}
 {% if c.description %}<p class="muted">{{ c.description }}</p>{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>Fees &amp; pipeline value</h2>
+  <p class="muted small">
+    Prospect value per member =
+    <strong>£{{ '%.2f'|format(pipeline_value or 0) }}</strong>
+    (initial £{{ '%.2f'|format(c.fee_initial or 0) }}
+    + ongoing £{{ '%.2f'|format(c.fee_ongoing or 0) }}
+    {{ c.fee_ongoing_frequency or 'annual' }}{% if (c.fee_ongoing_frequency or '') == 'monthly' %} → £{{ '%.2f'|format(c.ongoing_annual_value()) }}/yr{% endif %}).
+    Renewal £{{ '%.2f'|format(c.fee_renewal or 0) }} is <strong>not</strong> included in prospect value.
+  </p>
+  <form class="stack" method="post" action="/prospecting/campaigns/{{ c.id }}/fees">
+    <div class="form-grid">
+      <div>
+        <label>Initial fee (£)</label>
+        <input name="fee_initial" inputmode="decimal" value="{{ c.fee_initial or 0 }}">
+      </div>
+      <div>
+        <label>Ongoing fee (£)</label>
+        <input name="fee_ongoing" inputmode="decimal" value="{{ c.fee_ongoing or 0 }}">
+      </div>
+      <div>
+        <label>Ongoing frequency</label>
+        <select name="fee_ongoing_frequency">
+          <option value="annual" {% if (c.fee_ongoing_frequency or 'annual') == 'annual' %}selected{% endif %}>Annual</option>
+          <option value="monthly" {% if c.fee_ongoing_frequency == 'monthly' %}selected{% endif %}>Monthly</option>
+        </select>
+      </div>
+      <div>
+        <label>Renewal fee (£)</label>
+        <input name="fee_renewal" inputmode="decimal" value="{{ c.fee_renewal or 0 }}">
+      </div>
+    </div>
+    <h3 style="margin:0.75rem 0 0.35rem;font-size:1rem">Campaign email</h3>
+    <p class="small muted">
+      Placeholders: {% raw %}{{company}} · {{contact}} · {{initial_fee}} · {{ongoing_fee}} · {{ongoing_frequency}} · {{renewal_fee}} · {{campaign}}{% endraw %}
+    </p>
+    <label>Subject</label>
+    <input name="email_subject" value="{{ c.email_subject or '' }}" style="width:100%">
+    <label>Body</label>
+    <textarea name="email_body" rows="8" style="width:100%;font-family:ui-monospace,monospace;font-size:0.88rem">{{ c.email_body or '' }}</textarea>
+    <label style="display:flex;align-items:center;gap:0.4rem;font-weight:500">
+      <input type="checkbox" name="apply_to_members" value="yes" checked>
+      Re-apply pipeline value (initial + ongoing) to all members
+    </label>
+    <div class="actions">
+      <button class="btn" type="submit">Save fees &amp; email draft</button>
+    </div>
+  </form>
+  <hr style="border:none;border-top:1px solid var(--border);margin:1.15rem 0">
+  <h3 style="margin:0 0 0.35rem;font-size:1rem">Push to Outlook</h3>
+  <p class="muted small">
+    Creates <strong>drafts</strong> in your Outlook mailbox for members with an email address.
+    You review and send in Outlook (not sent automatically from CRM).
+    {% if not graph_connected %}
+    <br><strong>Microsoft Graph is not connected</strong> —
+    <a href="/oauth/microsoft/start?return_to=/prospecting/campaigns/{{ c.id }}">Connect Microsoft</a>
+    with Mail.Send.
+    {% endif %}
+  </p>
+  <form method="post" action="/prospecting/campaigns/{{ c.id }}/email-drafts">
+    <button class="btn {% if not graph_connected %}btn-outline{% endif %}" type="submit"
+      {% if not graph_connected %}disabled title="Connect Microsoft first"{% endif %}>
+      Create Outlook drafts for all members with email
+    </button>
+  </form>
+</div>
+
 {% if c.sequence_json %}
 <div class="card" style="margin-bottom:1rem">
   <h2>Sequence</h2>

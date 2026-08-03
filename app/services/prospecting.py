@@ -314,6 +314,32 @@ def set_pipeline_status(
     return p
 
 
+def _parse_fee(value: Any) -> float:
+    try:
+        return max(0.0, round(float(value or 0), 2))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def apply_campaign_value_to_prospect(
+    db: Session, campaign: ProspectCampaign, prospect: Prospect, *, commit: bool = False
+) -> float:
+    """
+    Set prospect pipeline value from campaign fees:
+    initial + ongoing (annualised if monthly). Renewal is stored on campaign only.
+    """
+    val = campaign.pipeline_value_per_prospect()
+    # Don't wipe a higher manually-set value unless campaign value is positive
+    if val > 0:
+        prospect.estimated_value = val
+        prospect.updated_at = datetime.utcnow()
+        rescore(db, prospect)
+        if commit:
+            db.commit()
+            db.refresh(prospect)
+    return float(prospect.estimated_value or 0)
+
+
 def create_campaign(
     db: Session,
     *,
@@ -324,6 +350,12 @@ def create_campaign(
     channel: str = "mixed",
     status: str = "draft",
     sequence_json: str = "",
+    fee_initial: float = 0.0,
+    fee_ongoing: float = 0.0,
+    fee_ongoing_frequency: str = "annual",
+    fee_renewal: float = 0.0,
+    email_subject: str = "",
+    email_body: str = "",
 ) -> ProspectCampaign:
     if service_id and not service_label:
         svc = db.query(Service).filter(Service.id == service_id).first()
@@ -331,6 +363,9 @@ def create_campaign(
             service_label = svc.name or svc.code or ""
     ch = channel if channel in CAMPAIGN_CHANNELS else "mixed"
     st = status if status in CAMPAIGN_STATUSES else "draft"
+    freq = (fee_ongoing_frequency or "annual").strip().lower()
+    if freq not in ("monthly", "annual"):
+        freq = "annual"
     c = ProspectCampaign(
         name=(name or "").strip() or "Untitled campaign",
         description=(description or "").strip() or None,
@@ -340,11 +375,52 @@ def create_campaign(
         status=st,
         start_date=date.today(),
         sequence_json=(sequence_json or "").strip() or None,
+        fee_initial=_parse_fee(fee_initial),
+        fee_ongoing=_parse_fee(fee_ongoing),
+        fee_ongoing_frequency=freq,
+        fee_renewal=_parse_fee(fee_renewal),
+        email_subject=(email_subject or "").strip() or None,
+        email_body=(email_body or "").strip() or None,
     )
     db.add(c)
     db.commit()
     db.refresh(c)
     return c
+
+
+def update_campaign_fees(
+    db: Session,
+    campaign: ProspectCampaign,
+    *,
+    fee_initial: float = 0.0,
+    fee_ongoing: float = 0.0,
+    fee_ongoing_frequency: str = "annual",
+    fee_renewal: float = 0.0,
+    apply_to_members: bool = True,
+) -> ProspectCampaign:
+    freq = (fee_ongoing_frequency or "annual").strip().lower()
+    if freq not in ("monthly", "annual"):
+        freq = "annual"
+    campaign.fee_initial = _parse_fee(fee_initial)
+    campaign.fee_ongoing = _parse_fee(fee_ongoing)
+    campaign.fee_ongoing_frequency = freq
+    campaign.fee_renewal = _parse_fee(fee_renewal)
+    campaign.updated_at = datetime.utcnow()
+    if apply_to_members:
+        members = (
+            db.query(CampaignMember)
+            .filter(
+                CampaignMember.campaign_id == campaign.id,
+                CampaignMember.status != "removed",
+            )
+            .all()
+        )
+        for m in members:
+            if m.prospect:
+                apply_campaign_value_to_prospect(db, campaign, m.prospect, commit=False)
+    db.commit()
+    db.refresh(campaign)
+    return campaign
 
 
 def ensure_prospect_for_client(db: Session, client: Client) -> Prospect:
@@ -469,6 +545,8 @@ def add_to_campaign(
         notes=(notes or "").strip() or None,
     )
     db.add(m)
+    # Pipeline value: initial + ongoing (not renewal)
+    apply_campaign_value_to_prospect(db, camp, p, commit=False)
     log_activity(
         db,
         prospect_id,

@@ -129,6 +129,15 @@ class ProspectCampaign(Base):
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
     sequence_json = Column(Text, nullable=True)
+    # Fee structure for pipeline valuation (renewal excluded from prospect value)
+    fee_initial = Column(Float, default=0.0)
+    fee_ongoing = Column(Float, default=0.0)
+    # monthly | annual
+    fee_ongoing_frequency = Column(String, default="annual")
+    fee_renewal = Column(Float, default=0.0)
+    # Default outbound email draft for this campaign
+    email_subject = Column(String, nullable=True)
+    email_body = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -137,6 +146,18 @@ class ProspectCampaign(Base):
         back_populates="campaign",
         cascade="all, delete-orphan",
     )
+
+    def ongoing_annual_value(self) -> float:
+        """Ongoing fee as an annual figure for pipeline valuation."""
+        amt = float(self.fee_ongoing or 0)
+        freq = (self.fee_ongoing_frequency or "annual").strip().lower()
+        if freq == "monthly":
+            return round(amt * 12, 2)
+        return round(amt, 2)
+
+    def pipeline_value_per_prospect(self) -> float:
+        """Initial + ongoing only (not renewal) — used for Prospect.estimated_value."""
+        return round(float(self.fee_initial or 0) + self.ongoing_annual_value(), 2)
 
 
 class CampaignMember(Base):

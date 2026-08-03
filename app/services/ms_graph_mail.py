@@ -91,6 +91,40 @@ def send_mail(
     return False, err or "sendMail failed"
 
 
+def create_outlook_draft(
+    access_token: str,
+    *,
+    to: str,
+    subject: str,
+    body: str,
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """
+    Create a draft in the signed-in mailbox for review/send in Outlook.
+    Returns (message_dict_with_webLink, error).
+    """
+    to = (to or "").strip()
+    if not to:
+        return None, "no_recipient_email"
+    payload = {
+        "subject": subject or "(no subject)",
+        "body": {"contentType": "Text", "content": body or ""},
+        "toRecipients": [
+            {"emailAddress": {"address": to}},
+        ],
+    }
+    ok, data, err, status = _request(
+        "POST",
+        "/me/messages",
+        access_token,
+        data=json.dumps(payload).encode("utf-8"),
+    )
+    if ok and isinstance(data, dict) and data.get("id"):
+        return data, ""
+    if status in (201, 200) and isinstance(data, dict):
+        return data, ""
+    return None, err or "create draft failed"
+
+
 def get_well_known_folder(
     access_token: str, name: str = "archive"
 ) -> Tuple[Optional[str], str]:
