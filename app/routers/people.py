@@ -416,8 +416,6 @@ async def create_person(
     gov_gateway_password: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    form = await request.form()
-    client_ids = _parse_client_ids(form.getlist("client_ids"))
     individual = is_individual_client == "yes"
 
     person = Person(
@@ -439,21 +437,22 @@ async def create_person(
         gov_gateway_username=(gov_gateway_username or "").strip() or None,
         gov_gateway_password=(gov_gateway_password or "").strip() or None,
     )
-    person.clients = _resolve_clients_from_ids(db, client_ids)
+    # Company links are managed from the company record / Groups — not this form.
     db.add(person)
     db.flush()
     if individual:
         ensure_individual_client(db, person)
     db.commit()
     db.refresh(person)
-    if person.clients:
-        return RedirectResponse(f"/clients/{person.clients[0].id}", status_code=303)
-    return RedirectResponse("/people", status_code=303)
+    return RedirectResponse(f"/people/{person.id}/edit", status_code=303)
 
 
 @router.get("/{person_id:int}/edit", response_class=HTMLResponse)
 async def edit_person_form(
-    person_id: int, request: Request, db: Session = Depends(get_db)
+    person_id: int,
+    request: Request,
+    msg: str = Query(""),
+    db: Session = Depends(get_db),
 ):
     person = (
         db.query(Person)
@@ -463,16 +462,17 @@ async def edit_person_form(
     )
     if not person:
         return RedirectResponse("/people", status_code=303)
-    clients = _company_client_choices(db)
-    selected = [c.id for c in person.company_clients()]
+    selected_clients = list(person.company_clients())
     return render(
         request,
         "people/form.html",
         {
             "person": person,
-            "clients": clients,
-            "selected_client_ids": selected,
+            "clients": [],
+            "selected_client_ids": [c.id for c in selected_clients],
+            "selected_clients": selected_clients,
             "error": None,
+            "msg": msg,
         },
     )
 
@@ -505,8 +505,6 @@ async def update_person(
     if not person:
         return RedirectResponse("/people", status_code=303)
 
-    form = await request.form()
-    client_ids = _parse_client_ids(form.getlist("client_ids"))
     individual = is_individual_client == "yes"
 
     person.full_name = full_name
@@ -521,17 +519,7 @@ async def update_person(
     person.ch_code = (ch_code or "").strip() or None
     person.gov_gateway_username = (gov_gateway_username or "").strip() or None
     person.gov_gateway_password = (gov_gateway_password or "").strip() or None
-    # Keep company links from form; preserve any Individual shell client
-    company_clients = _resolve_clients_from_ids(db, client_ids)
-    individual_shells = [
-        c
-        for c in person.clients
-        if (c.client_type or "").lower() == "individual"
-        or (c.company_number or "").upper().startswith("IND-")
-    ]
-    person.clients = company_clients + [
-        c for c in individual_shells if c not in company_clients
-    ]
+    # Do not change company links here — company page Contacts / Groups manage those.
 
     if individual:
         ensure_individual_client(db, person)
@@ -541,10 +529,7 @@ async def update_person(
         person.person_status = person_status or person.person_status or "Contact"
 
     db.commit()
-
-    if person.clients:
-        return RedirectResponse(f"/clients/{person.clients[0].id}", status_code=303)
-    return RedirectResponse("/people", status_code=303)
+    return RedirectResponse(f"/people/{person.id}/edit?msg=saved", status_code=303)
 
 
 @router.get("/{person_id:int}/delete", response_class=HTMLResponse)

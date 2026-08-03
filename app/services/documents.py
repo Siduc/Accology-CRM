@@ -20,6 +20,7 @@ from app.models.document import (
     DocumentVersion,
 )
 from app.models.job import Job
+from app.models.prospecting import Prospect
 from app.services import ms_graph_drive as drive
 from app.services.ms_graph_oauth import connection_status, get_valid_access_token
 
@@ -30,6 +31,7 @@ def list_documents(
     q: str = "",
     client_id: Optional[int] = None,
     job_id: Optional[int] = None,
+    prospect_id: Optional[int] = None,
     category: str = "",
     is_key: Optional[bool] = None,
     limit: int = 200,
@@ -43,6 +45,8 @@ def list_documents(
         query = query.filter(Document.client_id == client_id)
     if job_id:
         query = query.filter(Document.job_id == job_id)
+    if prospect_id:
+        query = query.filter(Document.prospect_id == prospect_id)
     if category and category in DOCUMENT_CATEGORIES:
         query = query.filter(Document.category == category)
     if is_key is True:
@@ -116,11 +120,12 @@ def create_document(
     category: str = "Other",
     client_id: Optional[int] = None,
     job_id: Optional[int] = None,
+    prospect_id: Optional[int] = None,
     is_key: bool = False,
     uploaded_by: str = "",
 ) -> Tuple[Optional[Document], str]:
-    if not client_id and not job_id:
-        return None, "Link the document to a client or a job."
+    if not client_id and not job_id and not prospect_id:
+        return None, "Link the document to a client, job, or prospect."
 
     verr = _validate_upload(filename, len(content))
     if verr:
@@ -135,17 +140,24 @@ def create_document(
         db.query(Client).filter(Client.id == client_id).first() if client_id else None
     )
     job = db.query(Job).filter(Job.id == job_id).first() if job_id else None
+    prospect = (
+        db.query(Prospect).filter(Prospect.id == prospect_id).first()
+        if prospect_id
+        else None
+    )
     if job_id and not job:
         return None, "Job not found."
     if client_id and not client:
         return None, "Client not found."
+    if prospect_id and not prospect:
+        return None, "Prospect not found."
     # Prefer job's client if missing
     if job and not client and job.client_id:
         client = job.client or db.query(Client).filter(Client.id == job.client_id).first()
         client_id = client.id if client else client_id
 
     folder_id, folder_path, ferr = drive.resolve_storage_folder(
-        db, token, client=client, job=job, category=cat
+        db, token, client=client, job=job, prospect=prospect, category=cat
     )
     if not folder_id:
         return None, ferr or "Could not prepare OneDrive folder."
@@ -164,6 +176,7 @@ def create_document(
         category=cat,
         client_id=client_id,
         job_id=job_id,
+        prospect_id=prospect_id,
         is_key=bool(is_key),
         original_filename=filename,
         content_type=ct,

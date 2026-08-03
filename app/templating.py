@@ -98,6 +98,22 @@ def render(request, name: str, context: dict | None = None, status_code: int = 2
     except Exception:
         ctx.setdefault("practice_logo_url", "/static/branding/logo.png")
         ctx.setdefault("practice_logo_on_dark_url", "/static/branding/logo_on_dark.png")
+    # Staff notification badge (authenticated pages only)
+    ctx.setdefault("notify_unread_count", 0)
+    ctx.setdefault("notify_preview", [])
+    if request.session.get("user") and not locked:
+        try:
+            from app.database import SessionLocal
+            from app.services import notifications as notify_svc
+
+            db = SessionLocal()
+            try:
+                ctx["notify_unread_count"] = notify_svc.unread_count(db)
+                ctx["notify_preview"] = notify_svc.list_unread(db, limit=5)
+            finally:
+                db.close()
+        except Exception:
+            pass
     if demo:
         # Anonymise confidential fields for presentation; DB is unchanged
         ctx = anonymize_context(ctx)

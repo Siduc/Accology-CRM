@@ -10,6 +10,7 @@
 </div>
 
 <nav class="settings-nav" aria-label="Settings sections">
+  <a href="#settings-alerts">Alerts</a>
   <a href="#settings-ai">Si</a>
   <a href="#settings-task-push">Email → Task</a>
   <a href="#settings-branding">Letterhead &amp; logo</a>
@@ -21,6 +22,27 @@
   <a href="#settings-creditors">Creditors</a>
   <a href="#settings-other">Other</a>
 </nav>
+
+{# ========== ALERTS ========== #}
+<section class="settings-section" id="settings-alerts">
+  <h2 class="settings-section-title">Alerts</h2>
+  <div class="card settings-card">
+    <h3>Website prospects &amp; CRM inbox</h3>
+    <p class="muted small">
+      Contact form submissions create a <strong>Prospect</strong> (source Website) and a staff
+      <a href="/notifications">alert</a> you see when you log in (banner + Alerts menu).
+    </p>
+    <p class="muted small" style="margin-top:0.5rem">
+      Optional email when a website prospect arrives (requires SMTP):
+      set <code>NOTIFY_WEBSITE_PROSPECT_EMAIL=true</code> and
+      <code>NOTIFY_ALERT_EMAIL</code> (or <code>PRACTICE_EMAIL</code>) in <code>.env</code>, then restart.
+    </p>
+    <p style="margin:0.65rem 0 0">
+      <a class="btn btn-sm" href="/notifications">Open alerts</a>
+      <a class="btn btn-sm btn-outline" href="/prospecting">Prospecting ledger</a>
+    </p>
+  </div>
+</section>
 
 {# ========== ACCOLOGISE AI ========== #}
 <section class="settings-section" id="settings-ai">
@@ -82,6 +104,22 @@
       Set <code>TASK_IMPORT_API_KEY</code> in the environment / <code>.env</code>, then restart.
       Power Automate header: <code>X-API-Key: &lt;your key&gt;</code> (no browser login).
       Contract: <a href="/api/v1/tasks/from-email">GET /api/v1/tasks/from-email</a>
+    </p>
+    <h3 style="margin-top:1.25rem">Outlook → Prospect (proposal emails)</h3>
+    <p class="muted small">
+      Flag a sent proposal email (Power Automate / Outlook button) to
+      <code>POST /api/v1/prospecting/from-email</code> (same API key). That will:
+    </p>
+    <ul class="muted small" style="margin:0.35rem 0 0.5rem 1.1rem">
+      <li>Log an <strong>email</strong> activity on the matched prospect</li>
+      <li>Set <strong>pipeline value</strong> when you pass <code>estimated_value</code> (e.g. 10000)</li>
+      <li>Create a <strong>follow-up task</strong> (default +7 days)</li>
+      <li>Store attachments in OneDrive:
+        <code>Accologise / Prospects / {Name} / Proposals</code></li>
+    </ul>
+    <p class="small muted" style="margin:0">
+      Match by <code>To:</code> email = prospect email, or pass <code>prospect_id</code>.
+      Contract: <a href="/api/v1/prospecting/from-email">GET /api/v1/prospecting/from-email</a>
     </p>
   </div>
 </section>

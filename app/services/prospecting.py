@@ -347,6 +347,98 @@ def create_campaign(
     return c
 
 
+def ensure_prospect_for_client(db: Session, client: Client) -> Prospect:
+    """
+    Find or create a Prospect row for an existing Client so they can sit on a
+    campaign target list without converting them again.
+    """
+    # Prefer existing link
+    if client.id:
+        linked = (
+            db.query(Prospect)
+            .filter(Prospect.client_id == client.id)
+            .order_by(Prospect.id.desc())
+            .first()
+        )
+        if linked:
+            return linked
+
+    cn = normalize_company_number(client.company_number) if client.company_number else None
+    if cn:
+        by_num = (
+            db.query(Prospect)
+            .filter(Prospect.company_number == cn)
+            .order_by(Prospect.id.desc())
+            .first()
+        )
+        if by_num:
+            if not by_num.client_id:
+                by_num.client_id = client.id
+                by_num.updated_at = datetime.utcnow()
+                db.flush()
+            return by_num
+
+    p = Prospect(
+        company_name=client.company_name or client.display_name() or (cn or "Unnamed"),
+        company_number=cn,
+        contact_name=client.contact_name,
+        email=client.email,
+        phone=client.phone,
+        address_line1=client.address_line1,
+        address_line2=getattr(client, "address_line2", None),
+        town=client.town,
+        postcode=client.postcode,
+        source="client_book",
+        pipeline_status="new",
+        client_id=client.id,
+        notes=f"Seeded from client #{client.id} for campaign targeting",
+    )
+    rescore(db, p)
+    db.add(p)
+    db.flush()
+    return p
+
+
+def add_clients_to_campaign(
+    db: Session, campaign_id: int, client_ids: Sequence[int]
+) -> dict:
+    """Add existing CRM clients as campaign members (via prospect mirror)."""
+    added = 0
+    skipped = 0
+    errors: List[str] = []
+    for cid in client_ids:
+        client = db.query(Client).filter(Client.id == int(cid)).first()
+        if not client:
+            errors.append(f"Client #{cid} not found")
+            continue
+        # Skip pure individual shells for company campaigns
+        cn = (client.company_number or "").upper()
+        if cn.startswith("IND-") or (client.client_type or "").lower() == "individual":
+            skipped += 1
+            continue
+        try:
+            p = ensure_prospect_for_client(db, client)
+            before = (
+                db.query(CampaignMember)
+                .filter(
+                    CampaignMember.campaign_id == campaign_id,
+                    CampaignMember.prospect_id == p.id,
+                    CampaignMember.status != "removed",
+                )
+                .first()
+            )
+            m = add_to_campaign(
+                db, campaign_id, p.id, notes=f"From client book #{client.id}"
+            )
+            if m and not before:
+                added += 1
+            else:
+                skipped += 1
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{client.display_name()}: {exc}")
+    return {"added": added, "skipped": skipped, "errors": errors}
+
+
 def add_to_campaign(
     db: Session, campaign_id: int, prospect_id: int, *, notes: str = ""
 ) -> Optional[CampaignMember]:

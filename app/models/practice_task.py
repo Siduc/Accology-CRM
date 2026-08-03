@@ -19,6 +19,7 @@ class PracticeTask(Base):
     description = Column(Text, nullable=True)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=True, index=True)
     job_id = Column(Integer, ForeignKey("jobs.id"), nullable=True, index=True)
+    prospect_id = Column(Integer, ForeignKey("prospects.id"), nullable=True, index=True)
     fee = Column(Float, default=0.0)
     # Planned | In Progress | On hold | Development | … | Completed | Cancelled
     status = Column(String, default="Planned", index=True)

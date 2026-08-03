@@ -279,18 +279,39 @@ def ensure_folder_path(
     return parent, " / ".join(parts), ""
 
 
+def prospect_folder_slug(prospect) -> str:
+    """Folder name for a prospect under Accologise / Prospects / …"""
+    name = ""
+    if prospect is not None:
+        name = (
+            getattr(prospect, "company_name", None)
+            or getattr(prospect, "contact_name", None)
+            or ""
+        )
+    if hasattr(prospect, "display_name") and callable(prospect.display_name):
+        try:
+            name = prospect.display_name() or name
+        except Exception:
+            pass
+    slug = re.sub(r'[<>:"/\\|?*]+', " ", str(name or "Unnamed")).strip()
+    slug = re.sub(r"\s+", " ", slug)[:80] or "Unnamed"
+    return slug
+
+
 def resolve_storage_folder(
     db: Session,
     access_token: str,
     *,
     client=None,
     job=None,
+    prospect=None,
     category: str = "Other",
 ) -> Tuple[Optional[str], str, str]:
     """
     Readable OneDrive tree:
 
       Accologise / Clients / {Client Name} / {Job Name} [/ Category]
+      Accologise / Prospects / {Prospect Name} [/ Category]
 
     Job Name is type/title (e.g. Accounts), never JOB-123.
     Returns (folder_id, path, error).
@@ -315,6 +336,10 @@ def resolve_storage_folder(
             segments.append(cat)
     elif client is not None:
         segments = ["Clients", client_folder_slug(client)]
+        if cat and cat != "Other":
+            segments.append(cat)
+    elif prospect is not None:
+        segments = ["Prospects", prospect_folder_slug(prospect)]
         if cat and cat != "Other":
             segments.append(cat)
     elif job is not None:

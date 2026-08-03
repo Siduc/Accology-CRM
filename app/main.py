@@ -62,6 +62,8 @@ from app.routers import (
     api_tasks,
     csv_exchange,
     prospecting,
+    notifications,
+    api_prospecting,
 )
 
 app = FastAPI(
@@ -210,7 +212,10 @@ async def security_and_auth(request: Request, call_next):
 
         # Task push POST must have a valid key at the gate (never redirect)
         norm = path.rstrip("/") or "/"
-        if norm.endswith("/tasks/from-email") and method == "POST":
+        if (
+            norm.endswith("/tasks/from-email")
+            or norm.endswith("/prospecting/from-email")
+        ) and method == "POST":
             if not expected:
                 return _security_headers(
                     _json_api_error(
@@ -306,9 +311,11 @@ app.include_router(cs.router)
 app.include_router(ch_oauth.router)
 app.include_router(ms_graph_oauth.router)
 app.include_router(documents.router)
+app.include_router(notifications.router)
 app.include_router(emails.router)
 app.include_router(tasks.router)
 app.include_router(api_tasks.router)
+app.include_router(api_prospecting.router)
 app.include_router(csv_exchange.router)
 app.include_router(settings.router)
 app.include_router(sales.router)

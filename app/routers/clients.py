@@ -1,5 +1,6 @@
 from datetime import datetime, date
 from typing import Optional
+from urllib.parse import quote as url_quote
 
 from fastapi import APIRouter, Depends, Form, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -265,6 +266,44 @@ async def new_client_form(
     )
 
 
+@router.post("/new/save-ch-key", response_class=HTMLResponse)
+async def new_client_save_ch_key(
+    request: Request,
+    api_key: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Save Companies House public REST API key (same store as Jobs → CH).
+    Then return to New Client so lookup UI appears.
+    """
+    from app.services.companies_house import has_api_key, save_api_key, test_api_key
+
+    err = save_api_key(api_key)
+    if err:
+        return render(
+            request,
+            "clients/form.html",
+            _new_client_form_ctx(ch_error=err),
+            status_code=400,
+        )
+    test = test_api_key()
+    if test.ok:
+        ch_msg = (
+            "Companies House API key saved and tested "
+            f"({test.profile.get('company_name', 'OK')}). "
+            "You can pull company details below."
+        )
+        ch_error = ""
+    else:
+        ch_msg = "API key saved, but the test call failed."
+        ch_error = test.error or "Companies House rejected the key."
+    return render(
+        request,
+        "clients/form.html",
+        _new_client_form_ctx(ch_msg=ch_msg, ch_error=ch_error),
+    )
+
+
 @router.post("/new/from-ch", response_class=HTMLResponse)
 async def new_client_from_ch(
     request: Request,
@@ -285,7 +324,10 @@ async def new_client_from_ch(
             "clients/form.html",
             _new_client_form_ctx(
                 default_status=overall_status or "Active",
-                ch_error="Companies House API key not configured (Settings).",
+                ch_error=(
+                    "Companies House public REST API key not found. "
+                    "Paste it in the box above (same key as Jobs → Companies House)."
+                ),
                 draft={"company_number": company_number},
             ),
             status_code=400,
@@ -398,6 +440,7 @@ async def create_client(
     notes: str = Form(""),
     create_jobs_from_ch: str = Form(""),
     source: str = Form(""),
+    ch_authentication_code: str = Form(""),
     db: Session = Depends(get_db),
 ):
     cn = normalize_company_number(company_number)
@@ -422,6 +465,7 @@ async def create_client(
                     "notes": notes,
                     "vat_number": vat_number,
                     "utr": utr,
+                    "ch_authentication_code": ch_authentication_code,
                 },
             ),
             status_code=400,
@@ -482,23 +526,34 @@ async def create_client(
         utr=utr or None,
         notes=notes or None,
         source=src,
+        ch_authentication_code=(ch_authentication_code or "").strip() or None,
         created_at=datetime.utcnow(),
     )
     db.add(client)
     db.commit()
     db.refresh(client)
 
-    # Optional: create Accounts + CS jobs from CH dates (same as client detail)
+    # Optional: create Accounts + CS jobs from CH dates (same as Jobs → CH)
+    jobs_q = ""
     if (create_jobs_from_ch or "").strip().lower() in ("1", "yes", "on", "true"):
         try:
             from app.services.ch_jobs import create_jobs_for_client_from_ch
 
-            create_jobs_for_client_from_ch(db, client)
+            result = create_jobs_for_client_from_ch(db, client)
             db.commit()
-        except Exception:  # noqa: BLE001
+            if result.errors:
+                jobs_q = f"?jobs_msg={url_quote('; '.join(result.errors)[:200])}"
+            elif result.created:
+                jobs_q = f"?jobs_created={result.created}"
+            elif result.skipped:
+                jobs_q = f"?jobs_msg={url_quote(f'{result.skipped} job(s) already existed')}"
+            else:
+                jobs_q = f"?jobs_msg={url_quote('No CH job dates found to create')}"
+        except Exception as exc:  # noqa: BLE001
             db.rollback()
+            jobs_q = f"?jobs_msg={url_quote(f'Jobs not created: {exc}')[:220]}"
 
-    return RedirectResponse(f"/clients/{client.id}", status_code=303)
+    return RedirectResponse(f"/clients/{client.id}{jobs_q}", status_code=303)
 
 
 @router.get("/{client_id:int}", response_class=HTMLResponse)
@@ -509,6 +564,8 @@ async def client_detail(
     contact_added: str = Query(""),
     contact_linked: str = Query(""),
     tab: str = Query(""),
+    jobs_created: str = Query(""),
+    jobs_msg: str = Query(""),
     db: Session = Depends(get_db),
 ):
     client = db.query(Client).filter(Client.id == client_id).first()
@@ -563,6 +620,14 @@ async def client_detail(
         message = "Contact added to people list and linked to this client."
     elif contact_linked:
         message = "Existing person linked to this client."
+    elif jobs_created and str(jobs_created).isdigit() and int(jobs_created) > 0:
+        n = int(jobs_created)
+        message = (
+            f"Client created. {n} job(s) set up from Companies House dates "
+            "(Accounts / Confirmation Statement)."
+        )
+    elif jobs_msg:
+        message = f"Client created. Jobs: {jobs_msg}"
 
     from app.services.client_connections import list_connections_for_client
     from app.services.cs_automation import latest_pack_for_client

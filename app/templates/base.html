@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=brand5">
+  <link rel="stylesheet" href="/static/style.css?v=brand6">
   <script src="/static/dashboard_view.js?v=dual1" defer></script>
   <script src="/static/table_sort.js?v=1" defer></script>
   <script src="/static/pwa.js?v=2" defer></script>
@@ -38,6 +38,20 @@
     {% endif %}
   </div>
   {% endif %}
+  {% if notify_unread_count and not demo_locked %}
+  <div class="notify-banner" role="status">
+    <strong>{% if notify_unread_count == 1 %}1 new alert{% else %}{{ notify_unread_count }} new alerts{% endif %}</strong>
+    {% if notify_preview and notify_preview[0] %}
+    <span>— {{ notify_preview[0].title }}</span>
+    <a class="notify-banner-link" href="/notifications/{{ notify_preview[0].id }}/open">Open</a>
+    {% endif %}
+    <a class="notify-banner-link" href="/notifications?unread=1">View all</a>
+    <form method="post" action="/notifications/read-all" class="notify-banner-form">
+      <input type="hidden" name="return_to" value="{{ request.url.path }}">
+      <button type="submit" class="notify-banner-dismiss">Dismiss all</button>
+    </form>
+  </div>
+  {% endif %}
   {% if not hide_nav %}
   <header class="minibar">
     <a class="minibar-title" href="/dashboard" title="Dashboard home">
@@ -51,6 +65,9 @@
     </a>
     {# Full nav only on large screens; phone uses footer #}
     <div class="minibar-right minibar-nav-desk">
+      <a class="minibar-logout minibar-alerts" href="/notifications" title="Alerts">
+        Alerts{% if notify_unread_count %}<span class="notify-badge">{{ notify_unread_count }}</span>{% endif %}
+      </a>
       <a class="minibar-logout" href="/sales">Sales</a>
       <a class="minibar-logout" href="/prospecting">Prospecting</a>
       <a class="minibar-logout" href="/purchase">Purchase</a>
@@ -73,6 +90,9 @@
       <a class="minibar-logout" href="/logout">Logout</a>
     </div>
     <div class="minibar-right minibar-nav-phone">
+      <a class="minibar-logout minibar-alerts" href="/notifications" title="Alerts">
+        Alerts{% if notify_unread_count %}<span class="notify-badge">{{ notify_unread_count }}</span>{% endif %}
+      </a>
       {% if demo_mode and not demo_locked %}
       <a class="minibar-logout demo-toggle-on" href="/demo/off">Demo on</a>
       {% elif not demo_mode %}
@@ -90,6 +110,7 @@
   </main>
   {% if not hide_nav %}
   <nav class="foot-nav" aria-label="Main">
+    <a href="/notifications">Alerts{% if notify_unread_count %} ({{ notify_unread_count }}){% endif %}</a>
     <a href="/sales">Sales</a>
     <a href="/prospecting">Prospects</a>
     <a href="/purchase">Purchase</a>

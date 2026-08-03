@@ -211,6 +211,10 @@ def _add_missing_columns():
             ("outlook_web_link", "VARCHAR"),
             ("outlook_archived_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
             ("outlook_archive_status", "VARCHAR"),
+            ("prospect_id", "INTEGER"),
+        ],
+        "documents": [
+            ("prospect_id", "INTEGER"),
         ],
     }
 

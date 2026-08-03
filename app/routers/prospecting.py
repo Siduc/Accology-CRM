@@ -318,6 +318,29 @@ async def campaigns_list(request: Request, db: Session = Depends(get_db)):
     )
 
 
+def _company_client_choices(db: Session):
+    """Active book companies for campaign targeting (exclude individual shells)."""
+    from app.models import Client
+
+    rows = (
+        db.query(Client)
+        .order_by(Client.company_name)
+        .limit(800)
+        .all()
+    )
+    out = []
+    for c in rows:
+        cn = (c.company_number or "").upper()
+        if cn.startswith("IND-"):
+            continue
+        if (c.client_type or "").lower() == "individual":
+            continue
+        if (c.overall_status or "") == "Inactive":
+            continue
+        out.append(c)
+    return out
+
+
 @router.get("/campaigns/new", response_class=HTMLResponse)
 async def campaign_new_form(request: Request, db: Session = Depends(get_db)):
     services = (
@@ -334,12 +357,15 @@ async def campaign_new_form(request: Request, db: Session = Depends(get_db)):
             "services": services,
             "channels": CAMPAIGN_CHANNELS,
             "statuses": CAMPAIGN_STATUSES,
+            "clients": _company_client_choices(db),
+            "selected_client_ids": [],
         },
     )
 
 
 @router.post("/campaigns/new")
 async def campaign_create(
+    request: Request,
     name: str = Form(...),
     description: str = Form(""),
     service_id: str = Form(""),
@@ -348,6 +374,8 @@ async def campaign_create(
     sequence_json: str = Form(""),
     db: Session = Depends(get_db),
 ):
+    from app.services.prospecting import add_clients_to_campaign
+
     sid = int(service_id) if (service_id or "").isdigit() else None
     c = create_campaign(
         db,
@@ -358,7 +386,20 @@ async def campaign_create(
         status=status,
         sequence_json=sequence_json,
     )
-    return RedirectResponse(f"/prospecting/campaigns/{c.id}", status_code=303)
+    form = await request.form()
+    raw_ids = form.getlist("client_ids")
+    client_ids = []
+    for v in raw_ids:
+        if str(v).strip().isdigit():
+            client_ids.append(int(v))
+    summary = ""
+    if client_ids:
+        result = add_clients_to_campaign(db, c.id, client_ids)
+        summary = (
+            f"?msg=targets&added={result.get('added', 0)}"
+            f"&skipped={result.get('skipped', 0)}"
+        )
+    return RedirectResponse(f"/prospecting/campaigns/{c.id}{summary}", status_code=303)
 
 
 @router.get("/campaigns/{campaign_id:int}", response_class=HTMLResponse)
@@ -366,6 +407,8 @@ async def campaign_detail(
     request: Request,
     campaign_id: int,
     msg: str = Query(""),
+    added: str = Query(""),
+    skipped: str = Query(""),
     db: Session = Depends(get_db),
 ):
     c = db.query(ProspectCampaign).filter(ProspectCampaign.id == campaign_id).first()
@@ -379,10 +422,33 @@ async def campaign_detail(
         )
         .all()
     )
+    member_prospect_ids = {m.prospect_id for m in members}
+    # Clients already represented (via prospect.client_id or company number)
+    member_client_ids = set()
+    for m in members:
+        p = m.prospect
+        if p and p.client_id:
+            member_client_ids.add(p.client_id)
+
+    banner = msg
+    if msg == "targets" or (added or skipped):
+        a = int(added) if str(added).isdigit() else 0
+        s = int(skipped) if str(skipped).isdigit() else 0
+        banner = f"Target list updated: {a} added, {s} already on list / skipped."
+    elif msg == "added":
+        banner = "Member(s) added to campaign."
+
     return render(
         request,
         "prospecting/campaign_detail.html",
-        {"c": c, "members": members, "msg": msg, "pipeline_labels": PIPELINE_LABELS},
+        {
+            "c": c,
+            "members": members,
+            "msg": banner,
+            "pipeline_labels": PIPELINE_LABELS,
+            "clients": _company_client_choices(db),
+            "member_client_ids": member_client_ids,
+        },
     )
 
 
@@ -395,6 +461,31 @@ async def campaign_add_member(
     add_to_campaign(db, campaign_id, prospect_id)
     return RedirectResponse(
         f"/prospecting/campaigns/{campaign_id}?msg=added", status_code=303
+    )
+
+
+@router.post("/campaigns/{campaign_id:int}/add-clients")
+async def campaign_add_clients(
+    campaign_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Add existing CRM companies to the campaign target list."""
+    from app.services.prospecting import add_clients_to_campaign
+
+    c = db.query(ProspectCampaign).filter(ProspectCampaign.id == campaign_id).first()
+    if not c:
+        return RedirectResponse("/prospecting/campaigns", status_code=303)
+    form = await request.form()
+    client_ids = []
+    for v in form.getlist("client_ids"):
+        if str(v).strip().isdigit():
+            client_ids.append(int(v))
+    result = add_clients_to_campaign(db, campaign_id, client_ids)
+    return RedirectResponse(
+        f"/prospecting/campaigns/{campaign_id}"
+        f"?msg=targets&added={result.get('added', 0)}&skipped={result.get('skipped', 0)}",
+        status_code=303,
     )
 
 

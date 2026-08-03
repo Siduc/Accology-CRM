@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Alerts · Accology{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Alerts</h1>
+    <p class="muted small">
+      Website prospects and other practice signals.
+      {% if unread_count %}<strong>{{ unread_count }} unread</strong>{% else %}All caught up.{% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    {% if unread_count %}
+    <form method="post" action="/notifications/read-all" style="display:inline">
+      <input type="hidden" name="return_to" value="/notifications">
+      <button class="btn btn-sm" type="submit">Mark all read</button>
+    </form>
+    {% endif %}
+    {% if unread_only %}
+    <a class="btn btn-sm btn-outline" href="/notifications">Show all</a>
+    {% else %}
+    <a class="btn btn-sm btn-outline" href="/notifications?unread=1">Unread only</a>
+    {% endif %}
+    <a class="btn btn-sm btn-outline" href="/prospecting">Prospecting</a>
+  </div>
+</div>
+
+{% if notifications %}
+<div class="card">
+  <ul class="notify-list">
+    {% for n in notifications %}
+    <li class="notify-list-item {% if not n.read_at %}is-unread{% endif %}">
+      <div class="notify-list-main">
+        <a class="notify-list-title" href="/notifications/{{ n.id }}/open">{{ n.title }}</a>
+        {% if n.body %}
+        <div class="notify-list-body muted small">{{ n.body }}</div>
+        {% endif %}
+        <div class="notify-list-meta small muted">
+          {{ n.created_at.strftime('%d-%m-%Y %H:%M') if n.created_at else '—' }}
+          · {{ n.type }}
+          {% if not n.read_at %}<span class="badge badge-active">New</span>{% endif %}
+        </div>
+      </div>
+      <div class="notify-list-actions">
+        {% if n.link %}
+        <a class="btn btn-sm" href="/notifications/{{ n.id }}/open">Open</a>
+        {% endif %}
+        {% if not n.read_at %}
+        <form method="post" action="/notifications/{{ n.id }}/read" style="display:inline">
+          <input type="hidden" name="return_to" value="/notifications{% if unread_only %}?unread=1{% endif %}">
+          <button class="btn btn-sm btn-outline" type="submit">Mark read</button>
+        </form>
+        {% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% else %}
+<p class="empty">No alerts{% if unread_only %} unread{% endif %}.</p>
+{% endif %}
+{% endblock %}

@@ -119,7 +119,7 @@ async def contact_post(
         notes = f"Company: {company_s}\n\n{notes}"
 
     try:
-        create_prospect(
+        prospect = create_prospect(
             db,
             company_name=company_name[:200],
             contact_name=name_s,
@@ -129,6 +129,21 @@ async def contact_post(
             source="Website",
             pipeline_status="new",
         )
+        # CRM notification (+ optional staff email — see NOTIFY_WEBSITE_PROSPECT_EMAIL)
+        try:
+            from app.services.notifications import notify_website_prospect
+
+            notify_website_prospect(
+                db,
+                prospect_id=prospect.id,
+                contact_name=name_s,
+                email=email_s,
+                company=company_s,
+                message_preview=message_s,
+            )
+        except Exception:
+            # Prospect already saved — never fail the public form for alert issues
+            pass
     except Exception:
         return fail("The message could not be sent. Email contact@accology.co.")
 

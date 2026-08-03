@@ -25,18 +25,38 @@
 {% endif %}
 
 {% if not client %}
-{# ——— Companies House pull (new client only) ——— #}
+{# ——— Companies House pull (new client only) — same REST key as Jobs → CH ——— #}
 <div class="card" style="margin-bottom:1rem;border-left:4px solid #0f766e">
   <h2 style="margin-top:0">Companies House</h2>
   {% if not ch_key %}
-  <p class="muted small">
-    No API key configured.
-    <a href="/settings">Settings → Companies House</a> to enable lookup.
+  <p class="muted small" style="margin-top:0">
+    This uses the <strong>same public REST API key</strong> as
+    <a href="/companies-house/jobs">Jobs → Companies House</a>
+    and prospecting CH tools.
+    (That is <em>not</em> the CH OAuth filing login under Settings — that is for confirmation statements.)
   </p>
+  <p class="muted small">
+    Free key:
+    <a href="https://developer.company-information.service.gov.uk/manage-applications" target="_blank" rel="noopener">
+      Developer Hub → Your applications
+    </a>
+    → copy the <strong>key string only</strong> (not a URL).
+  </p>
+  <form class="stack" method="post" action="/clients/new/save-ch-key" style="margin-top:0.75rem">
+    <label for="client_ch_api_key">Paste Companies House REST API key</label>
+    <input id="client_ch_api_key" type="text" name="api_key" required autocomplete="off"
+           placeholder="Long key from Developer Hub — not a web address"
+           style="max-width:32rem">
+    <div>
+      <button class="btn" type="submit">Save key &amp; enable lookup</button>
+      <a class="btn btn-outline" href="/companies-house/jobs">Or manage key on Jobs → CH</a>
+    </div>
+  </form>
   {% else %}
   <p class="muted small" style="margin-top:0">
     Enter a company number to fill name, address and type from the public register.
     Or search by name below.
+    <span class="small muted">(Same key as <a href="/companies-house/jobs">Jobs → CH</a>.)</span>
   </p>
   <form class="filters" method="post" action="/clients/new/from-ch" style="margin-bottom:0.75rem">
     <div>
@@ -163,6 +183,15 @@
         <input id="utr" name="utr"
                value="{{ client.utr if client else (d.utr or '') }}">
       </div>
+      {% if not client or (client.client_type or '') != 'Individual' %}
+      <div>
+        <label for="ch_authentication_code">Companies House authentication code</label>
+        <input id="ch_authentication_code" name="ch_authentication_code" autocomplete="off"
+               value="{{ client.ch_authentication_code if client else (d.ch_authentication_code or '') }}"
+               placeholder="Company / LLP auth code (from CH)">
+        <p class="small muted" style="margin:0.25rem 0 0">For Limited / LLP filing — not the personal identification code.</p>
+      </div>
+      {% endif %}
       <div>
         <label for="address_line1">Address line 1</label>
         <input id="address_line1" name="address_line1"
@@ -197,13 +226,17 @@
     <label for="notes">Notes</label>
     <textarea id="notes" name="notes">{{ client.notes if client and client.notes else (d.notes or '') }}</textarea>
 
-    {% if not client and ch_key %}
-    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;margin-top:0.5rem">
-      <input type="checkbox" name="create_jobs_from_ch" value="yes"
+    {% if not client %}
+    <label style="display:flex;align-items:flex-start;gap:0.5rem;font-weight:500;margin-top:0.65rem">
+      <input type="checkbox" name="create_jobs_from_ch" value="yes" style="margin-top:0.2rem"
              {% if create_jobs_from_ch is not defined or create_jobs_from_ch %}checked{% endif %}>
-      Also create Accounts &amp; Confirmation Statement jobs from CH dates
+      <span>
+        Create <strong>Accounts</strong> and <strong>Confirmation Statement</strong> jobs from Companies House dates
+        <span class="small muted" style="display:block;font-weight:400;margin-top:0.15rem">
+          Uses next due dates on the public register (same as Jobs → Companies House). Requires a company number and the CH REST API key.
+        </span>
+      </span>
     </label>
-    <p class="small muted" style="margin:0.2rem 0 0">Uses next accounts / CS dates from the public register (same as “From Companies House” jobs).</p>
     {% endif %}
 
     <div class="form-actions">

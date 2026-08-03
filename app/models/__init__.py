@@ -39,6 +39,7 @@ from app.models.prospecting import (
 from app.models.ms_graph_token import MsGraphToken
 from app.models.document import Document, DocumentVersion
 from app.models.email_message import EmailTemplate, EmailMessage
+from app.models.notification import Notification
 
 __all__ = [
     "Client",
@@ -81,4 +82,5 @@ __all__ = [
     "DocumentVersion",
     "EmailTemplate",
     "EmailMessage",
+    "Notification",
 ]

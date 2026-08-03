@@ -404,8 +404,12 @@
         <dt>Government Gateway password</dt><dd>{% if client.gov_gateway_password %}••••••••{% else %}—{% endif %}</dd>
         <dt>Accounts software ID</dt><dd>{{ client.accounts_software_id or client.xero_username or '—' }}</dd>
         <dt>Accounts software password</dt><dd>{% if client.accounts_software_password or client.xero_password %}••••••••{% else %}—{% endif %}</dd>
+        {% if (client.client_type or '') != 'Individual' %}
         <dt>CH authentication code</dt><dd>{{ client.ch_authentication_code or '—' }}</dd>
-        <dt>CH personal code</dt><dd>{{ client.ch_personal_code or '—' }}</dd>
+        {% endif %}
+        {% if (client.client_type or '') == 'Individual' %}
+        <dt>CH personal identification code</dt><dd>{{ client.ch_personal_code or '—' }}</dd>
+        {% endif %}
         <dt>Source</dt><dd>{{ client.source or '—' }}</dd>
       </dl>
 
@@ -581,14 +585,18 @@
             <label for="accounts_software_password">Accounts software password</label>
             <input id="accounts_software_password" name="accounts_software_password" type="password" value="{{ client.accounts_software_password or client.xero_password or '' }}" autocomplete="new-password">
           </div>
+          {% if (client.client_type or '') != 'Individual' %}
           <div>
-            <label for="ch_authentication_code">CH authentication code (company / LLP)</label>
-            <input id="ch_authentication_code" name="ch_authentication_code" value="{{ client.ch_authentication_code or '' }}" autocomplete="off">
+            <label for="ch_authentication_code">Companies House authentication code</label>
+            <input id="ch_authentication_code" name="ch_authentication_code" value="{{ client.ch_authentication_code or '' }}" autocomplete="off" placeholder="Company / LLP auth code">
           </div>
+          {% endif %}
+          {% if (client.client_type or '') == 'Individual' %}
           <div>
-            <label for="ch_personal_code">CH personal code (individual)</label>
+            <label for="ch_personal_code">CH personal identification code</label>
             <input id="ch_personal_code" name="ch_personal_code" value="{{ client.ch_personal_code or '' }}" autocomplete="off">
           </div>
+          {% endif %}
         </div>
         <label for="notes">Notes</label>
         <textarea id="notes" name="notes">{{ client.notes or '' }}</textarea>

@@ -25,6 +25,7 @@ DOCUMENT_CATEGORIES = (
     "Correspondence",
     "Working Papers",
     "Invoices",
+    "Proposals",
     "Other",
 )
 
@@ -37,6 +38,7 @@ CATEGORY_FOLDER = {
     "Correspondence": "Correspondence",
     "Working Papers": "Working Papers",
     "Invoices": "Invoices",
+    "Proposals": "Proposals",
     "Other": "Other",
 }
 
@@ -77,6 +79,7 @@ class Document(Base):
     category = Column(String, default="Other", index=True)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=True, index=True)
     job_id = Column(Integer, ForeignKey("jobs.id"), nullable=True, index=True)
+    prospect_id = Column(Integer, ForeignKey("prospects.id"), nullable=True, index=True)
     is_key = Column(Boolean, default=False, index=True)
     original_filename = Column(String, nullable=True)
     content_type = Column(String, nullable=True)

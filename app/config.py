@@ -546,6 +546,12 @@ SMTP_FROM = _env("SMTP_FROM") or PRACTICE_EMAIL or SMTP_USER
 SMTP_FROM_NAME = _env("SMTP_FROM_NAME", PRACTICE_NAME) or PRACTICE_NAME
 SMTP_USE_TLS = _env_bool("SMTP_USE_TLS", True)
 
+# Staff notifications (website prospects, future alerts)
+# Email is optional; CRM inbox is always written on website contact.
+NOTIFY_WEBSITE_PROSPECT_EMAIL = _env_bool("NOTIFY_WEBSITE_PROSPECT_EMAIL", False)
+# Where to send staff alerts (defaults to PRACTICE_EMAIL / SMTP_FROM)
+NOTIFY_ALERT_EMAIL = (_env("NOTIFY_ALERT_EMAIL") or PRACTICE_EMAIL or "").strip()
+
 # Server
 HOST = _env("HOST", "0.0.0.0") or "0.0.0.0"
 PORT = int(_env("PORT", "8000") or "8000")

@@ -111,8 +111,8 @@ a:hover { color: #7ff3ff; }
   --ac-lockup-h: calc(
     var(--ac-word) + calc(4px * var(--ac-s)) + var(--ac-rule) + calc(5px * var(--ac-s)) + (var(--ac-tag) * 1.3)
   );
-  /* First hero line "Unlock the" — rein Accology stretch so it ends near the h */
-  --ac-unlock-w: calc(var(--ac-h1) * 4.35);
+  /* Accology stretch — slightly shorter than end of “Unlock the” */
+  --ac-unlock-w: calc(var(--ac-h1) * 3.85);
   /* Accology starts after cube + gap; stretch so its end matches end of “Unlock the” */
   --ac-accology-w: calc(var(--ac-unlock-w) - var(--ac-lockup-h) - var(--ac-brand-gap));
   display: inline-flex;
@@ -238,12 +238,23 @@ a:hover { color: #7ff3ff; }
 }
 .ac-quote-cite {
   display: block;
-  margin: 0 0 var(--ac-gap-cite-cta);
+  margin: 0 0 var(--ac-gap-sub-quote);
   font-size: var(--ac-cite);
   font-style: normal;
   font-weight: 400;
   color: #a8a8b2;
   line-height: 1.45;
+  white-space: nowrap;
+}
+.ac-know-line {
+  margin: 0 0 var(--ac-gap-cite-cta);
+  font-family: var(--ac-font);
+  font-size: clamp(1.55rem, 3.2vw, 2.35rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  color: var(--ac-cyan);
+  text-shadow: 0 0 24px rgba(0, 229, 255, 0.35);
 }
 .ac-cta {
   display: inline-flex;
@@ -498,4 +509,6 @@ a:hover { color: #7ff3ff; }
   }
   .ac-login-card { max-width: none; }
   .ac-hero-col { max-width: none; }
+  .ac-quote-cite { white-space: normal; }
+  .ac-know-line { font-size: clamp(1.25rem, 5.5vw, 1.65rem); }
 }
