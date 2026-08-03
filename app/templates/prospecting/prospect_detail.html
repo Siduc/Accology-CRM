@@ -20,19 +20,19 @@
     </form>
     <a class="btn btn-outline wc-touch" href="/prospecting/prospects/{{ p.id }}/filings">Filings</a>
     {% endif %}
-    {% if not p.client_id %}
-    <form method="post" action="/prospecting/prospects/{{ p.id }}/convert" style="display:inline"
-          onsubmit="return confirm('Convert to Active client?');">
-      <button class="btn wc-touch" type="submit">Convert to client</button>
-    </form>
-    {% else %}
-    <a class="btn wc-touch" href="/clients/{{ p.client_id }}">Open client</a>
+    {% if p.client_id %}
+    <a class="btn btn-outline wc-touch" href="/clients/{{ p.client_id }}">Open client</a>
     {% endif %}
   </div>
 </div>
 
 {% if msg %}
-<div class="chase-banner chase-banner-info">{{ msg }}</div>
+<div class="chase-banner chase-banner-info">
+  {% if msg == 'fees' %}Individual fees saved (other campaign members unchanged).
+  {% elif msg == 'status' %}Pipeline status updated.
+  {% elif msg == 'activity' %}Activity logged.
+  {% else %}{{ msg }}{% endif %}
+</div>
 {% endif %}
 
 {# Pipeline stepper #}
@@ -61,9 +61,94 @@
       <dt>Accounts due</dt><dd>{{ p.accounts_next_due|uk_date if p.accounts_next_due else '—' }}</dd>
       <dt>CS due</dt><dd>{{ p.cs_next_due|uk_date if p.cs_next_due else '—' }}</dd>
       <dt>CH fetched</dt><dd>{{ p.ch_fetched_at or '—' }}</dd>
-      <dt>Pipeline value</dt><dd><strong>£{{ '%.2f'|format(p.estimated_value or 0) }}</strong></dd>
+      <dt>Gross (setup + 1yr)</dt>
+      <dd>£{{ '%.2f'|format(p.gross_value if p.gross_value is not none else (p.estimated_value or 0)) }}</dd>
+      <dt>Confidence</dt>
+      <dd>{{ p.confidence_pct if p.confidence_pct is not none else 50 }}%</dd>
+      <dt>Pipeline value</dt>
+      <dd><strong>£{{ '%.2f'|format(p.estimated_value or 0) }}</strong>
+        <span class="muted small">(gross × confidence)</span>
+      </dd>
     </dl>
     {% if p.notes %}<p class="small" style="margin-top:0.75rem">{{ p.notes }}</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Fees (this prospect only)</h2>
+    <p class="muted small">
+      Adjust without changing the campaign or other members.
+      Valuation = (initial + 1 year ongoing) × confidence. Renewal is not valued.
+    </p>
+    <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/fees">
+      <div class="form-grid">
+        <div>
+          <label>Initial / setup fee (£)</label>
+          <input name="fee_initial" inputmode="decimal" value="{{ p.fee_initial if p.fee_initial is not none else 0 }}">
+        </div>
+        <div>
+          <label>Ongoing fee (£)</label>
+          <input name="fee_ongoing" inputmode="decimal" value="{{ p.fee_ongoing if p.fee_ongoing is not none else 0 }}">
+        </div>
+        <div>
+          <label>Ongoing frequency</label>
+          <select name="fee_ongoing_frequency">
+            <option value="annual" {% if (p.fee_ongoing_frequency or 'annual') == 'annual' %}selected{% endif %}>Annual</option>
+            <option value="monthly" {% if p.fee_ongoing_frequency == 'monthly' %}selected{% endif %}>Monthly</option>
+          </select>
+        </div>
+        <div>
+          <label>Renewal fee (£)</label>
+          <input name="fee_renewal" inputmode="decimal" value="{{ p.fee_renewal if p.fee_renewal is not none else 0 }}">
+        </div>
+        <div>
+          <label>Confidence %</label>
+          <input name="confidence_pct" type="number" min="0" max="100" step="1"
+                 value="{{ p.confidence_pct if p.confidence_pct is not none else 50 }}">
+        </div>
+      </div>
+      <button class="btn btn-sm" type="submit">Save fees for this prospect</button>
+    </form>
+  </div>
+</div>
+
+<div class="grid-2" style="margin-top:1rem">
+  <div class="card">
+    <h2>Convert to client &amp; job</h2>
+    <p class="muted small">
+      Creates (or links) an Active client, opens a <strong>job</strong> with the setup fee,
+      and marks the prospect won. Best place to convert campaign wins — not on the client screen first.
+    </p>
+    <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/convert-job"
+          onsubmit="return confirm('Create client (if needed) and a new job from this prospect?');">
+      <div class="form-grid">
+        <div>
+          <label>Job type</label>
+          <input name="job_type" placeholder="e.g. Personal Allowance Payroll"
+                 value="{% if memberships and memberships[0].campaign %}{{ memberships[0].campaign.service_label or memberships[0].campaign.name }}{% endif %}">
+        </div>
+        <div>
+          <label>Job title</label>
+          <input name="job_title" placeholder="Optional — defaults from type + company">
+        </div>
+        <div>
+          <label>Job fee (£)</label>
+          <input name="job_fee" inputmode="decimal"
+                 value="{{ p.fee_initial if p.fee_initial is not none else '' }}"
+                 placeholder="Defaults to setup fee">
+        </div>
+      </div>
+      <label>Notes for job</label>
+      <textarea name="notes" rows="2" placeholder="Optional handoff notes"></textarea>
+      <button class="btn wc-touch" type="submit">Convert → client + job</button>
+    </form>
+    {% if not p.client_id %}
+    <p class="small muted" style="margin-top:0.75rem">
+      Or <form method="post" action="/prospecting/prospects/{{ p.id }}/convert" style="display:inline"
+        onsubmit="return confirm('Convert to Active client only (no job)?');">
+        <button class="btn btn-outline btn-sm" type="submit">Client only</button>
+      </form>
+    </p>
+    {% endif %}
   </div>
 
   <div class="card">

@@ -17,36 +17,53 @@
 
 {# Desk professional #}
 <div class="wip-desk subdash-desk wc-cycle">
-  <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch" href="/prospecting/prospects">
+  <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-net-centered wc-touch" href="/prospecting/prospects">
     <div class="wc-net-main">
       <div class="wc-net-label">Open pipeline</div>
       <div class="wc-net-value">£{{ '{:,.0f}'.format(stats.open_value|default(0)) }}</div>
-      <div class="wc-net-formula small">{{ stats.open_count }} leads · New · Contacted · Interested · Quote sent</div>
+      <div class="wc-net-formula small">
+        {{ stats.open_count }} leads · weighted at confidence (e.g. £10k @ 50% = £5k)
+        · individual £{{ '{:,.0f}'.format(stats.individual_value|default(0)) }}
+        + campaigns £{{ '{:,.0f}'.format(stats.campaign_pipeline_value|default(0)) }}
+      </div>
     </div>
     <p class="wc-net-hint small">Prospect list →</p>
   </a>
   <div class="wc-grid">
-    <a class="wc-box wc-box-wip wc-touch" href="/prospecting/prospects?status=new">
-      <div class="wc-box-head"><span class="wc-box-title">1 · New</span><span class="wc-box-link">List →</span></div>
+    <a class="wc-box wc-box-wip wc-touch" href="/prospecting/prospects?status=new&amp;individual=1">
+      <div class="wc-box-head"><span class="wc-box-title">1 · Draft</span><span class="wc-box-link">List →</span></div>
       <div class="wc-box-value">{{ stats.by_status.new|default(0) }}</div>
-      <div class="wc-box-meta">Fresh leads</div>
+      <div class="wc-box-meta">£{{ '{:,.0f}'.format(stats.by_status_value.new|default(0)) }} · not yet contacted</div>
     </a>
-    <a class="wc-box wc-box-debtors wc-touch" href="/prospecting/prospects?status=contacted">
-      <div class="wc-box-head"><span class="wc-box-title">2 · Contacted</span><span class="wc-box-link">List →</span></div>
+    <a class="wc-box wc-box-debtors wc-touch" href="/prospecting/prospects?status=contacted&amp;individual=1">
+      <div class="wc-box-head"><span class="wc-box-title">2 · Initial contact</span><span class="wc-box-link">List →</span></div>
       <div class="wc-box-value">{{ stats.by_status.contacted|default(0) }}</div>
-      <div class="wc-box-meta">In conversation</div>
+      <div class="wc-box-meta">£{{ '{:,.0f}'.format(stats.by_status_value.contacted|default(0)) }} · first touch</div>
     </a>
-    <a class="wc-box wc-box-cash wc-touch" href="/prospecting/prospects?status=quote_sent">
-      <div class="wc-box-head"><span class="wc-box-title">3 · Quote sent</span><span class="wc-box-link">List →</span></div>
+    <a class="wc-box wc-box-cash wc-touch" href="/prospecting/prospects?status=interested&amp;individual=1">
+      <div class="wc-box-head"><span class="wc-box-title">3 · Second contact</span><span class="wc-box-link">List →</span></div>
+      <div class="wc-box-value">{{ stats.by_status.interested|default(0) }}</div>
+      <div class="wc-box-meta">£{{ '{:,.0f}'.format(stats.by_status_value.interested|default(0)) }} · follow-up</div>
+    </a>
+    <a class="wc-box wc-box-creditors wc-touch" href="/prospecting/prospects?status=quote_sent&amp;individual=1">
+      <div class="wc-box-head"><span class="wc-box-title">4 · Third contact</span><span class="wc-box-link">List →</span></div>
       <div class="wc-box-value">{{ stats.by_status.quote_sent|default(0) }}</div>
-      <div class="wc-box-meta">Awaiting decision</div>
-    </a>
-    <a class="wc-box wc-box-creditors wc-touch" href="/prospecting/campaigns">
-      <div class="wc-box-head"><span class="wc-box-title">4 · Campaigns</span><span class="wc-box-link">Open →</span></div>
-      <div class="wc-box-value">{{ stats.campaigns_active }}</div>
-      <div class="wc-box-meta">Active · {{ stats.activities_week }} activities this week</div>
+      <div class="wc-box-meta">£{{ '{:,.0f}'.format(stats.by_status_value.quote_sent|default(0)) }} · next step</div>
     </a>
   </div>
+  <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-net-centered wc-touch" href="/prospecting/campaigns" style="margin-top:0.65rem">
+    <div class="wc-net-main">
+      <div class="wc-net-label">Campaign pipeline</div>
+      <div class="wc-net-value">£{{ '{:,.0f}'.format(stats.campaign_pipeline_value|default(0)) }}</div>
+      <div class="wc-net-formula small">
+        Included in open pipeline above ·
+        {{ stats.campaign_lead_count|default(0) }} leads ·
+        {{ stats.campaigns_active|default(0) }} campaigns ·
+        {{ stats.activities_week }} activities this week
+      </div>
+    </div>
+    <p class="wc-net-hint small">Campaigns →</p>
+  </a>
   <section class="wc-net-banner wc-net-result wc-total-banner wc-net-pos">
     <div class="wc-net-main">
       <div class="wc-net-label">Won this month</div>
@@ -60,36 +77,41 @@
   </section>
 </div>
 
-{# Phone Live — full-width pipeline tile (same pattern as dashboard Prospects) #}
+{# Phone Live #}
 <div class="wip-mobile subdash-mobile">
   <a class="live-tile live-tile-wide tile-prospects" href="/prospecting/prospects">
     <span class="live-kicker">Open pipeline</span>
     <span class="live-value">£{{ '{:,.0f}'.format(stats.open_value|default(0)) }}</span>
-    <span class="live-sub">{{ stats.open_count }} leads</span>
-    <span class="live-age"><span>New · Contacted · Interested · Quote sent</span></span>
+    <span class="live-sub">{{ stats.open_count }} leads · incl. campaigns</span>
+    <span class="live-age"><span>Ind £{{ '{:,.0f}'.format(stats.individual_value|default(0)) }} + Camp £{{ '{:,.0f}'.format(stats.campaign_pipeline_value|default(0)) }}</span></span>
   </a>
   <div class="live-grid">
-    <a class="live-tile tile-wip" href="/prospecting/prospects?status=new">
-      <span class="live-kicker">New</span>
+    <a class="live-tile tile-wip" href="/prospecting/prospects?status=new&amp;individual=1">
+      <span class="live-kicker">Draft</span>
       <span class="live-value">{{ stats.by_status.new|default(0) }}</span>
-      <span class="live-sub">Fresh leads</span>
+      <span class="live-sub">£{{ '{:,.0f}'.format(stats.by_status_value.new|default(0)) }}</span>
     </a>
-    <a class="live-tile tile-debtors" href="/prospecting/prospects?status=contacted">
-      <span class="live-kicker">Contacted</span>
+    <a class="live-tile tile-debtors" href="/prospecting/prospects?status=contacted&amp;individual=1">
+      <span class="live-kicker">Initial contact</span>
       <span class="live-value">{{ stats.by_status.contacted|default(0) }}</span>
-      <span class="live-sub">In conversation</span>
+      <span class="live-sub">£{{ '{:,.0f}'.format(stats.by_status_value.contacted|default(0)) }}</span>
     </a>
-    <a class="live-tile tile-cash" href="/prospecting/prospects?status=quote_sent">
-      <span class="live-kicker">Quote sent</span>
+    <a class="live-tile tile-cash" href="/prospecting/prospects?status=interested&amp;individual=1">
+      <span class="live-kicker">Second contact</span>
+      <span class="live-value">{{ stats.by_status.interested|default(0) }}</span>
+      <span class="live-sub">£{{ '{:,.0f}'.format(stats.by_status_value.interested|default(0)) }}</span>
+    </a>
+    <a class="live-tile tile-creditors" href="/prospecting/prospects?status=quote_sent&amp;individual=1">
+      <span class="live-kicker">Third contact</span>
       <span class="live-value">{{ stats.by_status.quote_sent|default(0) }}</span>
-      <span class="live-sub">Awaiting decision</span>
-    </a>
-    <a class="live-tile tile-creditors" href="/prospecting/campaigns">
-      <span class="live-kicker">Campaigns</span>
-      <span class="live-value">{{ stats.campaigns_active }}</span>
-      <span class="live-sub">{{ stats.activities_week }} acts / week</span>
+      <span class="live-sub">£{{ '{:,.0f}'.format(stats.by_status_value.quote_sent|default(0)) }}</span>
     </a>
   </div>
+  <a class="live-tile live-tile-wide tile-prospects" href="/prospecting/campaigns" style="margin-top:0.55rem">
+    <span class="live-kicker">Campaign pipeline</span>
+    <span class="live-value">£{{ '{:,.0f}'.format(stats.campaign_pipeline_value|default(0)) }}</span>
+    <span class="live-sub">{{ stats.campaign_lead_count|default(0) }} leads · {{ stats.campaigns_active|default(0) }} campaigns</span>
+  </a>
   <section class="live-net">
     <div class="live-net-label">Won this month</div>
     <div class="live-net-value">{{ stats.won_month }}</div>
@@ -103,17 +125,22 @@
       <h2 style="margin:0">Recent open leads</h2>
       <a class="btn btn-sm btn-outline" href="/prospecting/prospects">All</a>
     </div>
+    <p class="muted small" style="margin:0 0 0.55rem">
+      Individual leads with a pipeline value only. Campaign targets are under Campaigns.
+    </p>
     {% if recent %}
     <ul class="chase-history">
       {% for p in recent %}
       <li>
         <a href="/prospecting/prospects/{{ p.id }}"><strong>{{ p.display_name() }}</strong></a>
-        · score {{ p.score }} · {{ pipeline_labels.get(p.pipeline_status, p.pipeline_status) }}
+        · £{{ '{:,.0f}'.format(p.estimated_value or 0) }}
+        · confidence {{ p.confidence_pct if p.confidence_pct is not none else 50 }}%
+        · {{ pipeline_labels.get(p.pipeline_status, p.pipeline_status) }}
       </li>
       {% endfor %}
     </ul>
     {% else %}
-    <p class="empty">No open prospects yet — import from CH or add manually.</p>
+    <p class="empty">No individual open leads with a value — add a prospect with fees, or convert from a campaign.</p>
     {% endif %}
   </div>
   <div class="card">
@@ -121,7 +148,23 @@
       <h2 style="margin:0">Campaigns</h2>
       <a class="btn btn-sm btn-outline" href="/prospecting/campaigns">All</a>
     </div>
-    {% if campaigns %}
+    <p class="muted small" style="margin:0 0 0.55rem">
+      Pipeline total £{{ '{:,.0f}'.format(stats.campaign_pipeline_value|default(0)) }}
+      · {{ stats.campaign_lead_count|default(0) }} leads
+    </p>
+    {% if campaign_rows %}
+    <ul class="chase-history">
+      {% for row in campaign_rows %}
+      {% set c = row.campaign %}
+      <li>
+        <a href="/prospecting/campaigns/{{ c.id }}"><strong>{{ c.name }}</strong></a>
+        · {{ c.channel }} · {{ c.status }}
+        · {{ row.lead_count }} leads
+        · £{{ '{:,.0f}'.format(row.pipeline_value or 0) }}
+      </li>
+      {% endfor %}
+    </ul>
+    {% elif campaigns %}
     <ul class="chase-history">
       {% for c in campaigns %}
       <li><a href="/prospecting/campaigns/{{ c.id }}"><strong>{{ c.name }}</strong></a> · {{ c.channel }} · {{ c.status }}</li>

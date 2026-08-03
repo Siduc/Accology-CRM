@@ -27,15 +27,23 @@ PIPELINE_STATUSES = (
     "won",
     "lost",
 )
+# DB keys kept stable; labels match the desk pipeline language.
 PIPELINE_LABELS = {
-    "new": "New",
-    "contacted": "Contacted",
-    "interested": "Interested",
-    "quote_sent": "Quote sent",
+    "new": "Draft",
+    "contacted": "Initial contact",
+    "interested": "Second contact",
+    "quote_sent": "Third contact",
     "won": "Won",
     "lost": "Lost",
 }
 OPEN_PIPELINE = ("new", "contacted", "interested", "quote_sent")
+# Hub stage tiles (individual leads only — not campaign members)
+HUB_STAGE_KEYS = (
+    ("new", "Draft"),
+    ("contacted", "Initial contact"),
+    ("interested", "Second contact"),
+    ("quote_sent", "Third contact"),
+)
 ACTIVITY_TYPES = (
     "letter",
     "email",
@@ -59,8 +67,17 @@ class Prospect(Base):
     company_number = Column(String, unique=True, index=True, nullable=True)
     pipeline_status = Column(String, default="new", index=True)
     score = Column(Integer, default=0, index=True)
-    # Pipeline £ value (quotes / expected fees) — shown as main dashboard metric
+    # Pipeline £ value after confidence (setup + 1yr ongoing × confidence%) — hub metric
     estimated_value = Column(Float, default=0.0)
+    # Individual fee overrides (when set, used instead of campaign defaults)
+    fee_initial = Column(Float, nullable=True)
+    fee_ongoing = Column(Float, nullable=True)
+    fee_ongoing_frequency = Column(String, nullable=True)  # monthly | annual
+    fee_renewal = Column(Float, nullable=True)
+    # Confidence % for internal valuation (default 50 for campaign-seeded prospects)
+    confidence_pct = Column(Integer, default=50)
+    # Gross setup+1yr before confidence (for transparency on detail screen)
+    gross_value = Column(Float, default=0.0)
     source = Column(String, default="manual", index=True)
     contact_name = Column(String, nullable=True)
     email = Column(String, nullable=True, index=True)
@@ -115,6 +132,26 @@ class Prospect(Base):
     def is_open(self) -> bool:
         return (self.pipeline_status or "new") in OPEN_PIPELINE
 
+    def ongoing_annual_value(self) -> float:
+        amt = float(self.fee_ongoing if self.fee_ongoing is not None else 0)
+        freq = (self.fee_ongoing_frequency or "annual").strip().lower()
+        if freq == "monthly":
+            return round(amt * 12, 2)
+        return round(amt, 2)
+
+    def compute_gross_value(self) -> float:
+        """Setup (initial) + one year ongoing — excludes renewal."""
+        initial = float(self.fee_initial if self.fee_initial is not None else 0)
+        return round(initial + self.ongoing_annual_value(), 2)
+
+    def compute_weighted_value(self) -> float:
+        """Internal pipeline value: gross × confidence%."""
+        conf = self.confidence_pct
+        if conf is None:
+            conf = 50
+        conf = max(0, min(100, int(conf)))
+        return round(self.compute_gross_value() * (conf / 100.0), 2)
+
 
 class ProspectCampaign(Base):
     __tablename__ = "prospect_campaigns"
@@ -155,9 +192,14 @@ class ProspectCampaign(Base):
             return round(amt * 12, 2)
         return round(amt, 2)
 
-    def pipeline_value_per_prospect(self) -> float:
-        """Initial + ongoing only (not renewal) — used for Prospect.estimated_value."""
+    def pipeline_gross_per_prospect(self) -> float:
+        """Initial + 1 year ongoing (not renewal) before confidence."""
         return round(float(self.fee_initial or 0) + self.ongoing_annual_value(), 2)
+
+    def pipeline_value_per_prospect(self, confidence_pct: int = 50) -> float:
+        """Internal valuation: (setup + 1yr ongoing) × confidence% (default 50%)."""
+        conf = max(0, min(100, int(confidence_pct if confidence_pct is not None else 50)))
+        return round(self.pipeline_gross_per_prospect() * (conf / 100.0), 2)
 
 
 class CampaignMember(Base):

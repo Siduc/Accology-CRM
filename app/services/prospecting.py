@@ -163,6 +163,7 @@ def create_prospect(
         incorporation_date=incorporation_date,
         pipeline_status=pipeline_status if pipeline_status in PIPELINE_STATUSES else "new",
         estimated_value=round(float(estimated_value or 0), 2),
+        confidence_pct=50,
     )
     rescore(db, p)
     db.add(p)
@@ -181,6 +182,16 @@ def create_prospect(
     return p
 
 
+def _active_campaign_prospect_ids_subq(db: Session):
+    """Prospect IDs currently on any campaign (not removed)."""
+    return (
+        db.query(CampaignMember.prospect_id)
+        .filter(CampaignMember.status != "removed")
+        .distinct()
+        .subquery()
+    )
+
+
 def list_prospects(
     db: Session,
     *,
@@ -192,6 +203,8 @@ def list_prospects(
     postcode: str = "",
     min_score: Optional[int] = None,
     open_only: bool = False,
+    individual_only: bool = False,
+    with_value_only: bool = False,
     limit: int = 200,
 ) -> List[Prospect]:
     query = db.query(Prospect)
@@ -207,6 +220,14 @@ def list_prospects(
         query = query.filter(Prospect.postcode.ilike(f"%{postcode.strip()}%"))
     if min_score is not None:
         query = query.filter(Prospect.score >= int(min_score))
+    if with_value_only:
+        query = query.filter(
+            Prospect.estimated_value.isnot(None),
+            Prospect.estimated_value > 0,
+        )
+    if individual_only:
+        camp_sq = _active_campaign_prospect_ids_subq(db)
+        query = query.filter(~Prospect.id.in_(db.query(camp_sq.c.prospect_id)))
     if campaign_id:
         query = query.join(CampaignMember).filter(
             CampaignMember.campaign_id == campaign_id,
@@ -225,34 +246,138 @@ def list_prospects(
             )
         )
     return (
-        query.order_by(Prospect.score.desc(), Prospect.created_at.desc())
+        query.order_by(
+            Prospect.estimated_value.desc().nullslast(),
+            Prospect.updated_at.desc(),
+            Prospect.created_at.desc(),
+        )
         .limit(min(limit, 500))
         .all()
     )
 
 
+def _normalise_weighted_values(db: Session) -> int:
+    """
+    Ensure estimated_value is confidence-weighted pipeline £ (not gross).
+
+    When gross is missing but estimated_value and confidence are set, treat the
+    stored figure as gross and recompute estimated = gross × confidence%.
+    Example: £10,000 at 50% → estimated_value £5,000.
+    """
+    fixed = 0
+    rows = (
+        db.query(Prospect)
+        .filter(
+            Prospect.estimated_value.isnot(None),
+            Prospect.estimated_value > 0,
+            Prospect.gross_value.is_(None),
+        )
+        .all()
+    )
+    for p in rows:
+        conf = p.confidence_pct if p.confidence_pct is not None else 50
+        conf = max(0, min(100, int(conf)))
+        gross = float(p.estimated_value or 0)
+        weighted = round(gross * (conf / 100.0), 2)
+        # Only rewrite when confidence would change the figure
+        if conf < 100 and weighted != gross:
+            p.gross_value = round(gross, 2)
+            p.estimated_value = weighted
+            fixed += 1
+    if fixed:
+        db.commit()
+    return fixed
+
+
 def hub_stats(db: Session) -> dict:
+    """Desk tiles: overall open pipeline (incl. campaigns) + stage / campaign splits."""
+    # One-shot data repair so £10k @ 50% shows as £5k pipeline value
+    try:
+        _normalise_weighted_values(db)
+    except Exception:
+        db.rollback()
+
+    camp_sq = _active_campaign_prospect_ids_subq(db)
+    camp_ids_q = db.query(camp_sq.c.prospect_id)
+
+    all_open_filter = (Prospect.pipeline_status.in_(OPEN_PIPELINE),)
+    # Overall open pipeline = individual + campaign members
     open_count = (
-        db.query(func.count(Prospect.id))
-        .filter(Prospect.pipeline_status.in_(OPEN_PIPELINE))
-        .scalar()
-        or 0
+        db.query(func.count(Prospect.id)).filter(*all_open_filter).scalar() or 0
     )
     open_value = (
         db.query(func.coalesce(func.sum(Prospect.estimated_value), 0.0))
-        .filter(Prospect.pipeline_status.in_(OPEN_PIPELINE))
+        .filter(*all_open_filter)
         .scalar()
         or 0
     )
-    by_status = {}
-    for st in PIPELINE_STATUSES:
-        by_status[st] = (
-            db.query(func.count(Prospect.id))
-            .filter(Prospect.pipeline_status == st)
+
+    # Individual open leads (not on any campaign) — stage tiles
+    ind_open_filter = (
+        Prospect.pipeline_status.in_(OPEN_PIPELINE),
+        ~Prospect.id.in_(camp_ids_q),
+    )
+    individual_count = (
+        db.query(func.count(Prospect.id)).filter(*ind_open_filter).scalar() or 0
+    )
+    individual_value = round(
+        float(
+            db.query(func.coalesce(func.sum(Prospect.estimated_value), 0.0))
+            .filter(*ind_open_filter)
             .scalar()
             or 0
+        ),
+        2,
+    )
+
+    by_status: Dict[str, int] = {}
+    by_status_value: Dict[str, float] = {}
+    for st in PIPELINE_STATUSES:
+        # Stage tiles on the hub are individual-only; list filters still use full counts.
+        if st in OPEN_PIPELINE:
+            st_filter = (
+                Prospect.pipeline_status == st,
+                ~Prospect.id.in_(camp_ids_q),
+            )
+        else:
+            st_filter = (Prospect.pipeline_status == st,)
+        by_status[st] = (
+            db.query(func.count(Prospect.id)).filter(*st_filter).scalar() or 0
         )
+        by_status_value[st] = round(
+            float(
+                db.query(func.coalesce(func.sum(Prospect.estimated_value), 0.0))
+                .filter(*st_filter)
+                .scalar()
+                or 0
+            ),
+            2,
+        )
+
+    # Campaign pipeline: open prospects that sit on a campaign
+    camp_member_filter = (
+        Prospect.pipeline_status.in_(OPEN_PIPELINE),
+        Prospect.id.in_(camp_ids_q),
+    )
+    campaign_lead_count = (
+        db.query(func.count(Prospect.id)).filter(*camp_member_filter).scalar() or 0
+    )
+    campaign_pipeline_value = round(
+        float(
+            db.query(func.coalesce(func.sum(Prospect.estimated_value), 0.0))
+            .filter(*camp_member_filter)
+            .scalar()
+            or 0
+        ),
+        2,
+    )
     campaigns_active = (
+        db.query(func.count(ProspectCampaign.id))
+        .filter(ProspectCampaign.status.in_(("active", "draft", "paused")))
+        .scalar()
+        or 0
+    )
+    campaigns_open = (
         db.query(func.count(ProspectCampaign.id))
         .filter(ProspectCampaign.status == "active")
         .scalar()
@@ -274,18 +399,74 @@ def hub_stats(db: Session) -> dict:
         .scalar()
         or 0
     )
-    last_sync = (
-        db.query(ChSyncRun).order_by(ChSyncRun.started_at.desc()).first()
-    )
+    last_sync = db.query(ChSyncRun).order_by(ChSyncRun.started_at.desc()).first()
     return {
         "open_count": int(open_count),
         "open_value": round(float(open_value), 2),
+        "individual_count": int(individual_count),
+        "individual_value": individual_value,
         "by_status": by_status,
+        "by_status_value": by_status_value,
         "campaigns_active": int(campaigns_active),
+        "campaigns_open": int(campaigns_open),
+        "campaign_lead_count": int(campaign_lead_count),
+        "campaign_pipeline_value": campaign_pipeline_value,
         "activities_week": int(activities_week),
         "won_month": int(won_month),
         "last_sync": last_sync,
     }
+
+
+def campaign_list_with_values(
+    db: Session, *, limit: int = 8
+) -> List[Dict[str, Any]]:
+    """Recent campaigns with open-member count and pipeline £."""
+    campaigns = (
+        db.query(ProspectCampaign)
+        .order_by(ProspectCampaign.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+    out: List[Dict[str, Any]] = []
+    for c in campaigns:
+        members = (
+            db.query(CampaignMember)
+            .filter(
+                CampaignMember.campaign_id == c.id,
+                CampaignMember.status != "removed",
+            )
+            .all()
+        )
+        pids = [m.prospect_id for m in members if m.prospect_id]
+        lead_count = 0
+        value = 0.0
+        if pids:
+            lead_count = (
+                db.query(func.count(Prospect.id))
+                .filter(
+                    Prospect.id.in_(pids),
+                    Prospect.pipeline_status.in_(OPEN_PIPELINE),
+                )
+                .scalar()
+                or 0
+            )
+            value = float(
+                db.query(func.coalesce(func.sum(Prospect.estimated_value), 0.0))
+                .filter(
+                    Prospect.id.in_(pids),
+                    Prospect.pipeline_status.in_(OPEN_PIPELINE),
+                )
+                .scalar()
+                or 0
+            )
+        out.append(
+            {
+                "campaign": c,
+                "lead_count": int(lead_count),
+                "pipeline_value": round(value, 2),
+            }
+        )
+    return out
 
 
 def set_pipeline_status(
@@ -321,23 +502,177 @@ def _parse_fee(value: Any) -> float:
         return 0.0
 
 
+def recalculate_prospect_value(db: Session, prospect: Prospect, *, commit: bool = False) -> float:
+    """Recompute gross_value and estimated_value from prospect fee fields + confidence."""
+    if prospect.confidence_pct is None:
+        prospect.confidence_pct = 50
+    prospect.gross_value = prospect.compute_gross_value()
+    prospect.estimated_value = prospect.compute_weighted_value()
+    prospect.updated_at = datetime.utcnow()
+    rescore(db, prospect)
+    if commit:
+        db.commit()
+        db.refresh(prospect)
+    return float(prospect.estimated_value or 0)
+
+
 def apply_campaign_value_to_prospect(
-    db: Session, campaign: ProspectCampaign, prospect: Prospect, *, commit: bool = False
+    db: Session,
+    campaign: ProspectCampaign,
+    prospect: Prospect,
+    *,
+    commit: bool = False,
+    force: bool = False,
 ) -> float:
     """
-    Set prospect pipeline value from campaign fees:
-    initial + ongoing (annualised if monthly). Renewal is stored on campaign only.
+    Copy campaign fee structure onto the prospect (unless already customised)
+    and set internal valuation = (setup + 1yr ongoing) × 50% confidence.
+
+    force=True overwrites individual fees (e.g. when campaign fees re-applied).
     """
-    val = campaign.pipeline_value_per_prospect()
-    # Don't wipe a higher manually-set value unless campaign value is positive
-    if val > 0:
-        prospect.estimated_value = val
-        prospect.updated_at = datetime.utcnow()
-        rescore(db, prospect)
-        if commit:
-            db.commit()
-            db.refresh(prospect)
-    return float(prospect.estimated_value or 0)
+    if force or prospect.fee_initial is None:
+        prospect.fee_initial = float(campaign.fee_initial or 0)
+    if force or prospect.fee_ongoing is None:
+        prospect.fee_ongoing = float(campaign.fee_ongoing or 0)
+    if force or not (prospect.fee_ongoing_frequency or "").strip():
+        prospect.fee_ongoing_frequency = (
+            (campaign.fee_ongoing_frequency or "annual").strip().lower() or "annual"
+        )
+    if force or prospect.fee_renewal is None:
+        prospect.fee_renewal = float(campaign.fee_renewal or 0)
+    if prospect.confidence_pct is None or force:
+        prospect.confidence_pct = 50
+    return recalculate_prospect_value(db, prospect, commit=commit)
+
+
+def update_prospect_fees(
+    db: Session,
+    prospect: Prospect,
+    *,
+    fee_initial: float = 0.0,
+    fee_ongoing: float = 0.0,
+    fee_ongoing_frequency: str = "annual",
+    fee_renewal: float = 0.0,
+    confidence_pct: int = 50,
+) -> Prospect:
+    """Adjust one prospect's fees without changing the campaign or other members."""
+    freq = (fee_ongoing_frequency or "annual").strip().lower()
+    if freq not in ("monthly", "annual"):
+        freq = "annual"
+    try:
+        conf = int(confidence_pct)
+    except (TypeError, ValueError):
+        conf = 50
+    conf = max(0, min(100, conf))
+    prospect.fee_initial = _parse_fee(fee_initial)
+    prospect.fee_ongoing = _parse_fee(fee_ongoing)
+    prospect.fee_ongoing_frequency = freq
+    prospect.fee_renewal = _parse_fee(fee_renewal)
+    prospect.confidence_pct = conf
+    recalculate_prospect_value(db, prospect, commit=True)
+    log_activity(
+        db,
+        prospect.id,
+        activity_type="note",
+        subject="Fees adjusted (individual)",
+        body=(
+            f"Initial £{prospect.fee_initial:,.2f}; ongoing £{prospect.fee_ongoing:,.2f} "
+            f"({freq}); renewal £{prospect.fee_renewal:,.2f}; confidence {conf}% → "
+            f"gross £{prospect.gross_value:,.2f}; pipeline £{prospect.estimated_value:,.2f}"
+        ),
+        direction="internal",
+        commit=True,
+    )
+    db.refresh(prospect)
+    return prospect
+
+
+def convert_prospect_to_job(
+    db: Session,
+    prospect_id: int,
+    *,
+    job_type: str = "",
+    job_title: str = "",
+    job_fee: Optional[float] = None,
+    notes: str = "",
+) -> Tuple[Optional[Client], Optional[Job], Optional[Prospect], str]:
+    """
+    Convert campaign prospect → Active client (if needed) + create a job.
+
+    Job fee defaults to the prospect's initial (setup) fee.
+    Ongoing/renewal stay on the prospect notes for the job.
+    """
+    from app.models.job import Job
+    from app.services.fees import get_suggested_fee
+
+    p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not p:
+        return None, None, None, "Prospect not found"
+
+    client, p, conv_msg = convert_prospect_to_client(db, prospect_id)
+    if not client:
+        return None, None, p, conv_msg or "Could not create/link client"
+
+    # Prefer campaign service label for type/title
+    camp_label = ""
+    for m in p.memberships or []:
+        if m.status != "removed" and m.campaign and m.campaign.service_label:
+            camp_label = m.campaign.service_label
+            break
+        if m.status != "removed" and m.campaign:
+            camp_label = m.campaign.name or ""
+            break
+
+    jtype = (job_type or "").strip() or (camp_label or "Other")[:80]
+    title = (job_title or "").strip() or f"{jtype} — {p.display_name()}"
+    initial = float(p.fee_initial if p.fee_initial is not None else 0)
+    fee = float(job_fee) if job_fee is not None else initial
+    if fee <= 0:
+        suggested = get_suggested_fee(db, jtype, None, client_id=client.id)
+        if suggested is not None:
+            fee = float(suggested)
+
+    ongoing = float(p.fee_ongoing if p.fee_ongoing is not None else 0)
+    freq = (p.fee_ongoing_frequency or "annual").lower()
+    renewal = float(p.fee_renewal if p.fee_renewal is not None else 0)
+    fee_note = (
+        f"From prospecting: setup £{initial:,.2f}; ongoing £{ongoing:,.2f}/{freq}; "
+        f"renewal £{renewal:,.2f}; confidence {p.confidence_pct or 50}%."
+    )
+    extra = (notes or "").strip()
+    job_notes = f"{fee_note}\n{extra}".strip() if extra else fee_note
+
+    job = Job(
+        title=title[:200],
+        type=jtype[:80],
+        client_id=client.id,
+        fee=round(fee, 2),
+        status="Planned",
+        notes=job_notes,
+        source="prospecting",
+    )
+    db.add(job)
+    if p.pipeline_status != "won":
+        p.pipeline_status = "won"
+        p.converted_at = p.converted_at or datetime.utcnow()
+    for m in p.memberships or []:
+        if m.status not in ("removed", "converted"):
+            m.status = "converted"
+            m.last_touch_at = datetime.utcnow()
+    log_activity(
+        db,
+        p.id,
+        activity_type="convert",
+        subject=f"Converted to job: {title}",
+        body=f"Client #{client.id} · Job fee £{fee:,.2f}\n{job_notes}",
+        direction="internal",
+        commit=False,
+    )
+    db.commit()
+    db.refresh(job)
+    db.refresh(client)
+    db.refresh(p)
+    return client, job, p, f"Client #{client.id}; job #{job.id} created (£{fee:,.2f})"
 
 
 def create_campaign(
@@ -417,7 +752,10 @@ def update_campaign_fees(
         )
         for m in members:
             if m.prospect:
-                apply_campaign_value_to_prospect(db, campaign, m.prospect, commit=False)
+                # force=True: campaign fee re-save overwrites member fee structure
+                apply_campaign_value_to_prospect(
+                    db, campaign, m.prospect, commit=False, force=True
+                )
     db.commit()
     db.refresh(campaign)
     return campaign

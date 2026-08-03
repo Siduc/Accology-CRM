@@ -59,20 +59,25 @@ def _parse_date(value: str):
 
 @router.get("", response_class=HTMLResponse)
 async def prospecting_hub(request: Request, db: Session = Depends(get_db)):
+    from app.services.prospecting import campaign_list_with_values
+
     stats = hub_stats(db)
-    campaigns = (
-        db.query(ProspectCampaign)
-        .order_by(ProspectCampaign.updated_at.desc())
-        .limit(8)
-        .all()
+    # Individual open leads with a pipeline value only (campaign members excluded)
+    recent = list_prospects(
+        db,
+        open_only=True,
+        individual_only=True,
+        with_value_only=True,
+        limit=8,
     )
-    recent = list_prospects(db, open_only=True, limit=8)
+    campaign_rows = campaign_list_with_values(db, limit=8)
     return render(
         request,
         "prospecting/hub.html",
         {
             "stats": stats,
-            "campaigns": campaigns,
+            "campaigns": [r["campaign"] for r in campaign_rows],
+            "campaign_rows": campaign_rows,
             "recent": recent,
             "pipeline_labels": PIPELINE_LABELS,
             "ch_key": has_api_key(),
@@ -90,10 +95,12 @@ async def prospects_list(
     postcode: str = Query(""),
     campaign_id: str = Query(""),
     min_score: str = Query(""),
+    individual: str = Query(""),
     db: Session = Depends(get_db),
 ):
     cid = int(campaign_id) if (campaign_id or "").isdigit() else None
     ms = int(min_score) if (min_score or "").isdigit() else None
+    individual_only = (individual or "").strip().lower() in ("1", "true", "yes", "on")
     rows = list_prospects(
         db,
         q=q,
@@ -104,6 +111,7 @@ async def prospects_list(
         campaign_id=cid,
         min_score=ms,
         open_only=not status,
+        individual_only=individual_only,
         limit=250,
     )
     campaigns = db.query(ProspectCampaign).order_by(ProspectCampaign.name).all()
@@ -119,6 +127,7 @@ async def prospects_list(
             "postcode": postcode,
             "campaign_id": cid,
             "min_score": min_score,
+            "individual": individual_only,
             "campaigns": campaigns,
             "pipeline_statuses": PIPELINE_STATUSES,
             "pipeline_labels": PIPELINE_LABELS,
@@ -267,6 +276,83 @@ async def prospect_convert(prospect_id: int, db: Session = Depends(get_db)):
         return RedirectResponse(f"/clients/{client.id}?msg=converted", status_code=303)
     return RedirectResponse(
         f"/prospecting/prospects/{prospect_id}?msg={quote(msg)}", status_code=303
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/fees")
+async def prospect_update_fees(
+    prospect_id: int,
+    fee_initial: str = Form("0"),
+    fee_ongoing: str = Form("0"),
+    fee_ongoing_frequency: str = Form("annual"),
+    fee_renewal: str = Form("0"),
+    confidence_pct: str = Form("50"),
+    db: Session = Depends(get_db),
+):
+    """Adjust this prospect's fees only — does not change the campaign or peers."""
+    from app.services.prospecting import update_prospect_fees
+
+    p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not p:
+        return RedirectResponse("/prospecting/prospects", status_code=303)
+    try:
+        conf = int(float(confidence_pct or 50))
+    except (TypeError, ValueError):
+        conf = 50
+    update_prospect_fees(
+        db,
+        p,
+        fee_initial=fee_initial,
+        fee_ongoing=fee_ongoing,
+        fee_ongoing_frequency=fee_ongoing_frequency,
+        fee_renewal=fee_renewal,
+        confidence_pct=conf,
+    )
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}?msg=fees", status_code=303
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/convert-job")
+async def prospect_convert_job(
+    prospect_id: int,
+    job_type: str = Form(""),
+    job_title: str = Form(""),
+    job_fee: str = Form(""),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Convert prospect → Active client (if needed) and create a job.
+    Job fee defaults to this prospect's initial fee (not the campaign default).
+    """
+    from app.services.prospecting import convert_prospect_to_job
+
+    fee = None
+    raw = (job_fee or "").strip().replace(",", "").replace("£", "")
+    if raw:
+        try:
+            fee = float(raw)
+        except ValueError:
+            fee = None
+    client, job, p, msg = convert_prospect_to_job(
+        db,
+        prospect_id,
+        job_type=job_type,
+        job_title=job_title,
+        job_fee=fee,
+        notes=notes,
+    )
+    if job and client:
+        return RedirectResponse(
+            f"/jobs/{job.id}?msg={quote('Created from prospect')}",
+            status_code=303,
+        )
+    if client:
+        return RedirectResponse(f"/clients/{client.id}?msg={quote(msg)}", status_code=303)
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}?msg={quote(msg or 'Conversion failed')}",
+        status_code=303,
     )
 
 
@@ -423,18 +509,20 @@ async def campaign_detail(
     skipped: str = Query(""),
     db: Session = Depends(get_db),
 ):
+    from sqlalchemy.orm import joinedload
+
     c = db.query(ProspectCampaign).filter(ProspectCampaign.id == campaign_id).first()
     if not c:
         return RedirectResponse("/prospecting/campaigns", status_code=303)
     members = (
         db.query(CampaignMember)
+        .options(joinedload(CampaignMember.prospect))
         .filter(
             CampaignMember.campaign_id == c.id,
             CampaignMember.status != "removed",
         )
         .all()
     )
-    member_prospect_ids = {m.prospect_id for m in members}
     # Clients already represented (via prospect.client_id or company number)
     member_client_ids = set()
     for m in members:
@@ -451,10 +539,23 @@ async def campaign_detail(
         banner = "Member(s) added to campaign."
     elif msg == "fees":
         banner = "Fees and email draft saved. Member pipeline values updated where applicable."
+    elif msg == "drafts":
+        banner = "Outlook drafts created where email addresses were available."
 
-    from app.services.ms_graph_oauth import connection_status
+    graph_connected = False
+    try:
+        from app.services.ms_graph_oauth import connection_status
 
-    graph = connection_status(db)
+        graph = connection_status(db) or {}
+        graph_connected = bool(graph.get("connected") and graph.get("fresh"))
+    except Exception:
+        graph_connected = False
+
+    try:
+        pipeline_value = float(c.pipeline_value_per_prospect() or 0)
+    except Exception:
+        pipeline_value = 0.0
+
     return render(
         request,
         "prospecting/campaign_detail.html",
@@ -465,8 +566,8 @@ async def campaign_detail(
             "pipeline_labels": PIPELINE_LABELS,
             "clients": _company_client_choices(db),
             "member_client_ids": member_client_ids,
-            "pipeline_value": c.pipeline_value_per_prospect(),
-            "graph_connected": bool(graph.get("connected") and graph.get("fresh")),
+            "pipeline_value": pipeline_value,
+            "graph_connected": graph_connected,
         },
     )
 

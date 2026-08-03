@@ -195,6 +195,12 @@ def _add_missing_columns():
         ],
         "prospects": [
             ("estimated_value", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+            ("fee_initial", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+            ("fee_ongoing", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+            ("fee_ongoing_frequency", "VARCHAR"),
+            ("fee_renewal", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+            ("confidence_pct", "INTEGER"),
+            ("gross_value", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
         ],
         "prospect_campaigns": [
             ("fee_initial", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
