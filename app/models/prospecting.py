@@ -44,6 +44,84 @@ HUB_STAGE_KEYS = (
     ("interested", "Second contact"),
     ("quote_sent", "Third contact"),
 )
+
+# Fee profiles — templates for how engagement is billed / valued
+FEE_PROFILE_ONE_OFF = "one_off"
+FEE_PROFILE_BILLS_ON_ACCOUNT = "bills_on_account"
+FEE_PROFILE_MONTHLY = "monthly"
+FEE_PROFILE_ANNUAL = "annual"
+FEE_PROFILES = (
+    FEE_PROFILE_ONE_OFF,
+    FEE_PROFILE_BILLS_ON_ACCOUNT,
+    FEE_PROFILE_MONTHLY,
+    FEE_PROFILE_ANNUAL,
+)
+FEE_PROFILE_LABELS = {
+    FEE_PROFILE_ONE_OFF: "One-off (bill at end)",
+    FEE_PROFILE_BILLS_ON_ACCOUNT: "Bills on account",
+    FEE_PROFILE_MONTHLY: "Monthly recurring",
+    FEE_PROFILE_ANNUAL: "Annual retainer",
+}
+FEE_PROFILE_HELP = {
+    FEE_PROFILE_ONE_OFF: "Single fee when the work completes — common for corporate finance mandates.",
+    FEE_PROFILE_BILLS_ON_ACCOUNT: "On-account invoices through the engagement, then a balancing bill.",
+    FEE_PROFILE_MONTHLY: "Setup (if any) plus a monthly fee — bookkeeping / payroll style.",
+    FEE_PROFILE_ANNUAL: "Setup (if any) plus annual fee — year-end / compliance packages.",
+}
+# Service lines for opportunity classification (best-practice CRM)
+SERVICE_LINES = (
+    "Corporate finance",
+    "Accounts & compliance",
+    "Tax advisory",
+    "Payroll",
+    "Bookkeeping",
+    "Company secretarial",
+    "Mixed / other",
+)
+
+# Default guestimate fees for CH-derived compliance opportunities
+DEFAULT_ACCOUNTS_FEE = 2500.0
+DEFAULT_SA_FEE_PER_DIRECTOR = 250.0
+
+# Next-activity picker (prospect landing)
+# Mail-type options open the Outlook compose panel on the landing screen.
+NEXT_ACTIVITY_OPTIONS = (
+    "Follow up mail",
+    "Follow up call",
+    "Send proposal / quote",
+    "Send engagement letter",
+    "Discovery / scope call",
+    "Meeting",
+    "Awaiting response",
+    "Other",
+)
+NEXT_ACTIVITY_MAIL_TYPES = frozenset(
+    {
+        "Follow up mail",
+        "Send proposal / quote",
+        "Send engagement letter",
+    }
+)
+
+# Lead / source tracker (who introduced the work)
+SOURCE_CHANNELS = (
+    "salesman",
+    "referral",
+    "website",
+    "campaign",
+    "companies_house",
+    "existing_client",
+    "other",
+)
+SOURCE_CHANNEL_LABELS = {
+    "salesman": "Salesman (non-employed)",
+    "referral": "Referral",
+    "website": "Website",
+    "campaign": "Campaign",
+    "companies_house": "Companies House",
+    "existing_client": "Existing client",
+    "other": "Other",
+}
 ACTIVITY_TYPES = (
     "letter",
     "email",
@@ -74,11 +152,21 @@ class Prospect(Base):
     fee_ongoing = Column(Float, nullable=True)
     fee_ongoing_frequency = Column(String, nullable=True)  # monthly | annual
     fee_renewal = Column(Float, nullable=True)
+    # Billing pattern template (one_off | bills_on_account | monthly | annual)
+    fee_profile = Column(String, nullable=True, default=FEE_PROFILE_ANNUAL)
+    # Opportunity classification (e.g. Corporate finance)
+    service_line = Column(String, nullable=True, index=True)
     # Confidence % for internal valuation (default 50 for campaign-seeded prospects)
     confidence_pct = Column(Integer, default=50)
     # Gross setup+1yr before confidence (for transparency on detail screen)
     gross_value = Column(Float, default=0.0)
+    # System origin (manual, ch_search, campaign, website, …)
     source = Column(String, default="manual", index=True)
+    # Who brought the lead (e.g. Mark McCormick — external salesman)
+    referred_by = Column(String, nullable=True, index=True)
+    # How they came in: salesman | referral | website | campaign | other
+    source_channel = Column(String, nullable=True, index=True)
+    source_notes = Column(Text, nullable=True)
     contact_name = Column(String, nullable=True)
     email = Column(String, nullable=True, index=True)
     phone = Column(String, nullable=True)
@@ -96,6 +184,9 @@ class Prospect(Base):
     ch_officers_json = Column(Text, nullable=True)
     ch_fetched_at = Column(DateTime, nullable=True)
     notes = Column(Text, nullable=True)
+    # CRM best-practice: always-visible next action
+    next_step = Column(Text, nullable=True)
+    next_step_due = Column(Date, nullable=True)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=True, unique=True)
     converted_at = Column(DateTime, nullable=True)
     lost_reason = Column(String, nullable=True)
@@ -132,16 +223,39 @@ class Prospect(Base):
     def is_open(self) -> bool:
         return (self.pipeline_status or "new") in OPEN_PIPELINE
 
+    def fee_profile_key(self) -> str:
+        key = (self.fee_profile or FEE_PROFILE_ANNUAL).strip().lower()
+        return key if key in FEE_PROFILES else FEE_PROFILE_ANNUAL
+
+    def fee_profile_label(self) -> str:
+        return FEE_PROFILE_LABELS.get(self.fee_profile_key(), self.fee_profile_key())
+
     def ongoing_annual_value(self) -> float:
+        # Project-style profiles do not annualise ongoing
+        if self.fee_profile_key() in (FEE_PROFILE_ONE_OFF, FEE_PROFILE_BILLS_ON_ACCOUNT):
+            return 0.0
         amt = float(self.fee_ongoing if self.fee_ongoing is not None else 0)
         freq = (self.fee_ongoing_frequency or "annual").strip().lower()
-        if freq == "monthly":
+        if self.fee_profile_key() == FEE_PROFILE_MONTHLY or freq == "monthly":
             return round(amt * 12, 2)
         return round(amt, 2)
 
     def compute_gross_value(self) -> float:
-        """Setup (initial) + one year ongoing — excludes renewal."""
+        """
+        Expected engagement value before confidence.
+
+        - one_off / bills_on_account: fee_initial = total expected engagement
+        - monthly / annual: setup + 1 year ongoing (excludes renewal)
+        """
+        profile = self.fee_profile_key()
         initial = float(self.fee_initial if self.fee_initial is not None else 0)
+        if profile in (FEE_PROFILE_ONE_OFF, FEE_PROFILE_BILLS_ON_ACCOUNT):
+            if initial > 0:
+                return round(initial, 2)
+            # Fallbacks when only gross/estimated were stored
+            if self.gross_value is not None and float(self.gross_value or 0) > 0:
+                return round(float(self.gross_value), 2)
+            return 0.0
         return round(initial + self.ongoing_annual_value(), 2)
 
     def compute_weighted_value(self) -> float:

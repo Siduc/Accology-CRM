@@ -16,10 +16,22 @@ from app.models.prospecting import (
     ACTIVITY_TYPES,
     CAMPAIGN_CHANNELS,
     CAMPAIGN_STATUSES,
+    DEFAULT_ACCOUNTS_FEE,
+    DEFAULT_SA_FEE_PER_DIRECTOR,
+    FEE_PROFILE_ANNUAL,
+    FEE_PROFILE_BILLS_ON_ACCOUNT,
+    FEE_PROFILE_LABELS,
+    FEE_PROFILE_MONTHLY,
+    FEE_PROFILE_ONE_OFF,
+    FEE_PROFILES,
     MEMBER_STATUSES,
+    NEXT_ACTIVITY_OPTIONS,
     OPEN_PIPELINE,
     PIPELINE_LABELS,
     PIPELINE_STATUSES,
+    SERVICE_LINES,
+    SOURCE_CHANNEL_LABELS,
+    SOURCE_CHANNELS,
     CampaignMember,
     ChSyncRun,
     Prospect,
@@ -554,19 +566,38 @@ def update_prospect_fees(
     fee_ongoing_frequency: str = "annual",
     fee_renewal: float = 0.0,
     confidence_pct: int = 50,
+    fee_profile: str = "",
+    service_line: str = "",
 ) -> Prospect:
     """Adjust one prospect's fees without changing the campaign or other members."""
-    freq = (fee_ongoing_frequency or "annual").strip().lower()
-    if freq not in ("monthly", "annual"):
+    profile = (fee_profile or prospect.fee_profile or FEE_PROFILE_ANNUAL).strip().lower()
+    if profile not in FEE_PROFILES:
+        profile = FEE_PROFILE_ANNUAL
+    if profile == FEE_PROFILE_MONTHLY:
+        freq = "monthly"
+    elif profile == FEE_PROFILE_ANNUAL:
         freq = "annual"
+    else:
+        # one_off / bills_on_account — ongoing not used in valuation
+        freq = (fee_ongoing_frequency or prospect.fee_ongoing_frequency or "annual").strip().lower()
+        if freq not in ("monthly", "annual"):
+            freq = "annual"
     try:
         conf = int(confidence_pct)
     except (TypeError, ValueError):
         conf = 50
     conf = max(0, min(100, conf))
+    prospect.fee_profile = profile
+    if service_line is not None and str(service_line).strip():
+        prospect.service_line = str(service_line).strip()[:120]
     prospect.fee_initial = _parse_fee(fee_initial)
-    prospect.fee_ongoing = _parse_fee(fee_ongoing)
-    prospect.fee_ongoing_frequency = freq
+    if profile in (FEE_PROFILE_ONE_OFF, FEE_PROFILE_BILLS_ON_ACCOUNT):
+        # Store engagement total on initial; clear ongoing for clean valuation
+        prospect.fee_ongoing = 0.0
+        prospect.fee_ongoing_frequency = "annual"
+    else:
+        prospect.fee_ongoing = _parse_fee(fee_ongoing)
+        prospect.fee_ongoing_frequency = freq
     prospect.fee_renewal = _parse_fee(fee_renewal)
     prospect.confidence_pct = conf
     recalculate_prospect_value(db, prospect, commit=True)
@@ -576,15 +607,413 @@ def update_prospect_fees(
         activity_type="note",
         subject="Fees adjusted (individual)",
         body=(
-            f"Initial £{prospect.fee_initial:,.2f}; ongoing £{prospect.fee_ongoing:,.2f} "
-            f"({freq}); renewal £{prospect.fee_renewal:,.2f}; confidence {conf}% → "
-            f"gross £{prospect.gross_value:,.2f}; pipeline £{prospect.estimated_value:,.2f}"
+            f"Profile {FEE_PROFILE_LABELS.get(profile, profile)}; "
+            f"initial £{prospect.fee_initial or 0:,.2f}; ongoing £{prospect.fee_ongoing or 0:,.2f} "
+            f"({prospect.fee_ongoing_frequency}); renewal £{prospect.fee_renewal or 0:,.2f}; "
+            f"confidence {conf}% → gross £{prospect.gross_value or 0:,.2f}; "
+            f"pipeline £{prospect.estimated_value or 0:,.2f}"
         ),
         direction="internal",
         commit=True,
     )
     db.refresh(prospect)
     return prospect
+
+
+def update_prospect_details(
+    db: Session,
+    prospect: Prospect,
+    *,
+    company_name: str = "",
+    company_number: str = "",
+    contact_name: str = "",
+    email: str = "",
+    phone: str = "",
+    address_line1: str = "",
+    address_line2: str = "",
+    town: str = "",
+    postcode: str = "",
+    country: str = "",
+    sic_codes: str = "",
+    notes: str = "",
+    next_step: str = "",
+    next_step_due: Any = None,
+    service_line: str = "",
+    fee_profile: str = "",
+    referred_by: str = "",
+    source_channel: str = "",
+    source_notes: str = "",
+) -> Tuple[Prospect, str]:
+    """Edit core prospect / company fields (best-practice CRM record update)."""
+    name = (company_name or "").strip()
+    if name:
+        prospect.company_name = name
+    cn_raw = (company_number or "").strip()
+    if cn_raw:
+        cn = normalize_company_number(cn_raw)
+        if cn and cn != (prospect.company_number or ""):
+            clash = (
+                db.query(Prospect)
+                .filter(Prospect.company_number == cn, Prospect.id != prospect.id)
+                .first()
+            )
+            if clash:
+                return prospect, f"Company number already on prospect #{clash.id}"
+            prospect.company_number = cn
+    elif company_number is not None and not cn_raw:
+        # Explicit clear only when empty string posted from form with intent —
+        # leave existing if the field was omitted differently
+        pass
+
+    prospect.contact_name = (contact_name or "").strip() or None
+    prospect.email = (email or "").strip() or None
+    prospect.phone = (phone or "").strip() or None
+    prospect.address_line1 = (address_line1 or "").strip() or None
+    prospect.address_line2 = (address_line2 or "").strip() or None
+    prospect.town = (town or "").strip() or None
+    prospect.postcode = (postcode or "").strip() or None
+    if (country or "").strip():
+        prospect.country = country.strip()
+    prospect.sic_codes = (sic_codes or "").strip() or None
+    if notes is not None:
+        prospect.notes = (notes or "").strip() or None
+    if next_step is not None:
+        prospect.next_step = (next_step or "").strip() or None
+    due = _parse_date(next_step_due) if next_step_due not in (None, "") else None
+    if next_step_due is not None:
+        prospect.next_step_due = due
+    if (service_line or "").strip():
+        prospect.service_line = service_line.strip()[:120]
+    if (fee_profile or "").strip().lower() in FEE_PROFILES:
+        prospect.fee_profile = fee_profile.strip().lower()
+        if prospect.fee_profile == FEE_PROFILE_MONTHLY:
+            prospect.fee_ongoing_frequency = "monthly"
+        elif prospect.fee_profile == FEE_PROFILE_ANNUAL:
+            prospect.fee_ongoing_frequency = "annual"
+
+    # Source tracker — who introduced the lead
+    if referred_by is not None:
+        prospect.referred_by = (referred_by or "").strip()[:160] or None
+    ch = (source_channel or "").strip().lower()
+    if ch in SOURCE_CHANNELS:
+        prospect.source_channel = ch
+    elif source_channel is not None and not ch:
+        prospect.source_channel = None
+    if source_notes is not None:
+        prospect.source_notes = (source_notes or "").strip() or None
+
+    prospect.updated_at = datetime.utcnow()
+    rescore(db, prospect)
+    db.commit()
+    db.refresh(prospect)
+    return prospect, "saved"
+
+
+def prospect_source_label(prospect: Prospect) -> str:
+    """Human-readable source line for lists and the jobs box."""
+    channel = SOURCE_CHANNEL_LABELS.get(
+        (prospect.source_channel or "").strip().lower(),
+        "",
+    )
+    who = (prospect.referred_by or "").strip()
+    if who and channel:
+        return f"{who} · {channel}"
+    if who:
+        return who
+    if channel:
+        return channel
+    sys_src = (prospect.source or "").strip()
+    return sys_src or "—"
+
+
+def update_prospect_next_step(
+    db: Session,
+    prospect: Prospect,
+    *,
+    next_step: str = "",
+    next_step_due: Any = None,
+    notes: str = "",
+) -> Prospect:
+    """Quick-save next step / notes from the prospect home screen."""
+    prospect.next_step = (next_step or "").strip() or None
+    if next_step_due is not None:
+        prospect.next_step_due = _parse_date(next_step_due) if next_step_due else None
+    if notes is not None:
+        prospect.notes = (notes or "").strip() or None
+    prospect.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(prospect)
+    return prospect
+
+
+def _active_directors(prospect: Prospect) -> List[Dict[str, Any]]:
+    """Active directors from CH officers JSON (excludes resigned / secretaries)."""
+    out: List[Dict[str, Any]] = []
+    if not prospect.ch_officers_json:
+        return out
+    try:
+        raw = json.loads(prospect.ch_officers_json)
+        items = raw.get("items") if isinstance(raw, dict) else None
+        if not isinstance(items, list):
+            return out
+        for o in items:
+            if o.get("resigned_on"):
+                continue
+            role = (o.get("officer_role") or "").strip().lower()
+            if "director" not in role and role not in ("llp-member", "member"):
+                continue
+            name = (o.get("name") or "").strip()
+            # CH often returns "GREENE, Mark" / "GREENE, MARK"
+            if "," in name:
+                last, first = [x.strip() for x in name.split(",", 1)]
+                name = f"{first.title()} {last.title()}"
+            elif name:
+                name = name.title()
+            out.append(
+                {
+                    "name": name or "Director",
+                    "role": o.get("officer_role") or "director",
+                    "appointed_on": o.get("appointed_on"),
+                    "fee": DEFAULT_SA_FEE_PER_DIRECTOR,
+                }
+            )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return out
+
+
+def prospect_job_buckets(prospect: Prospect) -> Dict[str, Any]:
+    """
+    Landing-screen opportunity buckets:
+
+    - other: commercial jobs (e.g. corporate finance £10k)
+    - accounts: CH-linked annual accounts guestimate (default £2,500)
+    - self_assessment: directors × £250
+    """
+    conf = prospect.confidence_pct if prospect.confidence_pct is not None else 50
+    conf = max(0, min(100, int(conf)))
+
+    # --- Other (commercial / service-line jobs) ---
+    other_jobs: List[Dict[str, Any]] = []
+    gross_other = float(prospect.compute_gross_value() or 0)
+    # Prefer explicit engagement fee when set
+    fee_init = float(prospect.fee_initial if prospect.fee_initial is not None else 0)
+    if fee_init > 0 and prospect.fee_profile_key() in (
+        FEE_PROFILE_ONE_OFF,
+        FEE_PROFILE_BILLS_ON_ACCOUNT,
+    ):
+        gross_other = fee_init
+    elif fee_init > 0 and gross_other <= 0:
+        gross_other = fee_init
+
+    sl = (prospect.service_line or "").strip()
+    if gross_other > 0 or sl:
+        title = sl or "Engagement"
+        if sl and "corporate finance" in sl.lower():
+            title = "Corporate finance"
+        other_jobs.append(
+            {
+                "id": "other-main",
+                "title": title,
+                "detail": (
+                    f"{prospect.fee_profile_label()}"
+                    + (
+                        f" · confidence {conf}%"
+                        if conf
+                        else ""
+                    )
+                ),
+                "fee": round(gross_other, 2),
+                "pipeline": round(gross_other * (conf / 100.0), 2),
+                "source": "Opportunity",
+                "status": prospect.pipeline_label(),
+            }
+        )
+
+    other_value = round(sum(j["fee"] for j in other_jobs), 2)
+    other_pipeline = round(sum(j["pipeline"] for j in other_jobs), 2)
+
+    # --- Accounts (guestimate) ---
+    accounts_jobs: List[Dict[str, Any]] = []
+    # Show for any registered company we know about (CH number or status)
+    has_co = bool((prospect.company_number or "").strip() or prospect.ch_fetched_at)
+    if has_co:
+        due = prospect.accounts_next_due
+        days = (due - date.today()).days if due else None
+        accounts_jobs.append(
+            {
+                "id": "accounts-annual",
+                "title": "Annual accounts",
+                "detail": (
+                    f"Accounts next due {due.isoformat()}"
+                    if due
+                    else "Guestimate — due date not on CH profile (e.g. overseas / incomplete data)"
+                ),
+                "fee": DEFAULT_ACCOUNTS_FEE,
+                "pipeline": round(DEFAULT_ACCOUNTS_FEE * (conf / 100.0), 2),
+                "source": "Companies House",
+                "due": due,
+                "days": days,
+                "status": (
+                    "Overdue"
+                    if days is not None and days < 0
+                    else ("Due soon" if days is not None and days <= 90 else "Planned")
+                ),
+            }
+        )
+    accounts_value = round(sum(j["fee"] for j in accounts_jobs), 2)
+    accounts_pipeline = round(sum(j["pipeline"] for j in accounts_jobs), 2)
+
+    # --- Self assessment (directors × £250) ---
+    directors = _active_directors(prospect)
+    sa_jobs: List[Dict[str, Any]] = []
+    for i, d in enumerate(directors):
+        sa_jobs.append(
+            {
+                "id": f"sa-{i}",
+                "title": f"Self Assessment — {d['name']}",
+                "detail": f"{d['role']}"
+                + (f" · appointed {d['appointed_on']}" if d.get("appointed_on") else ""),
+                "fee": DEFAULT_SA_FEE_PER_DIRECTOR,
+                "pipeline": round(DEFAULT_SA_FEE_PER_DIRECTOR * (conf / 100.0), 2),
+                "source": "Companies House officers",
+                "status": "Planned",
+                "director": d["name"],
+            }
+        )
+    sa_value = round(sum(j["fee"] for j in sa_jobs), 2)
+    sa_pipeline = round(sum(j["pipeline"] for j in sa_jobs), 2)
+
+    total_jobs = len(other_jobs) + len(accounts_jobs) + len(sa_jobs)
+    total_value = round(other_value + accounts_value + sa_value, 2)
+    total_pipeline = round(other_pipeline + accounts_pipeline + sa_pipeline, 2)
+
+    return {
+        "confidence_pct": conf,
+        "other": {
+            "key": "other",
+            "label": "Other",
+            "jobs": other_jobs,
+            "count": len(other_jobs),
+            "value": other_value,
+            "pipeline": other_pipeline,
+        },
+        "accounts": {
+            "key": "accounts",
+            "label": "Accounts",
+            "jobs": accounts_jobs,
+            "count": len(accounts_jobs),
+            "value": accounts_value,
+            "pipeline": accounts_pipeline,
+            "default_fee": DEFAULT_ACCOUNTS_FEE,
+        },
+        "self_assessment": {
+            "key": "sa",
+            "label": "Self Assessment",
+            "jobs": sa_jobs,
+            "count": len(sa_jobs),
+            "value": sa_value,
+            "pipeline": sa_pipeline,
+            "per_director": DEFAULT_SA_FEE_PER_DIRECTOR,
+            "directors": directors,
+        },
+        "total_jobs": total_jobs,
+        "total_value": total_value,
+        "total_pipeline": total_pipeline,
+    }
+
+
+def prospect_company_opportunities(prospect: Prospect) -> List[Dict[str, Any]]:
+    """
+    Potential work items for the company screen.
+
+    Combines Companies House compliance cues with opportunity-style extras.
+    """
+    today = date.today()
+    items: List[Dict[str, Any]] = []
+    buckets = prospect_job_buckets(prospect)
+
+    for j in buckets["accounts"]["jobs"]:
+        days = j.get("days")
+        items.append(
+            {
+                "kind": "ch_accounts",
+                "title": j["title"],
+                "source": "Companies House",
+                "due": j.get("due"),
+                "days": days,
+                "urgency": (
+                    "overdue"
+                    if days is not None and days < 0
+                    else ("soon" if days is not None and days <= 90 else "planned")
+                ),
+                "detail": f"{j['detail']} · guestimate £{j['fee']:,.0f}",
+            }
+        )
+    if prospect.cs_next_due:
+        days = (prospect.cs_next_due - today).days
+        items.append(
+            {
+                "kind": "ch_cs",
+                "title": "Confirmation statement",
+                "source": "Companies House",
+                "due": prospect.cs_next_due,
+                "days": days,
+                "urgency": "overdue" if days < 0 else ("soon" if days <= 60 else "planned"),
+                "detail": f"CS next due {prospect.cs_next_due.isoformat()}",
+            }
+        )
+    for j in buckets["other"]["jobs"]:
+        items.append(
+            {
+                "kind": "opportunity",
+                "title": j["title"],
+                "source": "Opportunity",
+                "due": None,
+                "days": None,
+                "urgency": "planned",
+                "detail": f"{j['detail']} · £{j['fee']:,.0f}",
+            }
+        )
+    for j in buckets["self_assessment"]["jobs"]:
+        items.append(
+            {
+                "kind": "sa",
+                "title": j["title"],
+                "source": "Companies House officers",
+                "due": None,
+                "days": None,
+                "urgency": "planned",
+                "detail": f"{j['detail']} · £{j['fee']:,.0f}",
+            }
+        )
+
+    if not prospect.company_number:
+        items.append(
+            {
+                "kind": "action",
+                "title": "Link Companies House number",
+                "source": "Setup",
+                "due": None,
+                "days": None,
+                "urgency": "soon",
+                "detail": "Add a company number then pull profile, officers, and due dates.",
+            }
+        )
+    elif not prospect.ch_fetched_at:
+        items.append(
+            {
+                "kind": "action",
+                "title": "Pull Companies House profile",
+                "source": "Setup",
+                "due": None,
+                "days": None,
+                "urgency": "soon",
+                "detail": "Enrich address, SIC, status, accounts and CS due dates.",
+            }
+        )
+
+    return items
 
 
 def convert_prospect_to_job(

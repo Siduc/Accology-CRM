@@ -13,8 +13,16 @@ from app.database import get_db
 from app.models.prospecting import (
     CAMPAIGN_CHANNELS,
     CAMPAIGN_STATUSES,
+    FEE_PROFILE_HELP,
+    FEE_PROFILE_LABELS,
+    FEE_PROFILES,
+    NEXT_ACTIVITY_MAIL_TYPES,
+    NEXT_ACTIVITY_OPTIONS,
     PIPELINE_LABELS,
     PIPELINE_STATUSES,
+    SERVICE_LINES,
+    SOURCE_CHANNEL_LABELS,
+    SOURCE_CHANNELS,
     CampaignMember,
     Prospect,
     ProspectActivity,
@@ -41,7 +49,13 @@ from app.services.prospecting import (
     import_incorporations,
     list_prospects,
     log_activity,
+    prospect_company_opportunities,
+    prospect_job_buckets,
+    prospect_source_label,
     set_pipeline_status,
+    update_prospect_details,
+    update_prospect_fees,
+    update_prospect_next_step,
 )
 from app.templating import render
 
@@ -187,8 +201,11 @@ async def prospect_detail(
     request: Request,
     prospect_id: int,
     msg: str = Query(""),
+    bucket: str = Query(""),
     db: Session = Depends(get_db),
 ):
+    from app.services.ms_graph_oauth import connection_status
+
     p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
     if not p:
         return RedirectResponse("/prospecting/prospects", status_code=303)
@@ -196,7 +213,7 @@ async def prospect_detail(
         db.query(ProspectActivity)
         .filter(ProspectActivity.prospect_id == p.id)
         .order_by(ProspectActivity.activity_at.desc())
-        .limit(80)
+        .limit(40)
         .all()
     )
     campaigns = (
@@ -210,6 +227,63 @@ async def prospect_detail(
         .filter(CampaignMember.prospect_id == p.id, CampaignMember.status != "removed")
         .all()
     )
+    buckets = prospect_job_buckets(p)
+    # Top tiles ordered by £ value (highest first). Tie-break: Accounts (core service), then job count.
+    _tile_ui = {
+        "other": {"wc_box": "wc-box-wip", "live_tile": "tile-wip"},
+        "accounts": {"wc_box": "wc-box-debtors", "live_tile": "tile-debtors"},
+        "sa": {"wc_box": "wc-box-cash", "live_tile": "tile-cash"},
+    }
+    raw_tiles = [
+        buckets["other"],
+        buckets["accounts"],
+        buckets["self_assessment"],
+    ]
+    ordered_tiles = sorted(
+        raw_tiles,
+        key=lambda b: (
+            float(b.get("value") or 0),
+            1 if b.get("key") == "accounts" else 0,
+            int(b.get("count") or 0),
+        ),
+        reverse=True,
+    )
+    for t in ordered_tiles:
+        ui = _tile_ui.get(t.get("key") or "", {})
+        t["wc_box"] = ui.get("wc_box", "wc-box-wip")
+        t["live_tile"] = ui.get("live_tile", "tile-wip")
+
+    bkey = (bucket or "").strip().lower()
+    if bkey in ("sa", "self_assessment", "self-assessment"):
+        bkey = "sa"
+    elif bkey not in ("other", "accounts", "sa"):
+        # Default to highest-value bucket (Accounts when it leads; Other for CF mandates)
+        bkey = (ordered_tiles[0].get("key") if ordered_tiles else "accounts") or "accounts"
+    bucket_map = {
+        "other": buckets["other"],
+        "accounts": buckets["accounts"],
+        "sa": buckets["self_assessment"],
+    }
+    active_bucket = bucket_map.get(bkey) or ordered_tiles[0]
+    graph = {}
+    try:
+        graph = connection_status(db) or {}
+    except Exception:
+        graph = {}
+    graph_connected = bool(graph.get("connected") and graph.get("fresh"))
+
+    # Prefill email draft
+    contact = (p.contact_name or "").strip() or "Sir/Madam"
+    email_subject = f"{p.display_name()} — next steps"
+    email_body = (
+        f"Dear {contact},\n\n"
+        f"I hope you are well.\n\n"
+        f"I am writing regarding {p.display_name()}"
+        + (f" ({p.company_number})" if p.company_number else "")
+        + ".\n\n"
+        f"Kind regards\n"
+    )
+
     return render(
         request,
         "prospecting/prospect_detail.html",
@@ -218,11 +292,323 @@ async def prospect_detail(
             "activities": activities,
             "campaigns": campaigns,
             "memberships": memberships,
+            "buckets": buckets,
+            "ordered_tiles": ordered_tiles,
+            "bucket_key": bkey,
+            "active_bucket": active_bucket,
             "pipeline_statuses": PIPELINE_STATUSES,
             "pipeline_labels": PIPELINE_LABELS,
+            "next_activity_options": NEXT_ACTIVITY_OPTIONS,
+            "next_activity_mail_types": list(NEXT_ACTIVITY_MAIL_TYPES),
+            "fee_profiles": FEE_PROFILES,
+            "fee_profile_labels": FEE_PROFILE_LABELS,
+            "fee_profile_help": FEE_PROFILE_HELP,
+            "service_lines": SERVICE_LINES,
+            "source_channels": SOURCE_CHANNELS,
+            "source_channel_labels": SOURCE_CHANNEL_LABELS,
+            "source_label": prospect_source_label(p),
             "msg": msg,
             "ch_key": has_api_key(),
+            "graph_connected": graph_connected,
+            "email_subject": email_subject,
+            "email_body": email_body,
         },
+    )
+
+
+@router.get("/prospects/{prospect_id:int}/edit", response_class=HTMLResponse)
+async def prospect_edit_form(
+    request: Request, prospect_id: int, db: Session = Depends(get_db)
+):
+    p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not p:
+        return RedirectResponse("/prospecting/prospects", status_code=303)
+    return render(
+        request,
+        "prospecting/prospect_edit.html",
+        {
+            "p": p,
+            "pipeline_labels": PIPELINE_LABELS,
+            "fee_profiles": FEE_PROFILES,
+            "fee_profile_labels": FEE_PROFILE_LABELS,
+            "service_lines": SERVICE_LINES,
+            "source_channels": SOURCE_CHANNELS,
+            "source_channel_labels": SOURCE_CHANNEL_LABELS,
+            "ch_key": has_api_key(),
+        },
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/edit")
+async def prospect_edit_save(
+    prospect_id: int,
+    company_name: str = Form(""),
+    company_number: str = Form(""),
+    contact_name: str = Form(""),
+    email: str = Form(""),
+    phone: str = Form(""),
+    address_line1: str = Form(""),
+    address_line2: str = Form(""),
+    town: str = Form(""),
+    postcode: str = Form(""),
+    country: str = Form(""),
+    sic_codes: str = Form(""),
+    notes: str = Form(""),
+    next_step: str = Form(""),
+    next_step_due: str = Form(""),
+    service_line: str = Form(""),
+    fee_profile: str = Form(""),
+    referred_by: str = Form(""),
+    source_channel: str = Form(""),
+    source_notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not p:
+        return RedirectResponse("/prospecting/prospects", status_code=303)
+    _, msg = update_prospect_details(
+        db,
+        p,
+        company_name=company_name,
+        company_number=company_number,
+        contact_name=contact_name,
+        email=email,
+        phone=phone,
+        address_line1=address_line1,
+        address_line2=address_line2,
+        town=town,
+        postcode=postcode,
+        country=country,
+        sic_codes=sic_codes,
+        notes=notes,
+        next_step=next_step,
+        next_step_due=next_step_due,
+        service_line=service_line,
+        fee_profile=fee_profile,
+        referred_by=referred_by,
+        source_channel=source_channel,
+        source_notes=source_notes,
+    )
+    if msg != "saved":
+        return RedirectResponse(
+            f"/prospecting/prospects/{prospect_id}/edit?msg={quote(msg)}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}?msg=saved", status_code=303
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/next-step")
+async def prospect_next_step_save(
+    prospect_id: int,
+    next_activity: str = Form(""),
+    next_step: str = Form(""),
+    next_step_due: str = Form(""),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not p:
+        return RedirectResponse("/prospecting/prospects", status_code=303)
+    # Picker wins; free-text "Other" uses next_step field
+    chosen = (next_activity or "").strip()
+    if chosen and chosen != "Other":
+        step_text = chosen
+    else:
+        step_text = (next_step or "").strip() or chosen
+    update_prospect_next_step(
+        db, p, next_step=step_text, next_step_due=next_step_due, notes=notes
+    )
+    if step_text:
+        log_activity(
+            db,
+            prospect_id,
+            activity_type="note",
+            subject=f"Next activity: {step_text[:180]}",
+            body=(
+                f"Due: {next_step_due or '—'}"
+                + (f"\n{notes}" if (notes or "").strip() else "")
+            ),
+            direction="internal",
+        )
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}?msg=next_step", status_code=303
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/email")
+async def prospect_email_outlook(
+    prospect_id: int,
+    to_email: str = Form(""),
+    contact_name: str = Form(""),
+    subject: str = Form(""),
+    body: str = Form(""),
+    mode: str = Form("draft"),
+    db: Session = Depends(get_db),
+):
+    """Create Outlook draft or send mail via Microsoft Graph for this prospect."""
+    from app.services.ms_graph_mail import create_outlook_draft, send_mail
+    from app.services.ms_graph_oauth import get_valid_access_token
+
+    p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not p:
+        return RedirectResponse("/prospecting/prospects", status_code=303)
+
+    to = (to_email or p.email or "").strip()
+    # Persist contact/email if provided
+    if (contact_name or "").strip():
+        p.contact_name = contact_name.strip()
+    if to and "@" in to:
+        p.email = to
+    p.updated_at = datetime.utcnow()
+    db.commit()
+
+    token, err = get_valid_access_token(db)
+    if not token:
+        return RedirectResponse(
+            f"/prospecting/prospects/{prospect_id}?msg="
+            + quote(err or "Connect Microsoft to send via Outlook"),
+            status_code=303,
+        )
+
+    subj = (subject or "").strip() or f"{p.display_name()} — next steps"
+    body_text = (body or "").strip()
+    mode_l = (mode or "draft").strip().lower()
+
+    if mode_l == "send":
+        ok, serr = send_mail(token, to=to, subject=subj, body=body_text)
+        if ok:
+            log_activity(
+                db,
+                p.id,
+                activity_type="email",
+                subject=f"Sent via Outlook: {subj[:180]}",
+                body=f"To: {to}\n\n{body_text[:2000]}",
+                direction="outbound",
+            )
+            return RedirectResponse(
+                f"/prospecting/prospects/{prospect_id}?msg="
+                + quote("Email sent via Outlook"),
+                status_code=303,
+            )
+        return RedirectResponse(
+            f"/prospecting/prospects/{prospect_id}?msg="
+            + quote(serr or "Send failed"),
+            status_code=303,
+        )
+
+    draft, derr = create_outlook_draft(token, to=to, subject=subj, body=body_text)
+    if draft:
+        link = draft.get("webLink") or ""
+        log_activity(
+            db,
+            p.id,
+            activity_type="email",
+            subject=f"Outlook draft: {subj[:180]}",
+            body=f"Draft created for {to}. Review & send in Outlook.\n{link}",
+            direction="outbound",
+        )
+        return RedirectResponse(
+            f"/prospecting/prospects/{prospect_id}?msg="
+            + quote("Outlook draft created — open Outlook to review & send"),
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}?msg=" + quote(derr or "Draft failed"),
+        status_code=303,
+    )
+
+
+@router.get("/prospects/{prospect_id:int}/company", response_class=HTMLResponse)
+async def prospect_company_screen(
+    request: Request,
+    prospect_id: int,
+    msg: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not p:
+        return RedirectResponse("/prospecting/prospects", status_code=303)
+    opportunities = prospect_company_opportunities(p)
+    officers = []
+    if p.ch_officers_json:
+        try:
+            import json as _json
+
+            raw = _json.loads(p.ch_officers_json)
+            items = raw.get("items") if isinstance(raw, dict) else []
+            if isinstance(items, list):
+                officers = items[:12]
+        except Exception:
+            officers = []
+    return render(
+        request,
+        "prospecting/prospect_company.html",
+        {
+            "p": p,
+            "opportunities": opportunities,
+            "officers": officers,
+            "msg": msg,
+            "ch_key": has_api_key(),
+            "pipeline_labels": PIPELINE_LABELS,
+            "service_lines": SERVICE_LINES,
+            "fee_profile_labels": FEE_PROFILE_LABELS,
+        },
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/company")
+async def prospect_company_save(
+    prospect_id: int,
+    company_name: str = Form(""),
+    company_number: str = Form(""),
+    address_line1: str = Form(""),
+    address_line2: str = Form(""),
+    town: str = Form(""),
+    postcode: str = Form(""),
+    country: str = Form(""),
+    sic_codes: str = Form(""),
+    service_line: str = Form(""),
+    pull_ch: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+    if not p:
+        return RedirectResponse("/prospecting/prospects", status_code=303)
+    _, msg = update_prospect_details(
+        db,
+        p,
+        company_name=company_name or (p.company_name or ""),
+        company_number=company_number,
+        contact_name=p.contact_name or "",
+        email=p.email or "",
+        phone=p.phone or "",
+        address_line1=address_line1,
+        address_line2=address_line2,
+        town=town,
+        postcode=postcode,
+        country=country,
+        sic_codes=sic_codes,
+        notes=p.notes or "",
+        next_step=p.next_step or "",
+        next_step_due=p.next_step_due,
+        service_line=service_line,
+        fee_profile=p.fee_profile or "",
+    )
+    if msg != "saved":
+        return RedirectResponse(
+            f"/prospecting/prospects/{prospect_id}/company?msg={quote(msg)}",
+            status_code=303,
+        )
+    if (pull_ch or "").strip().lower() in ("1", "yes", "true", "on"):
+        _, ch_msg = enrich_prospect_from_ch(db, prospect_id)
+        return RedirectResponse(
+            f"/prospecting/prospects/{prospect_id}/company?msg={quote(ch_msg[:100])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}/company?msg=saved", status_code=303
     )
 
 
@@ -260,15 +646,6 @@ async def prospect_activity(
     )
 
 
-@router.post("/prospects/{prospect_id:int}/enrich")
-async def prospect_enrich(prospect_id: int, db: Session = Depends(get_db)):
-    _, msg = enrich_prospect_from_ch(db, prospect_id)
-    return RedirectResponse(
-        f"/prospecting/prospects/{prospect_id}?msg={quote(msg[:80])}",
-        status_code=303,
-    )
-
-
 @router.post("/prospects/{prospect_id:int}/convert")
 async def prospect_convert(prospect_id: int, db: Session = Depends(get_db)):
     client, p, msg = convert_prospect_to_client(db, prospect_id)
@@ -287,11 +664,11 @@ async def prospect_update_fees(
     fee_ongoing_frequency: str = Form("annual"),
     fee_renewal: str = Form("0"),
     confidence_pct: str = Form("50"),
+    fee_profile: str = Form("annual"),
+    service_line: str = Form(""),
     db: Session = Depends(get_db),
 ):
     """Adjust this prospect's fees only — does not change the campaign or peers."""
-    from app.services.prospecting import update_prospect_fees
-
     p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
     if not p:
         return RedirectResponse("/prospecting/prospects", status_code=303)
@@ -307,9 +684,30 @@ async def prospect_update_fees(
         fee_ongoing_frequency=fee_ongoing_frequency,
         fee_renewal=fee_renewal,
         confidence_pct=conf,
+        fee_profile=fee_profile,
+        service_line=service_line,
     )
     return RedirectResponse(
         f"/prospecting/prospects/{prospect_id}?msg=fees", status_code=303
+    )
+
+
+@router.post("/prospects/{prospect_id:int}/enrich")
+async def prospect_enrich(
+    prospect_id: int,
+    return_to: str = Form("detail"),
+    db: Session = Depends(get_db),
+):
+    """Pull Companies House profile; optional return to company screen."""
+    _, msg = enrich_prospect_from_ch(db, prospect_id)
+    if (return_to or "").strip() == "company":
+        return RedirectResponse(
+            f"/prospecting/prospects/{prospect_id}/company?msg={quote(msg[:80])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/prospecting/prospects/{prospect_id}?msg={quote(msg[:80])}",
+        status_code=303,
     )
 
 

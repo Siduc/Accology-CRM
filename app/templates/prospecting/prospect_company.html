@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Company · {{ p.display_name() }}{% endblock %}
+{% block minibar_title %}Company{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting/prospects/{{ p.id }}">← {{ p.display_name() }}</a></p>
+    <h1>Company details</h1>
+    <p class="muted small">
+      Screen 2 · address, SIC, officers, pull from Companies House.
+      Job values and email live on the
+      <a href="/prospecting/prospects/{{ p.id }}">prospect landing</a>.
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-outline wc-touch" href="/prospecting/prospects/{{ p.id }}">Prospect home</a>
+    <a class="btn btn-outline wc-touch" href="/prospecting/prospects/{{ p.id }}/edit">Edit contact</a>
+    {% if p.company_number %}
+    <a class="btn btn-outline wc-touch" href="/prospecting/prospects/{{ p.id }}/filings">Filing history</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
+{% endif %}
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Registered company</h2>
+    <p class="muted small">
+      Save the company number, then pull from Companies House to fill address, SIC, status and due dates
+      (most CRM prospecting tools cannot do this — use it).
+    </p>
+    <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/company">
+      <div class="form-grid">
+        <div>
+          <label>Company name</label>
+          <input name="company_name" value="{{ p.company_name or '' }}" required>
+        </div>
+        <div>
+          <label>Company number</label>
+          <input name="company_number" value="{{ p.company_number or '' }}" placeholder="12345678">
+        </div>
+        <div>
+          <label>Service line</label>
+          <select name="service_line">
+            <option value="">—</option>
+            {% for sl in service_lines %}
+            <option value="{{ sl }}" {% if p.service_line == sl %}selected{% endif %}>{{ sl }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Address line 1</label>
+          <input name="address_line1" value="{{ p.address_line1 or '' }}">
+        </div>
+        <div>
+          <label>Address line 2</label>
+          <input name="address_line2" value="{{ p.address_line2 or '' }}">
+        </div>
+        <div>
+          <label>Town</label>
+          <input name="town" value="{{ p.town or '' }}">
+        </div>
+        <div>
+          <label>Postcode</label>
+          <input name="postcode" value="{{ p.postcode or '' }}">
+        </div>
+        <div>
+          <label>Country</label>
+          <input name="country" value="{{ p.country or 'United Kingdom' }}">
+        </div>
+        <div style="grid-column:1/-1">
+          <label>SIC codes</label>
+          <input name="sic_codes" value="{{ p.sic_codes or '' }}">
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:0.45rem;font-weight:500">
+        <input type="checkbox" name="pull_ch" value="yes" {% if p.company_number and ch_key %}checked{% endif %}
+          {% if not ch_key %}disabled{% endif %}>
+        Pull / refresh from Companies House after save
+      </label>
+      {% if not ch_key %}
+      <p class="small muted">Companies House API key missing — configure in Settings.</p>
+      {% endif %}
+      <div class="actions">
+        <button class="btn wc-touch" type="submit">Save company</button>
+        {% if p.company_number and ch_key %}
+        <button class="btn btn-outline" type="submit" name="pull_ch" value="yes">Save &amp; pull CH</button>
+        {% endif %}
+      </div>
+    </form>
+    <dl class="dl-grid" style="margin-top:1.25rem">
+      <dt>CH status</dt><dd>{{ p.company_status or '—' }}</dd>
+      <dt>Incorporated</dt><dd>{{ p.incorporation_date|uk_date if p.incorporation_date else '—' }}</dd>
+      <dt>Accounts due</dt><dd>{{ p.accounts_next_due|uk_date if p.accounts_next_due else '—' }}</dd>
+      <dt>CS due</dt><dd>{{ p.cs_next_due|uk_date if p.cs_next_due else '—' }}</dd>
+      <dt>Last CH pull</dt><dd>{{ p.ch_fetched_at or '—' }}</dd>
+      <dt>Fee profile</dt><dd>{{ fee_profile_labels.get(p.fee_profile or 'annual', p.fee_profile or '—') }}</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <h2>Potential jobs &amp; opportunities</h2>
+    <p class="muted small">
+      Compliance cues from Companies House plus the commercial opportunity on this prospect.
+      Convert wins from the prospect home screen.
+    </p>
+    {% if opportunities %}
+    <ul class="chase-history">
+      {% for o in opportunities %}
+      <li>
+        <strong>{{ o.title }}</strong>
+        <span class="badge" style="margin-left:0.35rem">{{ o.source }}</span>
+        {% if o.urgency == 'overdue' %}<span class="badge badge-danger">Overdue</span>
+        {% elif o.urgency == 'soon' %}<span class="badge badge-active">Soon</span>{% endif %}
+        <div class="muted small">
+          {% if o.due %}Due {{ o.due|uk_date }}
+            {% if o.days is not none %}
+              · {% if o.days < 0 %}{{ -o.days }} days late{% else %}in {{ o.days }} days{% endif %}
+            {% endif %}
+          {% else %}No fixed due date{% endif %}
+        </div>
+        {% if o.detail %}<div class="small">{{ o.detail }}</div>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No opportunities yet — set a service line and/or pull Companies House.</p>
+    {% endif %}
+
+    <h3 style="margin-top:1.25rem;font-size:1rem">Quick CH search</h3>
+    <p class="small muted">
+      Don’t know the number?
+      <a href="/prospecting/ch/search?q={{ (p.company_name or '')|urlquote }}">Search Companies House for “{{ p.display_name() }}”</a>
+      (creates a new prospect if you add from search — or paste the number above).
+    </p>
+  </div>
+</div>
+
+{% if officers %}
+<div class="card" style="margin-top:1rem">
+  <h2>Officers (from Companies House)</h2>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Name</th><th>Role</th><th>Appointed</th><th>Resigned</th></tr>
+      </thead>
+      <tbody>
+        {% for o in officers %}
+        <tr>
+          <td>{{ o.name or '—' }}</td>
+          <td class="small">{{ o.officer_role or '—' }}</td>
+          <td class="small">{{ o.appointed_on or '—' }}</td>
+          <td class="small">{{ o.resigned_on or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

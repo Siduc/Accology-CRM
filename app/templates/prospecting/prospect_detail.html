@@ -1,25 +1,35 @@
 {% extends "base.html" %}
 {% block title %}{{ p.display_name() }} · Prospecting{% endblock %}
 {% block minibar_title %}Prospect{% endblock %}
+{% block body_extra_class %}prospect-live{% endblock %}
 {% block content %}
+{% set current_step = (p.next_step or '').strip() %}
+{% set is_custom_step = current_step and current_step not in next_activity_options %}
+{% set mail_open = (current_step in next_activity_mail_types) or (request.query_params.get('compose') == '1') %}
+{# Always have a tile list — sort by value when ordered_tiles not supplied #}
+{% set tiles = ordered_tiles if ordered_tiles is defined and ordered_tiles else none %}
+{% if not tiles and buckets is defined %}
+  {% set tiles = [buckets.other, buckets.accounts, buckets.self_assessment] %}
+{% endif %}
+{% set tiles = tiles or [] %}
+
+<div class="prospect-landing">
 <div class="page-header">
   <div>
     <p class="small muted"><a href="/prospecting/prospects">← Prospects</a></p>
     <h1>{{ p.display_name() }}</h1>
     <p class="muted small">
-      {{ p.company_number or 'No CH number' }} ·
-      score <strong>{{ p.score }}</strong> ·
-      {{ pipeline_labels.get(p.pipeline_status, p.pipeline_status) }} ·
-      {{ p.source }}
+      {% if p.company_number %}<span class="badge">{{ p.company_number }}</span> · {% endif %}
+      {% if p.service_line %}{{ p.service_line }} · {% endif %}
+      {{ buckets.total_jobs }} jobs ·
+      gross £{{ '{:,.0f}'.format(buckets.total_value) }} ·
+      pipeline £{{ '{:,.0f}'.format(buckets.total_pipeline) }}
+      ({{ buckets.confidence_pct }}% conf)
     </p>
   </div>
   <div class="actions">
-    {% if p.company_number and ch_key %}
-    <form method="post" action="/prospecting/prospects/{{ p.id }}/enrich" style="display:inline">
-      <button class="btn btn-outline wc-touch" type="submit">Enrich from CH</button>
-    </form>
-    <a class="btn btn-outline wc-touch" href="/prospecting/prospects/{{ p.id }}/filings">Filings</a>
-    {% endif %}
+    <a class="btn btn-outline wc-touch" href="/prospecting/prospects/{{ p.id }}/company">Company &amp; CH →</a>
+    <a class="btn btn-outline wc-touch" href="/prospecting/prospects/{{ p.id }}/edit">Edit contact</a>
     {% if p.client_id %}
     <a class="btn btn-outline wc-touch" href="/clients/{{ p.client_id }}">Open client</a>
     {% endif %}
@@ -27,205 +37,600 @@
 </div>
 
 {% if msg %}
-<div class="chase-banner chase-banner-info">
-  {% if msg == 'fees' %}Individual fees saved (other campaign members unchanged).
-  {% elif msg == 'status' %}Pipeline status updated.
-  {% elif msg == 'activity' %}Activity logged.
-  {% else %}{{ msg }}{% endif %}
-</div>
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
 {% endif %}
 
-{# Pipeline stepper #}
-<div class="period-toggle" style="margin-bottom:1rem;flex-wrap:wrap" role="group">
-  {% for s in pipeline_statuses %}
-  <form method="post" action="/prospecting/prospects/{{ p.id }}/status" style="display:inline">
-    <input type="hidden" name="status" value="{{ s }}">
-    <button type="submit" class="period-btn {% if p.pipeline_status == s %}is-active{% endif %}">
-      {{ pipeline_labels.get(s, s) }}
-    </button>
-  </form>
-  {% endfor %}
-</div>
-
-<div class="grid-2">
-  <div class="card">
-    <h2>Company</h2>
-    <dl class="dl-grid">
-      <dt>Contact</dt><dd>{{ p.contact_name or '—' }}</dd>
-      <dt>Email</dt><dd>{{ p.email or '—' }}</dd>
-      <dt>Phone</dt><dd>{{ p.phone or '—' }}</dd>
-      <dt>Address</dt><dd>{{ p.address_block() or '—' }}</dd>
-      <dt>SIC</dt><dd>{{ p.sic_codes or '—' }}</dd>
-      <dt>Incorporated</dt><dd>{{ p.incorporation_date|uk_date if p.incorporation_date else '—' }}</dd>
-      <dt>CH status</dt><dd>{{ p.company_status or '—' }}</dd>
-      <dt>Accounts due</dt><dd>{{ p.accounts_next_due|uk_date if p.accounts_next_due else '—' }}</dd>
-      <dt>CS due</dt><dd>{{ p.cs_next_due|uk_date if p.cs_next_due else '—' }}</dd>
-      <dt>CH fetched</dt><dd>{{ p.ch_fetched_at or '—' }}</dd>
-      <dt>Gross (setup + 1yr)</dt>
-      <dd>£{{ '%.2f'|format(p.gross_value if p.gross_value is not none else (p.estimated_value or 0)) }}</dd>
-      <dt>Confidence</dt>
-      <dd>{{ p.confidence_pct if p.confidence_pct is not none else 50 }}%</dd>
-      <dt>Pipeline value</dt>
-      <dd><strong>£{{ '%.2f'|format(p.estimated_value or 0) }}</strong>
-        <span class="muted small">(gross × confidence)</span>
-      </dd>
-    </dl>
-    {% if p.notes %}<p class="small" style="margin-top:0.75rem">{{ p.notes }}</p>{% endif %}
-  </div>
-
-  <div class="card">
-    <h2>Fees (this prospect only)</h2>
-    <p class="muted small">
-      Adjust without changing the campaign or other members.
-      Valuation = (initial + 1 year ongoing) × confidence. Renewal is not valued.
-    </p>
-    <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/fees">
-      <div class="form-grid">
-        <div>
-          <label>Initial / setup fee (£)</label>
-          <input name="fee_initial" inputmode="decimal" value="{{ p.fee_initial if p.fee_initial is not none else 0 }}">
-        </div>
-        <div>
-          <label>Ongoing fee (£)</label>
-          <input name="fee_ongoing" inputmode="decimal" value="{{ p.fee_ongoing if p.fee_ongoing is not none else 0 }}">
-        </div>
-        <div>
-          <label>Ongoing frequency</label>
-          <select name="fee_ongoing_frequency">
-            <option value="annual" {% if (p.fee_ongoing_frequency or 'annual') == 'annual' %}selected{% endif %}>Annual</option>
-            <option value="monthly" {% if p.fee_ongoing_frequency == 'monthly' %}selected{% endif %}>Monthly</option>
-          </select>
-        </div>
-        <div>
-          <label>Renewal fee (£)</label>
-          <input name="fee_renewal" inputmode="decimal" value="{{ p.fee_renewal if p.fee_renewal is not none else 0 }}">
-        </div>
-        <div>
-          <label>Confidence %</label>
-          <input name="confidence_pct" type="number" min="0" max="100" step="1"
-                 value="{{ p.confidence_pct if p.confidence_pct is not none else 50 }}">
-        </div>
+{# ========== DESK: colourful boxes — highest £ first ========== #}
+<div class="wip-desk subdash-desk">
+  <div class="wc-grid prospect-job-boxes" style="margin-bottom:1rem">
+    {% for tile in tiles %}
+    {% set wc = tile.wc_box if tile.wc_box is defined and tile.wc_box else (
+         'wc-box-wip' if tile.key == 'other' else (
+         'wc-box-debtors' if tile.key == 'accounts' else 'wc-box-cash')) %}
+    <a class="wc-box {{ wc }} wc-touch {% if bucket_key == tile.key %}is-selected{% endif %}"
+       href="/prospecting/prospects/{{ p.id }}?bucket={{ tile.key }}">
+      <div class="wc-box-head">
+        <span class="wc-box-title">{{ tile.label }}</span>
+        <span class="wc-box-link">{{ tile.count }} job{% if tile.count != 1 %}s{% endif %} →</span>
       </div>
-      <button class="btn btn-sm" type="submit">Save fees for this prospect</button>
-    </form>
-  </div>
-</div>
-
-<div class="grid-2" style="margin-top:1rem">
-  <div class="card">
-    <h2>Convert to client &amp; job</h2>
-    <p class="muted small">
-      Creates (or links) an Active client, opens a <strong>job</strong> with the setup fee,
-      and marks the prospect won. Best place to convert campaign wins — not on the client screen first.
-    </p>
-    <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/convert-job"
-          onsubmit="return confirm('Create client (if needed) and a new job from this prospect?');">
-      <div class="form-grid">
-        <div>
-          <label>Job type</label>
-          <input name="job_type" placeholder="e.g. Personal Allowance Payroll"
-                 value="{% if memberships and memberships[0].campaign %}{{ memberships[0].campaign.service_label or memberships[0].campaign.name }}{% endif %}">
-        </div>
-        <div>
-          <label>Job title</label>
-          <input name="job_title" placeholder="Optional — defaults from type + company">
-        </div>
-        <div>
-          <label>Job fee (£)</label>
-          <input name="job_fee" inputmode="decimal"
-                 value="{{ p.fee_initial if p.fee_initial is not none else '' }}"
-                 placeholder="Defaults to setup fee">
-        </div>
+      <div class="wc-box-value">£{{ '{:,.0f}'.format(tile.value) }}</div>
+      <div class="wc-box-meta">
+        {% if tile.key == 'other' %}
+        Commercial · pipeline £{{ '{:,.0f}'.format(tile.pipeline) }}
+        {% elif tile.key == 'accounts' %}
+        Guestimate £{{ '{:,.0f}'.format(tile.default_fee) }} avg
+        {% else %}
+        {{ tile.count }} dir × £{{ '{:,.0f}'.format(tile.per_director) }}
+        {% endif %}
       </div>
-      <label>Notes for job</label>
-      <textarea name="notes" rows="2" placeholder="Optional handoff notes"></textarea>
-      <button class="btn wc-touch" type="submit">Convert → client + job</button>
-    </form>
-    {% if not p.client_id %}
-    <p class="small muted" style="margin-top:0.75rem">
-      Or <form method="post" action="/prospecting/prospects/{{ p.id }}/convert" style="display:inline"
-        onsubmit="return confirm('Convert to Active client only (no job)?');">
-        <button class="btn btn-outline btn-sm" type="submit">Client only</button>
-      </form>
-    </p>
-    {% endif %}
-  </div>
-
-  <div class="card">
-    <h2>Add to campaign</h2>
-    {% if campaigns %}
-    <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/add-campaign">
-      <select name="campaign_id" required>
-        {% for c in campaigns %}
-        <option value="{{ c.id }}">{{ c.name }} ({{ c.channel }})</option>
-        {% endfor %}
-      </select>
-      <button class="btn btn-sm" type="submit">Add</button>
-    </form>
+    </a>
     {% else %}
-    <p class="empty">No open campaigns. <a href="/prospecting/campaigns/new">Create one</a>.</p>
-    {% endif %}
-    {% if memberships %}
-    <h3 style="margin-top:1rem">Memberships</h3>
-    <ul class="chase-history">
-      {% for m in memberships %}
-      <li>
-        {% if m.campaign %}<a href="/prospecting/campaigns/{{ m.campaign_id }}">{{ m.campaign.name }}</a>{% else %}#{{ m.campaign_id }}{% endif %}
-        · {{ m.status }}
-      </li>
-      {% endfor %}
-    </ul>
-    {% endif %}
+    <p class="empty">No opportunity boxes available.</p>
+    {% endfor %}
   </div>
 </div>
 
-<div class="grid-2" style="margin-top:1rem">
-  <div class="card">
-    <h2>Log activity</h2>
-    <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/activity">
+{# ========== PHONE: same colourful Live Tiles — highest £ first ========== #}
+<div class="wip-mobile subdash-mobile">
+  <div class="live-grid prospect-live-grid" style="margin-bottom:0.75rem">
+    {% for tile in tiles %}
+    {% set lt = tile.live_tile if tile.live_tile is defined and tile.live_tile else (
+         'tile-wip' if tile.key == 'other' else (
+         'tile-debtors' if tile.key == 'accounts' else 'tile-cash')) %}
+    <a class="live-tile {{ lt }} {% if bucket_key == tile.key %}is-selected{% endif %}"
+       href="/prospecting/prospects/{{ p.id }}?bucket={{ tile.key }}">
+      <span class="live-kicker">{{ tile.label }}</span>
+      <span class="live-value">£{{ '{:,.0f}'.format(tile.value) }}</span>
+      <span class="live-sub">{{ tile.count }} job{% if tile.count != 1 %}s{% endif %}</span>
+      <span class="live-age">
+        <span>
+          {% if tile.key == 'other' %}
+          Pipeline £{{ '{:,.0f}'.format(tile.pipeline) }}
+          {% elif tile.key == 'accounts' %}
+          £{{ '{:,.0f}'.format(tile.default_fee) }} avg
+          {% else %}
+          × £{{ '{:,.0f}'.format(tile.per_director) }}
+          {% endif %}
+        </span>
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+{# —— Jobs list: title + pipeline stage + edit above the table —— #}
+<div class="card prospect-jobs-box" style="margin-bottom:1rem" id="jobs-box">
+  <div class="prospect-jobs-head">
+    <div class="prospect-jobs-title-row">
+      <h2 class="prospect-jobs-title">{{ active_bucket.label }} — jobs</h2>
+      {% if bucket_key == 'other' %}
+      <div class="period-toggle period-toggle-compact prospect-jobs-stage" role="group"
+           aria-label="Pipeline stage for {{ active_bucket.label }} jobs">
+        {% for s in pipeline_statuses %}
+        {% if s not in ('won', 'lost') or p.pipeline_status == s %}
+        <form method="post" action="/prospecting/prospects/{{ p.id }}/status" style="display:inline">
+          <input type="hidden" name="status" value="{{ s }}">
+          <button type="submit" class="period-btn {% if p.pipeline_status == s %}is-active{% endif %}">
+            {{ pipeline_labels.get(s, s) }}
+          </button>
+        </form>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% else %}
+      <span class="badge">Guestimate</span>
+      {% endif %}
+      <a class="btn btn-sm btn-outline prospect-jobs-edit"
+         href="/prospecting/prospects/{{ p.id }}/edit#source-tracker">Edit</a>
+    </div>
+    <p class="muted small prospect-jobs-meta" style="margin:0.35rem 0 0">
+      {{ active_bucket.count }} job{% if active_bucket.count != 1 %}s{% endif %}
+      · £{{ '{:,.0f}'.format(active_bucket.value) }}
+      {% if active_bucket.pipeline %} · pipeline £{{ '{:,.0f}'.format(active_bucket.pipeline) }}{% endif %}
+      · <strong>Source:</strong>
+      {% if p.referred_by or p.source_channel %}
+        {{ source_label }}
+      {% else %}
+        <span class="muted">Not set</span>
+        — <a href="/prospecting/prospects/{{ p.id }}/edit#source-tracker">add introducer</a>
+      {% endif %}
+    </p>
+  </div>
+  {% if active_bucket.jobs %}
+  <div class="table-wrap" style="margin-top:0.75rem">
+    <table class="data prospect-jobs-table">
+      <thead>
+        <tr>
+          <th>Job</th>
+          <th>Detail</th>
+          <th class="num">Fee</th>
+          <th class="num">Pipeline £</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for j in active_bucket.jobs %}
+        <tr>
+          <td><strong>{{ j.title }}</strong></td>
+          <td class="small">{{ j.detail or '—' }}</td>
+          <td class="num"><strong>£{{ '{:,.0f}'.format(j.fee) }}</strong></td>
+          <td class="num">£{{ '{:,.0f}'.format(j.pipeline) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No jobs in this bucket yet.</p>
+  {% endif %}
+</div>
+
+{# —— Next activity (dark Live-tile panel; mail opens Outlook compose) —— #}
+<div class="prospect-next-activity">
+  <div class="prospect-next-kicker">Next activity</div>
+  <form class="stack prospect-dark-form" method="post" action="/prospecting/prospects/{{ p.id }}/next-step" id="next-activity-form">
+    <div class="form-grid">
+      <div>
+        <label>Activity</label>
+        <select name="next_activity" id="next-activity-select">
+          {% for opt in next_activity_options %}
+          <option value="{{ opt }}"
+            {% if (current_step == opt) or (not current_step and opt == 'Follow up mail') or (is_custom_step and opt == 'Other') %}selected{% endif %}>
+            {{ opt }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Date</label>
+        <input type="date" name="next_step_due"
+               value="{{ p.next_step_due.isoformat() if p.next_step_due else '' }}">
+      </div>
+      <div id="next-step-other-wrap" style="grid-column:1/-1;{% if not is_custom_step %}display:none{% endif %}">
+        <label>Custom activity</label>
+        <input name="next_step" id="next-step-other"
+               value="{% if is_custom_step %}{{ current_step }}{% endif %}"
+               placeholder="Describe the next activity">
+      </div>
+    </div>
+    <label>Notes</label>
+    <textarea name="notes" rows="2" placeholder="Optional context">{{ p.notes or '' }}</textarea>
+    <button class="btn btn-sm prospect-next-save" type="submit">Save next activity</button>
+  </form>
+  {% if p.next_step %}
+  <p class="prospect-next-current">
+    <strong>Current:</strong> {{ p.next_step }}
+    {% if p.next_step_due %} · due <strong>{{ p.next_step_due|uk_date }}</strong>{% endif %}
+  </p>
+  {% endif %}
+
+  {# Outlook panel — shown when activity is mail-type #}
+  <div id="outlook-compose-panel" class="prospect-outlook-panel" {% if not mail_open %}hidden{% endif %}>
+    <div class="prospect-next-kicker" style="margin-top:0.35rem">Outlook</div>
+    <p class="prospect-next-hint">
+      Compose to the main contact — draft in Outlook or send now.
+      {% if not graph_connected %}
+      <br><strong>Microsoft not connected</strong> —
+      <a href="/oauth/microsoft/start?return_to=/prospecting/prospects/{{ p.id }}?compose=1">Connect Microsoft</a>
+      {% endif %}
+    </p>
+    <form class="stack prospect-dark-form" method="post" action="/prospecting/prospects/{{ p.id }}/email">
       <div class="form-grid">
         <div>
-          <label>Type</label>
-          <select name="activity_type">
-            <option value="call">Call</option>
-            <option value="email">Email</option>
-            <option value="letter">Letter</option>
-            <option value="social">Social</option>
-            <option value="note" selected>Note</option>
-          </select>
+          <label>To name</label>
+          <input name="contact_name" value="{{ p.contact_name or '' }}" placeholder="Contact name">
         </div>
         <div>
-          <label>Direction</label>
-          <select name="direction">
-            <option value="outbound">Outbound</option>
-            <option value="inbound">Inbound</option>
-            <option value="internal">Internal</option>
-          </select>
+          <label>To email</label>
+          <input name="to_email" type="email" id="outlook-to-email"
+                 value="{{ p.email or '' }}" placeholder="name@company.com" required>
         </div>
       </div>
       <label>Subject</label>
-      <input name="subject">
-      <label>Detail</label>
-      <textarea name="body" rows="3"></textarea>
-      <button class="btn wc-touch" type="submit">Save activity</button>
+      <input name="subject" id="outlook-subject" value="{{ email_subject }}">
+      <label>Message</label>
+      <textarea name="body" id="outlook-body" rows="6">{{ email_body }}</textarea>
+      <div class="actions">
+        <button class="btn wc-touch prospect-next-save" type="submit" name="mode" value="draft"
+          {% if not graph_connected %}disabled{% endif %}>
+          Create Outlook draft
+        </button>
+        <button class="btn btn-outline prospect-next-outline" type="submit" name="mode" value="send"
+          {% if not graph_connected %}disabled{% endif %}
+          onclick="return confirm('Send this email now via Outlook?');">
+          Send now
+        </button>
+      </div>
     </form>
   </div>
-  <div class="card">
-    <h2>Timeline</h2>
-    {% if activities %}
-    <ul class="chase-history">
-      {% for a in activities %}
-      <li>
-        <strong>{{ a.activity_type }}</strong>
-        {% if a.subject %} · {{ a.subject }}{% endif %}
-        <div class="muted small">{{ a.activity_at }} · {{ a.direction }}</div>
-        {% if a.body %}<div class="small">{{ a.body }}</div>{% endif %}
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">No activities yet.</p>
-    {% endif %}
-  </div>
 </div>
+
+{# —— Main contact (wide box, client-style columns) —— #}
+<div class="card" style="margin-bottom:1rem">
+  <div class="page-header" style="margin-bottom:0.75rem">
+    <h2 style="margin:0">Main contact</h2>
+    <a class="btn btn-sm btn-outline" href="/prospecting/prospects/{{ p.id }}/edit">Edit</a>
+  </div>
+  <div class="table-wrap">
+    <table class="data prospect-contact-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Email</th>
+          <th>Phone</th>
+          <th>Company</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <strong>{{ (p.contact_name or '—')|norm_person if p.contact_name else '—' }}</strong>
+            <span class="badge badge-active">Primary</span>
+          </td>
+          <td>{{ p.service_line or 'Contact' }}</td>
+          <td>
+            {% if p.email %}
+            <button type="button" class="btn-link-email" id="contact-email-btn"
+                    data-email="{{ p.email }}"
+                    title="Compose in Outlook">
+              {{ p.email }}
+            </button>
+            {% else %}
+            <a class="muted small" href="/prospecting/prospects/{{ p.id }}/edit">Add email →</a>
+            {% endif %}
+          </td>
+          <td>
+            {% if p.phone %}
+            <a href="tel:{{ p.phone }}">{{ p.phone }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="small">
+            <a href="/prospecting/prospects/{{ p.id }}/company">{{ p.display_name() }}</a>
+            {% if p.company_number %}<div class="muted">{{ p.company_number }}</div>{% endif %}
+          </td>
+        </tr>
+        {# Extra directors from CH as secondary contacts (SA context) #}
+        {% for d in buckets.self_assessment.directors %}
+        {% if p.contact_name and d.name and d.name|lower != (p.contact_name or '')|lower %}
+        <tr>
+          <td>{{ d.name }}</td>
+          <td class="small">{{ d.role }}</td>
+          <td class="muted small">—</td>
+          <td class="muted small">—</td>
+          <td class="small muted">Director (CH)</td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="small muted" style="margin:0.65rem 0 0">
+    Click the <strong>email</strong> address to open Outlook compose for that contact.
+    Company details and CH pull are on the
+    <a href="/prospecting/prospects/{{ p.id }}/company">company screen</a>.
+  </p>
+</div>
+
+<details class="card" style="margin-bottom:1rem;padding:1rem 1.15rem">
+  <summary style="cursor:pointer;font-weight:700">Fees, convert &amp; campaigns</summary>
+  <div class="grid-2" style="margin-top:1rem">
+    <div>
+      <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/fees">
+        <div class="form-grid">
+          <div>
+            <label>Service line</label>
+            <select name="service_line">
+              <option value="">—</option>
+              {% for sl in service_lines %}
+              <option value="{{ sl }}" {% if p.service_line == sl %}selected{% endif %}>{{ sl }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label>Fee profile</label>
+            <select name="fee_profile">
+              {% for fp in fee_profiles %}
+              <option value="{{ fp }}" {% if p.fee_profile_key() == fp %}selected{% endif %}>
+                {{ fee_profile_labels.get(fp, fp) }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label>Engagement fee (£)</label>
+            <input name="fee_initial" inputmode="decimal"
+                   value="{{ p.fee_initial if p.fee_initial is not none else (p.gross_value or 0) }}">
+          </div>
+          <div>
+            <label>Ongoing (£)</label>
+            <input name="fee_ongoing" inputmode="decimal" value="{{ p.fee_ongoing if p.fee_ongoing is not none else 0 }}">
+          </div>
+          <div>
+            <label>Frequency</label>
+            <select name="fee_ongoing_frequency">
+              <option value="annual" {% if (p.fee_ongoing_frequency or 'annual') == 'annual' %}selected{% endif %}>Annual</option>
+              <option value="monthly" {% if p.fee_ongoing_frequency == 'monthly' %}selected{% endif %}>Monthly</option>
+            </select>
+          </div>
+          <div>
+            <label>Renewal (£)</label>
+            <input name="fee_renewal" inputmode="decimal" value="{{ p.fee_renewal if p.fee_renewal is not none else 0 }}">
+          </div>
+          <div>
+            <label>Confidence %</label>
+            <input name="confidence_pct" type="number" min="0" max="100"
+                   value="{{ p.confidence_pct if p.confidence_pct is not none else 50 }}">
+          </div>
+        </div>
+        <button class="btn btn-sm" type="submit">Save fees</button>
+      </form>
+    </div>
+    <div>
+      <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/convert-job"
+            onsubmit="return confirm('Create client (if needed) and a new job?');">
+        <input name="job_type" placeholder="Job type" value="{{ p.service_line or '' }}">
+        <input name="job_title" placeholder="Job title (optional)">
+        <input name="job_fee" inputmode="decimal" placeholder="Fee £"
+               value="{{ p.fee_initial if p.fee_initial is not none else '' }}">
+        <textarea name="notes" rows="2">{{ p.next_step or '' }}</textarea>
+        <button class="btn btn-sm" type="submit">Convert → client + job</button>
+      </form>
+      {% if campaigns %}
+      <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/add-campaign" style="margin-top:0.75rem">
+        <select name="campaign_id">
+          {% for c in campaigns %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-sm btn-outline" type="submit">Add to campaign</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</details>
+
+<div class="card">
+  <h2>Timeline</h2>
+  {% if activities %}
+  <ul class="chase-history">
+    {% for a in activities %}
+    <li>
+      <strong>{{ a.activity_type }}</strong>
+      {% if a.subject %} · {{ a.subject }}{% endif %}
+      <div class="muted small">{{ a.activity_at }} · {{ a.direction }}</div>
+      {% if a.body %}<div class="small">{{ a.body }}</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No activities yet.</p>
+  {% endif %}
+</div>
+
+<style>
+  .prospect-job-boxes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .prospect-live-grid {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+  }
+  @media (min-width: 480px) {
+    .prospect-live-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+    .prospect-live-grid .live-tile:last-child:nth-child(odd) {
+      grid-column: 1 / -1;
+    }
+  }
+  .prospect-job-boxes .wc-box.is-selected {
+    outline: 3px solid #0944F4;
+    outline-offset: 2px;
+  }
+  .period-toggle-compact {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+  .period-toggle-compact .period-btn {
+    font-size: 0.72rem;
+    padding: 0.28rem 0.45rem;
+    min-height: 2rem;
+  }
+  .prospect-jobs-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem 0.85rem;
+  }
+  .prospect-jobs-title {
+    margin: 0;
+    font-size: 1.15rem;
+  }
+  .prospect-jobs-stage { flex: 1 1 auto; }
+  .prospect-jobs-edit { margin-left: auto; }
+  /* Next activity — wide professional: same as other .card panels */
+  .prospect-next-activity {
+    margin: 0 0 1.25rem;
+    padding: 1.1rem 1.25rem;
+    border-radius: var(--radius, 10px);
+    background: var(--surface, #fff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-left: 4px solid #0944F4;
+    color: var(--text, #0f172a);
+    box-shadow: var(--card-shadow, 0 1px 3px rgba(15, 23, 42, 0.06));
+  }
+  .prospect-next-kicker {
+    font-size: 1.05rem;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--text, #0f172a);
+    margin: 0 0 0.75rem;
+  }
+  .prospect-next-current {
+    margin: 0.7rem 0 0;
+    font-size: 0.9rem;
+    color: var(--text, #0f172a);
+  }
+  .prospect-next-hint {
+    margin: 0 0 0.65rem;
+    font-size: 0.85rem;
+    color: #64748b;
+  }
+  .prospect-next-hint a { color: #0944F4 !important; }
+  .prospect-dark-form label {
+    color: inherit;
+    font-weight: 600;
+  }
+  .prospect-dark-form input,
+  .prospect-dark-form select,
+  .prospect-dark-form textarea {
+    width: 100%;
+    border-radius: 8px;
+    padding: 0.55rem 0.65rem;
+  }
+  .prospect-outlook-panel {
+    margin-top: 0.9rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--border, #e2e8f0);
+  }
+  .btn-link-email {
+    background: none;
+    border: none;
+    padding: 0;
+    color: #0944F4;
+    font: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .btn-link-email:hover { color: #052891; }
+  .prospect-contact-table td { vertical-align: middle; }
+
+  /* Small screen only: dark Live Tiles chrome for next activity */
+  @media (max-width: 767.98px) {
+    .prospect-jobs-table th:nth-child(2),
+    .prospect-jobs-table td:nth-child(2) { display: none; }
+    .btn-link-email { color: #7dd3fc !important; }
+
+    .prospect-next-activity {
+      border-radius: 4px;
+      border: none;
+      border-left: none;
+      background: linear-gradient(145deg, #0f172a 0%, #1e293b 55%, #0b1220 100%);
+      color: #e2e8f0;
+      box-shadow: 0 3px 14px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(0, 229, 255, 0.18);
+      padding: 1.05rem 1.1rem 1.15rem;
+    }
+    .prospect-next-kicker {
+      font-size: 0.72rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #94a3b8;
+      margin: 0 0 0.65rem;
+    }
+    .prospect-next-current { color: #cbd5e1; font-size: 0.88rem; }
+    .prospect-next-hint { color: #94a3b8; font-size: 0.82rem; }
+    .prospect-next-hint a { color: #7dd3fc !important; }
+    .prospect-dark-form label {
+      color: #94a3b8 !important;
+    }
+    .prospect-dark-form input,
+    .prospect-dark-form select,
+    .prospect-dark-form textarea {
+      background: #0b1220 !important;
+      border: 1px solid #334155 !important;
+      color: #f1f5f9 !important;
+      box-shadow: none !important;
+    }
+    .prospect-dark-form input::placeholder,
+    .prospect-dark-form textarea::placeholder {
+      color: #64748b !important;
+    }
+    .prospect-dark-form input:focus,
+    .prospect-dark-form select:focus,
+    .prospect-dark-form textarea:focus {
+      outline: none;
+      border-color: #698DF9 !important;
+      box-shadow: 0 0 0 2px rgba(9, 68, 244, 0.35) !important;
+    }
+    .prospect-next-save {
+      background: linear-gradient(145deg, #698DF9 0%, #0944F4 55%, #052891 100%) !important;
+      border: none !important;
+      color: #fff !important;
+      font-weight: 700;
+    }
+    .prospect-next-outline {
+      background: transparent !important;
+      border: 1px solid #475569 !important;
+      color: #e2e8f0 !important;
+    }
+    .prospect-outlook-panel {
+      border-top-color: #334155;
+    }
+  }
+</style>
+<script>
+(function () {
+  var mailTypes = {{ next_activity_mail_types | tojson }};
+  var sel = document.getElementById("next-activity-select");
+  var otherWrap = document.getElementById("next-step-other-wrap");
+  var panel = document.getElementById("outlook-compose-panel");
+  var emailBtn = document.getElementById("contact-email-btn");
+  var toInput = document.getElementById("outlook-to-email");
+  var subj = document.getElementById("outlook-subject");
+
+  function openOutlook(email) {
+    if (!panel) return;
+    panel.hidden = false;
+    if (email && toInput) toInput.value = email;
+    if (sel && mailTypes.indexOf(sel.value) === -1) {
+      // Prefer Follow up mail when opened from contact email
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === "Follow up mail") {
+          sel.selectedIndex = i;
+          break;
+        }
+      }
+    }
+    if (subj && sel && sel.value === "Send proposal / quote" && subj.value.indexOf("proposal") === -1) {
+      subj.value = subj.value.replace("next steps", "proposal");
+    }
+    panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (toInput) toInput.focus();
+  }
+
+  function syncActivity() {
+    if (!sel) return;
+    var v = sel.value;
+    if (otherWrap) otherWrap.style.display = (v === "Other") ? "" : "none";
+    if (panel) {
+      if (mailTypes.indexOf(v) !== -1) {
+        panel.hidden = false;
+      } else if (!emailBtn || !panel.dataset.forceOpen) {
+        // keep open if user opened via email click
+        if (panel.dataset.forceOpen !== "1") panel.hidden = true;
+      }
+    }
+  }
+
+  if (sel) {
+    sel.addEventListener("change", function () {
+      if (panel) panel.dataset.forceOpen = "";
+      syncActivity();
+      if (mailTypes.indexOf(sel.value) !== -1) openOutlook(toInput && toInput.value);
+    });
+    syncActivity();
+  }
+  if (emailBtn) {
+    emailBtn.addEventListener("click", function () {
+      if (panel) panel.dataset.forceOpen = "1";
+      openOutlook(emailBtn.getAttribute("data-email") || "");
+    });
+  }
+})();
+</script>
+</div>{# /.prospect-landing #}
 {% endblock %}

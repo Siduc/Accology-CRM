@@ -1716,6 +1716,122 @@ a.wip-pro-cell.wip-pro-h-later { border-left-color: #15803d; }
   .wip-live-section-head h2 { color: #0f172a; }
   .wip-live-section-head .muted { color: #64748b !important; }
   .wip-live-section-head a { color: #0944F4 !important; }
+
+  /* —— Prospect landing: full dark Live Tiles chrome (no white cards) —— */
+  body.prospect-live {
+    background: #0b1220 !important;
+    color: #e2e8f0 !important;
+  }
+  body.prospect-live .container,
+  body.prospect-live .container-hub {
+    background: transparent !important;
+  }
+  body.prospect-live h1,
+  body.prospect-live h2,
+  body.prospect-live h3 {
+    color: #f1f5f9 !important;
+  }
+  body.prospect-live .page-header .muted,
+  body.prospect-live .muted,
+  body.prospect-live .desk-page-sub {
+    color: #94a3b8 !important;
+  }
+  body.prospect-live .page-header a {
+    color: #7dd3fc !important;
+  }
+  body.prospect-live .prospect-landing .card,
+  body.prospect-live .prospect-landing details.card {
+    background: #111827 !important;
+    border-color: #1e293b !important;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4) !important;
+    color: #e2e8f0 !important;
+  }
+  body.prospect-live .prospect-landing .card input,
+  body.prospect-live .prospect-landing .card select,
+  body.prospect-live .prospect-landing .card textarea,
+  body.prospect-live .prospect-landing details.card input,
+  body.prospect-live .prospect-landing details.card select,
+  body.prospect-live .prospect-landing details.card textarea {
+    background: #0b1220 !important;
+    border-color: #334155 !important;
+    color: #f1f5f9 !important;
+  }
+  body.prospect-live .prospect-landing .card label,
+  body.prospect-live .prospect-landing details.card label {
+    color: #94a3b8 !important;
+  }
+  body.prospect-live .prospect-landing table.data {
+    background: transparent !important;
+    color: #e2e8f0 !important;
+  }
+  body.prospect-live .prospect-landing table.data th {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-bottom-color: #1e293b !important;
+  }
+  body.prospect-live .prospect-landing table.data td {
+    border-bottom-color: #1e293b !important;
+    color: #e2e8f0 !important;
+  }
+  /* Pipeline stage chips — dark chrome (container was still light #f8fafc) */
+  body.prospect-live .prospect-landing .period-toggle,
+  body.prospect-live .prospect-landing .period-toggle-compact,
+  body.prospect-live .prospect-landing .prospect-jobs-stage {
+    background: #0f172a !important;
+    border: 1px solid #334155 !important;
+    border-radius: 999px !important;
+    overflow: hidden;
+  }
+  body.prospect-live .prospect-landing .period-toggle .period-btn,
+  body.prospect-live .prospect-landing .period-toggle-compact .period-btn,
+  body.prospect-live .prospect-landing .prospect-jobs-stage .period-btn,
+  body.prospect-live .prospect-landing button.period-btn {
+    background: #1e293b !important;
+    border-right: 1px solid #334155 !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+  }
+  body.prospect-live .prospect-landing .period-toggle .period-btn:hover,
+  body.prospect-live .prospect-landing .period-toggle-compact .period-btn:hover,
+  body.prospect-live .prospect-landing button.period-btn:hover {
+    background: #334155 !important;
+    color: #fff !important;
+  }
+  body.prospect-live .prospect-landing .period-toggle .period-btn.is-active,
+  body.prospect-live .prospect-landing .period-toggle-compact .period-btn.is-active,
+  body.prospect-live .prospect-landing .prospect-jobs-stage .period-btn.is-active,
+  body.prospect-live .prospect-landing button.period-btn.is-active {
+    background: linear-gradient(145deg, #0944F4 0%, #0736c4 100%) !important;
+    border-color: #698DF9 !important;
+    color: #fff !important;
+  }
+  body.prospect-live .prospect-landing .badge {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-color: #334155;
+  }
+  body.prospect-live .prospect-landing .badge-active {
+    background: rgba(9, 68, 244, 0.35);
+    color: #bfdbfe;
+  }
+  body.prospect-live .prospect-landing .empty {
+    color: #94a3b8 !important;
+  }
+  body.prospect-live .prospect-landing .chase-history li {
+    border-color: #1e293b;
+  }
+  body.prospect-live .minibar {
+    background: #0f172a !important;
+    border-bottom-color: #1e293b !important;
+    box-shadow: none !important;
+  }
+  body.prospect-live .minibar-title,
+  body.prospect-live .minibar-title span {
+    color: #f8fafc !important;
+  }
+  body.prospect-live .site-footer {
+    color: #64748b;
+  }
 }
 
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }

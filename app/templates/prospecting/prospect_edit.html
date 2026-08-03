@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Edit · {{ p.display_name() }}{% endblock %}
+{% block minibar_title %}Edit prospect{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting/prospects/{{ p.id }}">← {{ p.display_name() }}</a></p>
+    <h1>Edit prospect</h1>
+    <p class="muted small">{{ pipeline_labels.get(p.pipeline_status, p.pipeline_status) }} · contact, company number, address</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-outline wc-touch" href="/prospecting/prospects/{{ p.id }}/company">Company &amp; CH</a>
+  </div>
+</div>
+
+{% if request.query_params.get('msg') %}
+<div class="chase-banner chase-banner-info">{{ request.query_params.get('msg') }}</div>
+{% endif %}
+
+<div class="card" style="max-width:48rem">
+  <form class="stack" method="post" action="/prospecting/prospects/{{ p.id }}/edit">
+    <div class="form-grid">
+      <div>
+        <label>Company name *</label>
+        <input name="company_name" required value="{{ p.company_name or '' }}">
+      </div>
+      <div>
+        <label>Company number (Companies House)</label>
+        <input name="company_number" value="{{ p.company_number or '' }}" placeholder="e.g. 12345678">
+        <p class="small muted" style="margin:0.25rem 0 0">
+          Add the number, save, then use <strong>Pull Companies House</strong> on the company screen.
+          {% if not ch_key %}<br><strong>CH API key not configured</strong> — set it in Settings.{% endif %}
+        </p>
+      </div>
+      <div>
+        <label>Contact name</label>
+        <input name="contact_name" value="{{ p.contact_name or '' }}">
+      </div>
+      <div>
+        <label>Email</label>
+        <input name="email" type="email" value="{{ p.email or '' }}">
+      </div>
+      <div>
+        <label>Phone</label>
+        <input name="phone" value="{{ p.phone or '' }}">
+      </div>
+      <div>
+        <label>Service line</label>
+        <select name="service_line">
+          <option value="">—</option>
+          {% for sl in service_lines %}
+          <option value="{{ sl }}" {% if p.service_line == sl %}selected{% endif %}>{{ sl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Fee profile</label>
+        <select name="fee_profile">
+          {% for fp in fee_profiles %}
+          <option value="{{ fp }}" {% if (p.fee_profile or 'annual') == fp %}selected{% endif %}>
+            {{ fee_profile_labels.get(fp, fp) }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>SIC codes</label>
+        <input name="sic_codes" value="{{ p.sic_codes or '' }}" placeholder="62020, 69201">
+      </div>
+    </div>
+
+    <h2 id="source-tracker" style="margin:1.25rem 0 0.5rem;font-size:1.1rem">Source tracker</h2>
+    <p class="muted small" style="margin:0 0 0.65rem">
+      Who introduced this lead — e.g. an external (non-employed) salesman such as Mark McCormick.
+    </p>
+    <div class="form-grid">
+      <div>
+        <label>Introduced by</label>
+        <input name="referred_by" value="{{ p.referred_by or '' }}" placeholder="Mark McCormick">
+      </div>
+      <div>
+        <label>Source channel</label>
+        <select name="source_channel">
+          <option value="">—</option>
+          {% for ch in source_channels %}
+          <option value="{{ ch }}" {% if p.source_channel == ch %}selected{% endif %}>
+            {{ source_channel_labels.get(ch, ch) }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="grid-column:1/-1">
+        <label>Source notes</label>
+        <textarea name="source_notes" rows="2"
+                  placeholder="e.g. Prolific non-employed salesman — expect more introductions">{{ p.source_notes or '' }}</textarea>
+      </div>
+    </div>
+
+    <div class="form-grid" style="margin-top:1rem">
+      <div>
+        <label>Address line 1</label>
+        <input name="address_line1" value="{{ p.address_line1 or '' }}">
+      </div>
+      <div>
+        <label>Address line 2</label>
+        <input name="address_line2" value="{{ p.address_line2 or '' }}">
+      </div>
+      <div>
+        <label>Town</label>
+        <input name="town" value="{{ p.town or '' }}">
+      </div>
+      <div>
+        <label>Postcode</label>
+        <input name="postcode" value="{{ p.postcode or '' }}">
+      </div>
+      <div>
+        <label>Country</label>
+        <input name="country" value="{{ p.country or 'United Kingdom' }}">
+      </div>
+      <div>
+        <label>Next step due</label>
+        <input type="date" name="next_step_due" value="{{ p.next_step_due.isoformat() if p.next_step_due else '' }}">
+      </div>
+    </div>
+    <label>Next step</label>
+    <textarea name="next_step" rows="2">{{ p.next_step or '' }}</textarea>
+    <label>Notes</label>
+    <textarea name="notes" rows="4">{{ p.notes or '' }}</textarea>
+    <div class="actions">
+      <button class="btn wc-touch" type="submit">Save changes</button>
+      <a class="btn btn-outline" href="/prospecting/prospects/{{ p.id }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
