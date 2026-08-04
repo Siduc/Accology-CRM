@@ -778,6 +778,20 @@ async def client_ch_refresh(
     if not client:
         return RedirectResponse("/clients", status_code=303)
 
+    if not share_svc.client_is_ch_entity(client):
+        return RedirectResponse(
+            f"/clients/{client_id}?msg="
+            + url_quote(
+                "Not a Companies House entity (e.g. sole trader / partnership) — CH pull skipped."
+            ),
+            status_code=303,
+        )
+
+    # Ensure type is Limited when we have a real CH number
+    if not (client.client_type or "").strip():
+        client.client_type = "Limited Company"
+        db.commit()
+
     ok, share_msg, _ = share_svc.seed_register_from_ch(
         db, client, replace_draft=True
     )
@@ -1336,37 +1350,106 @@ async def client_shareholding_set_shares(
     client_id: int,
     holding_id: int,
     shares: str = Form(""),
+    return_to: str = Form(""),
     db: Session = Depends(get_db),
 ):
     """Allocate exact share count — turns potential member into shareholder."""
     from app.models.share_register import Shareholding
+    from app.services import share_register as share_svc
+    from datetime import datetime as _dt
 
     h = (
         db.query(Shareholding)
         .filter(Shareholding.id == holding_id, Shareholding.client_id == client_id)
         .first()
     )
+    dest = (return_to or "").strip() or f"/clients/{client_id}?tab=shares"
     if not h:
         return RedirectResponse(
-            f"/clients/{client_id}?tab=shares&msg=Member+not+found", status_code=303
+            f"{dest}&msg=Member+not+found" if "?" in dest else f"{dest}?msg=Member+not+found",
+            status_code=303,
         )
     raw = (shares or "").strip().replace(",", "")
-    if not raw:
-        h.shares = None
-    else:
+    new_shares = None
+    if raw:
         try:
-            h.shares = float(raw)
+            new_shares = float(raw)
         except ValueError:
             return RedirectResponse(
                 f"/clients/{client_id}?tab=shares&msg=Invalid+share+number",
                 status_code=303,
             )
-    from datetime import datetime as _dt
+        if new_shares < 0:
+            return RedirectResponse(
+                f"/clients/{client_id}?tab=shares&msg=Shares+cannot+be+negative",
+                status_code=303,
+            )
 
+    # Remaining pool check (same class)
+    summary = share_svc.register_summary(db, client_id)
+    issued = summary.get("issued")
+    if new_shares is not None and issued is not None:
+        other_alloc = sum(
+            float(x.shares or 0)
+            for x in share_svc.list_holdings(db, client_id)
+            if x.id != h.id
+            and x.share_class_id == h.share_class_id
+            and x.shares is not None
+        )
+        if other_alloc + new_shares > float(issued) + 0.0001:
+            rem = float(issued) - other_alloc
+            return RedirectResponse(
+                f"/clients/{client_id}?tab=shares&msg="
+                + url_quote(
+                    f"Only {rem:g} shares left unallocated "
+                    f"(issued {float(issued):g}, already allocated {other_alloc:g})."
+                ),
+                status_code=303,
+            )
+
+    h.shares = new_shares
     h.updated_at = _dt.utcnow()
     db.commit()
+    sep = "&" if "?" in dest else "?"
     return RedirectResponse(
-        f"/clients/{client_id}?tab=shares&msg=Shares+updated", status_code=303
+        f"{dest}{sep}msg=Shares+updated", status_code=303
+    )
+
+
+@router.get("/{client_id:int}/contacts", response_class=HTMLResponse)
+async def client_contacts_page(
+    client_id: int, request: Request, db: Session = Depends(get_db)
+):
+    """Dedicated contacts / officers / shareholders page."""
+    from app.services import share_register as share_svc
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    people = (
+        db.query(Person)
+        .options(joinedload(Person.clients))
+        .join(person_clients, person_clients.c.person_id == Person.id)
+        .filter(person_clients.c.client_id == client_id)
+        .order_by(Person.full_name)
+        .all()
+    )
+    contact_roles = share_svc.contact_role_rows(db, client_id, people)
+    share_summary = share_svc.register_summary(db, client_id)
+    shareholdings = share_svc.list_holdings(db, client_id)
+    is_ch = share_svc.client_is_ch_entity(client)
+    return render(
+        request,
+        "clients/contacts.html",
+        {
+            "client": client,
+            "people": people,
+            "contact_roles": contact_roles,
+            "share_summary": share_summary,
+            "shareholdings": shareholdings,
+            "is_ch_entity": is_ch,
+            "msg": request.query_params.get("msg", ""),
+        },
     )
 
 

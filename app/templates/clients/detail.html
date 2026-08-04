@@ -176,13 +176,20 @@
     <div class="page-header" style="margin-bottom:0.75rem">
       <h2 style="margin:0">Contacts</h2>
       <div class="actions">
+        <a class="btn btn-sm wc-touch" href="/clients/{{ client.id }}/contacts">Open contacts page</a>
         <button type="button" class="btn btn-sm btn-outline" data-goto-tab="shares">Shares</button>
-        <button type="button" class="btn btn-sm btn-outline" data-goto-tab="details">Manage people</button>
       </div>
     </div>
+    {% if share_summary and share_summary.issued is not none %}
+    <p class="small" style="margin:0 0 0.65rem">
+      Ordinary pool: <strong>{{ '{:,.0f}'.format(share_summary.issued) }}</strong> issued ·
+      <strong>{{ '{:,.0f}'.format(share_summary.allocated or 0) }}</strong> allocated ·
+      <strong>{{ '{:,.0f}'.format(share_summary.remaining if share_summary.remaining is not none else 0) }}</strong> remaining
+    </p>
+    {% endif %}
     <p class="small muted" style="margin-top:0">
-      Roles from CRM people + Companies House directors/PSCs (after seed).
-      Shareholder tick appears when you set a share count on Shares / CH.
+      Director / PSC from Companies House after refresh. Shareholder when you set share numbers.
+      Full allocate / delete tools on the <a href="/clients/{{ client.id }}/contacts">contacts page</a>.
     </p>
     {% if contact_roles %}
     <div class="table-wrap">
@@ -191,11 +198,11 @@
           <tr>
             <th>Name</th>
             <th>Email</th>
-            <th>Phone</th>
             <th class="num">Director</th>
             <th class="num">Shareholder</th>
             <th class="num">PSC</th>
             <th class="num">Other</th>
+            <th class="num">Shares</th>
           </tr>
         </thead>
         <tbody>
@@ -204,18 +211,17 @@
             <td>
               {% if r.person %}
               <a href="/people/{{ r.person.id }}/edit"><strong>{{ r.name }}</strong></a>
-              {% if r.person.is_primary %} <span class="badge badge-active">Primary</span>{% endif %}
               {% else %}
               <strong>{{ r.name }}</strong>
-              <div class="muted small">From CH / share register</div>
+              <div class="muted small">From CH</div>
               {% endif %}
             </td>
             <td class="small">{{ r.email or '—' }}</td>
-            <td class="small">{{ r.phone or '—' }}</td>
             <td class="num">{% if r.is_director %}✓{% else %}<span class="muted">·</span>{% endif %}</td>
             <td class="num">{% if r.is_shareholder %}✓{% else %}<span class="muted">·</span>{% endif %}</td>
             <td class="num">{% if r.is_psc %}✓{% else %}<span class="muted">·</span>{% endif %}</td>
             <td class="num">{% if r.is_other %}✓{% else %}<span class="muted">·</span>{% endif %}</td>
+            <td class="num">{% if r.shares is not none %}{{ '{:,.0f}'.format(r.shares) }}{% else %}<span class="muted">—</span>{% endif %}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -224,8 +230,7 @@
     {% else %}
     <p class="empty">
       No contacts yet.
-      <button type="button" class="btn btn-sm btn-outline" data-goto-tab="details">Add people</button>
-      or <strong>Refresh from Companies House</strong> to load directors &amp; PSCs.
+      Use <strong>Refresh from Companies House</strong> above (Ltd only), or add people on Details.
     </p>
     {% endif %}
   </div>
@@ -752,8 +757,14 @@
     {% if share_summary %}
     <p class="small">
       {{ share_summary.holding_count or 0 }} members ·
-      {{ share_summary.class_count or 0 }} class(es) ·
-      known shares: <strong>{{ '{:,.0f}'.format(share_summary.total_shares_known or 0) }}</strong>
+      {{ share_summary.class_count or 0 }} class(es)
+      {% if share_summary.issued is not none %}
+      · issued <strong>{{ '{:,.0f}'.format(share_summary.issued) }}</strong>
+      · allocated <strong>{{ '{:,.0f}'.format(share_summary.allocated or 0) }}</strong>
+      · remaining <strong>{{ '{:,.0f}'.format(share_summary.remaining if share_summary.remaining is not none else 0) }}</strong>
+      {% else %}
+      · allocated <strong>{{ '{:,.0f}'.format(share_summary.total_shares_known or 0) }}</strong>
+      {% endif %}
       {% if share_summary.draft_count %} · <span class="badge">{{ share_summary.draft_count }} draft</span>{% endif %}
     </p>
     {% endif %}

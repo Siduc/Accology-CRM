@@ -13,6 +13,7 @@ from app.models.cs_pack import CsPack
 from app.services.company_numbers import normalize_company_number
 from app.services.cs_automation import latest_pack_for_client
 from app.services.share_register import (
+    client_is_ch_entity,
     has_ch_auth_code,
     is_shareholder_row,
     list_holdings,
@@ -172,6 +173,9 @@ def list_cs_readiness_board(
         if not client:
             continue
         if (client.overall_status or "") == "Inactive":
+            continue
+        # Sole traders / partnerships are not CH CS01 work
+        if not client_is_ch_entity(client):
             continue
         pack = latest_pack_for_client(db, client.id)
         row = assess_client(db, client, pack=pack, job=job, today=today)

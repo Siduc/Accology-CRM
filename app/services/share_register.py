@@ -134,7 +134,7 @@ def add_holding(
 
 
 def _norm_person_key(name: str) -> str:
-    """Dedupe key: 'GREENE, Mark' / 'Mr Mark Greene' → 'mark greene'."""
+    """Dedupe key: first+last so 'Philip James Davies' matches 'Philip Davies'."""
     s = (name or "").strip().lower()
     if not s:
         return ""
@@ -146,7 +146,10 @@ def _norm_person_key(name: str) -> str:
     for t in ("mr ", "mrs ", "ms ", "miss ", "dr ", "sir "):
         if s.startswith(t):
             s = s[len(t) :].strip()
-    return s
+    tokens = [t for t in s.split() if t]
+    if len(tokens) >= 2:
+        return f"{tokens[0]} {tokens[-1]}"
+    return " ".join(tokens)
 
 
 def is_shareholder_row(h: Shareholding) -> bool:
@@ -281,6 +284,12 @@ def seed_register_from_ch(
         has_api_key,
     )
 
+    if not client_is_ch_entity(client):
+        return (
+            False,
+            "Not a Companies House entity (sole trader / partnership / no valid company number) — CH work skipped.",
+            {},
+        )
     cn = normalize_company_number(client.company_number or "")
     if not cn or cn.startswith("IND-") or cn.startswith("PENDING"):
         return False, "Company number required (not for individual clients)", {}
@@ -524,7 +533,7 @@ def seed_all_clients_from_ch(
     force: bool = False,
     limit: int = 400,
 ) -> Dict[str, Any]:
-    """Seed share registers for active limited companies."""
+    """Seed share registers for active CH-registered companies only."""
     q = (
         db.query(Client)
         .filter(Client.overall_status == "Active")
@@ -533,8 +542,7 @@ def seed_all_clients_from_ch(
     ok_n = skip_n = err_n = 0
     errors: List[str] = []
     for client in q.limit(limit).all():
-        cn = (client.company_number or "").strip().upper()
-        if not cn or cn.startswith("IND-") or cn.startswith("PENDING"):
+        if not client_is_ch_entity(client):
             skip_n += 1
             continue
         if not force and client.ch_register_seeded_at:
@@ -570,6 +578,7 @@ def contact_role_rows(
     Rows for contacts table with Director / Shareholder / PSC / Other ticks.
 
     Merges CRM people with CH-seeded shareholdings (by normalised name).
+    Prefer display names from CRM people when matched.
     """
     holdings = list_holdings(db, client_id)
     by_key: Dict[str, Dict[str, Any]] = {}
@@ -583,6 +592,7 @@ def contact_role_rows(
                 "holding": None,
                 "email": None,
                 "phone": None,
+                "shares": None,
                 "is_director": False,
                 "is_shareholder": False,
                 "is_psc": False,
@@ -596,9 +606,11 @@ def contact_role_rows(
             continue
         row = ensure(key, h.member_name)
         row["holding"] = h
-        row["is_director"] = row["is_director"] or bool(h.is_director)
-        row["is_psc"] = row["is_psc"] or bool(h.is_psc)
-        row["is_shareholder"] = row["is_shareholder"] or is_shareholder_row(h)
+        row["is_director"] = row["is_director"] or bool(getattr(h, "is_director", False))
+        row["is_psc"] = row["is_psc"] or bool(getattr(h, "is_psc", False))
+        if is_shareholder_row(h):
+            row["is_shareholder"] = True
+            row["shares"] = h.shares
 
     for p in people or []:
         name = p.display_name() if hasattr(p, "display_name") else (p.full_name or "")
@@ -607,8 +619,9 @@ def contact_role_rows(
             key = f"person-{p.id}"
         row = ensure(key, name)
         row["person"] = p
-        row["email"] = p.email
-        row["phone"] = p.phone
+        row["name"] = name  # CRM name preferred
+        row["email"] = p.email or row.get("email")
+        row["phone"] = p.phone or row.get("phone")
         role = (getattr(p, "role", None) or "").lower()
         if "director" in role:
             row["is_director"] = True
@@ -616,13 +629,24 @@ def contact_role_rows(
             row["is_shareholder"] = True
         if "psc" in role or "significant control" in role:
             row["is_psc"] = True
+        # Link holding person_id when matched
+        if row.get("holding") and not row["holding"].person_id:
+            row["holding"].person_id = p.id
 
     rows = []
     for row in by_key.values():
         if not (row["is_director"] or row["is_shareholder"] or row["is_psc"]):
             row["is_other"] = True
         rows.append(row)
-    rows.sort(key=lambda r: (r["name"] or "").lower())
+    # Directors / shareholders first
+    rows.sort(
+        key=lambda r: (
+            0 if r["is_director"] else 1,
+            0 if r["is_shareholder"] else 1,
+            0 if r["is_psc"] else 1,
+            (r["name"] or "").lower(),
+        )
+    )
     return rows
 
 
@@ -630,10 +654,83 @@ def register_summary(db: Session, client_id: int) -> Dict[str, Any]:
     classes = list_share_classes(db, client_id)
     holdings = list_holdings(db, client_id)
     total_shares = sum(float(h.shares or 0) for h in holdings)
+    # Capital pool per class
+    pools = []
+    for sc in classes:
+        issued = float(sc.aggregate_shares) if sc.aggregate_shares is not None else None
+        allocated = sum(
+            float(h.shares or 0)
+            for h in holdings
+            if h.share_class_id == sc.id and h.shares is not None
+        )
+        remaining = (issued - allocated) if issued is not None else None
+        pools.append(
+            {
+                "class": sc,
+                "issued": issued,
+                "allocated": allocated,
+                "remaining": remaining,
+            }
+        )
+    # Default ordinary pool for UI
+    total_issued = None
+    total_allocated = total_shares
+    total_remaining = None
+    if pools:
+        # Prefer Ordinary
+        ord_pool = next(
+            (
+                p
+                for p in pools
+                if (p["class"].name or "").lower().startswith("ord")
+            ),
+            pools[0],
+        )
+        total_issued = ord_pool["issued"]
+        total_allocated = ord_pool["allocated"]
+        total_remaining = ord_pool["remaining"]
     return {
         "class_count": len(classes),
         "holding_count": len(holdings),
         "total_shares_known": total_shares,
         "draft_count": sum(1 for h in holdings if (h.status or "") == "draft"),
         "verified_count": sum(1 for h in holdings if (h.status or "") == "verified"),
+        "pools": pools,
+        "issued": total_issued,
+        "allocated": total_allocated,
+        "remaining": total_remaining,
     }
+
+
+def client_is_ch_entity(client: Client) -> bool:
+    """True if this client should use Companies House (Ltd / LLP / PLC with real CN)."""
+    ct = (client.client_type or "").strip().lower()
+    if ct in (
+        "sole trader",
+        "partnership",
+        "individual",
+        "business",  # often unincorporated
+    ):
+        return False
+    cn = normalize_company_number(client.company_number or "") or ""
+    cu = cn.upper()
+    if not cu or cu.startswith("IND-") or cu.startswith("PENDING"):
+        return False
+    # Partnership postcodes / junk numbers
+    if ct == "partnership":
+        return False
+    # Valid CH company numbers: 8 digits or SC/NI/OC/SO/etc prefixes
+    if cu.isdigit() and len(cu) == 8:
+        return True
+    if len(cu) >= 2 and cu[:2].isalpha() and cu[2:].isdigit():
+        return True
+    # Default: if type is Limited / LLP / PLC, allow when CN looks real
+    if ct in ("limited company", "llp", "plc", "limited"):
+        return len(cu) >= 6
+    # Type blank but real CN → treat as CH entity
+    if (not ct or ct == "other") and (
+        (cu.isdigit() and len(cu) == 8)
+        or (len(cu) >= 2 and cu[:2].isalpha() and any(ch.isdigit() for ch in cu))
+    ):
+        return True
+    return False
