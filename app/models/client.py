@@ -40,8 +40,14 @@ class Client(Base):
     # Kept for older data; UI uses accounts_software_* primarily
     xero_username = Column(String, nullable=True)
     xero_password = Column(String, nullable=True)
+    # Companies House company auth code (stored encrypted when secrets_crypto available)
     ch_authentication_code = Column(String, nullable=True)  # companies / LLPs
     ch_personal_code = Column(String, nullable=True)  # individuals
+    # Share register practice meta
+    share_register_verified_at = Column(DateTime, nullable=True)
+    share_register_verified_by = Column(String, nullable=True)
+    share_register_notes = Column(Text, nullable=True)
+    ch_register_seeded_at = Column(DateTime, nullable=True)
     # Billing: per-job fees vs fixed retainer
     billing_model = Column(String, nullable=True, default="Per job")  # Per job | Retainer
     retainer_amount = Column(Float, nullable=True)  # net fee per period

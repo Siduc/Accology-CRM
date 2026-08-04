@@ -19,6 +19,25 @@ from app.templating import render
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
+
+def _store_ch_auth_code(
+    existing_stored: Optional[str], posted: Optional[str]
+) -> Optional[str]:
+    """Encrypt CH company auth code; leave unchanged if UI re-posts mask."""
+    from app.services.secrets_crypto import encrypt_secret, mask_secret
+
+    plain = (posted or "").strip()
+    if not plain:
+        return None
+    if plain.startswith("•") or (
+        existing_stored and plain == mask_secret(existing_stored)
+    ):
+        return existing_stored
+    try:
+        return encrypt_secret(plain)
+    except Exception:
+        return plain  # fallback plain if crypto unavailable
+
 STATUSES = ["Active", "Inactive", "Prospect", "Former"]
 # Statuses that stay on the main (live) clients list
 LIVE_STATUSES = ["Active", "Prospect", "Former"]
@@ -526,7 +545,7 @@ async def create_client(
         utr=utr or None,
         notes=notes or None,
         source=src,
-        ch_authentication_code=(ch_authentication_code or "").strip() or None,
+        ch_authentication_code=_store_ch_auth_code(None, ch_authentication_code),
         created_at=datetime.utcnow(),
     )
     db.add(client)
@@ -677,6 +696,27 @@ async def client_detail(
     except Exception:
         client_emails = []
 
+    share_classes = []
+    shareholdings = []
+    share_summary = {}
+    contact_roles = []
+    ch_auth_masked = ""
+    ch_auth_on_file = False
+    try:
+        from app.services import share_register as share_svc
+
+        share_classes = share_svc.list_share_classes(db, client_id)
+        shareholdings = share_svc.list_holdings(db, client_id)
+        share_summary = share_svc.register_summary(db, client_id)
+        ch_auth_masked = share_svc.ch_auth_code_masked(client)
+        ch_auth_on_file = share_svc.has_ch_auth_code(client)
+        contact_roles = share_svc.contact_role_rows(db, client_id, people or [])
+    except Exception:
+        share_classes = []
+        shareholdings = []
+        share_summary = {}
+        contact_roles = []
+
     # Pre-serialize chart JSON so template never fails on tojson edge cases
     import json
 
@@ -710,8 +750,88 @@ async def client_detail(
             "docs_conn": docs_conn,
             "client_tasks": client_tasks,
             "client_emails": client_emails,
+            "share_classes": share_classes,
+            "shareholdings": shareholdings,
+            "share_summary": share_summary,
+            "contact_roles": contact_roles,
+            "ch_auth_masked": ch_auth_masked,
+            "ch_auth_on_file": ch_auth_on_file,
             "msg": request.query_params.get("msg", ""),
         },
+    )
+
+
+@router.post("/{client_id:int}/ch/refresh")
+async def client_ch_refresh(
+    client_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    One CH pull for the company: seed share register (directors + PSCs)
+    and refresh CS review pack.
+    """
+    from app.services import share_register as share_svc
+    from app.services.cs_automation import create_or_refresh_pack
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+
+    ok, share_msg, _ = share_svc.seed_register_from_ch(
+        db, client, replace_draft=True
+    )
+    user = ""
+    try:
+        user = (request.session.get("user") or "")[:80]
+    except Exception:
+        user = ""
+    pack_msg = ""
+    pack_id = None
+    try:
+        result = create_or_refresh_pack(
+            db, client_id, prepared_by=user or "practice", force_new=False
+        )
+        if result.ok and result.pack:
+            pack_id = result.pack.id
+            pack_msg = "CS pack updated."
+        else:
+            pack_msg = result.error or "CS pack not updated."
+    except Exception as exc:
+        pack_msg = f"CS pack: {exc}"
+
+    combined = f"{share_msg} {pack_msg}".strip()
+    if pack_id:
+        return RedirectResponse(
+            f"/clients/{client_id}?tab=shares&msg={url_quote(combined[:240])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=shares&msg={url_quote(combined[:240])}",
+        status_code=303,
+    )
+
+
+@router.post("/shares/seed-all-ch")
+async def clients_seed_all_shares_ch(
+    force: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Bulk-seed share registers for active limited companies from CH."""
+    from app.services import share_register as share_svc
+
+    stats = share_svc.seed_all_clients_from_ch(
+        db, force=(force or "").lower() in ("1", "yes", "on", "true")
+    )
+    msg = (
+        f"Share seed complete: {stats['ok']} updated, "
+        f"{stats['skipped']} skipped, {stats['errors']} errors."
+    )
+    if stats.get("error_samples"):
+        msg += " First issues: " + " | ".join(stats["error_samples"][:3])
+    return RedirectResponse(
+        f"/clients?msg={url_quote(msg[:400])}",
+        status_code=303,
     )
 
 
@@ -812,7 +932,9 @@ async def update_client_details(
     client.gov_gateway_password = gov_gateway_password or None
     client.accounts_software_id = accounts_software_id or None
     client.accounts_software_password = accounts_software_password or None
-    client.ch_authentication_code = ch_authentication_code or None
+    client.ch_authentication_code = _store_ch_auth_code(
+        client.ch_authentication_code, ch_authentication_code
+    )
     client.ch_personal_code = ch_personal_code or None
     model = (billing_model or "Per job").strip() or "Per job"
     if model not in ("Per job", "Retainer"):
@@ -1090,7 +1212,9 @@ async def update_client(
         client.gov_gateway_password = form.get("gov_gateway_password") or None
         client.accounts_software_id = form.get("accounts_software_id") or None
         client.accounts_software_password = form.get("accounts_software_password") or None
-        client.ch_authentication_code = form.get("ch_authentication_code") or None
+        client.ch_authentication_code = _store_ch_auth_code(
+            client.ch_authentication_code, form.get("ch_authentication_code")
+        )
         client.ch_personal_code = form.get("ch_personal_code") or None
     client.updated_at = datetime.utcnow()
     db.commit()
@@ -1102,3 +1226,213 @@ async def update_client(
         except Exception:
             pass
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+# ---------- Share register / CH auth (CS01 prep) ----------
+
+
+@router.post("/{client_id:int}/shares/seed-ch")
+async def client_shares_seed_ch(
+    client_id: int,
+    replace_draft: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    from app.services import share_register as share_svc
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    ok, msg, _ = share_svc.seed_register_from_ch(
+        db,
+        client,
+        replace_draft=(replace_draft or "").lower() in ("1", "yes", "on", "true"),
+    )
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=shares&msg={url_quote(msg[:200])}",
+        status_code=303,
+    )
+
+
+@router.post("/{client_id:int}/shares/class")
+async def client_share_class_add(
+    client_id: int,
+    name: str = Form("Ordinary"),
+    nominal_value: str = Form("1"),
+    currency: str = Form("GBP"),
+    aggregate_shares: str = Form(""),
+    rights_notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    from app.services import share_register as share_svc
+
+    if not db.query(Client).filter(Client.id == client_id).first():
+        return RedirectResponse("/clients", status_code=303)
+    try:
+        nv = float((nominal_value or "1").replace(",", ""))
+    except ValueError:
+        nv = 1.0
+    agg = None
+    if (aggregate_shares or "").strip():
+        try:
+            agg = float(aggregate_shares.replace(",", ""))
+        except ValueError:
+            agg = None
+    share_svc.add_share_class(
+        db,
+        client_id,
+        name=name,
+        nominal_value=nv,
+        currency=currency,
+        aggregate_shares=agg,
+        rights_notes=rights_notes,
+        source="manual",
+    )
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=shares&msg=Share+class+added", status_code=303
+    )
+
+
+@router.post("/{client_id:int}/shares/holding")
+async def client_shareholding_add(
+    client_id: int,
+    member_name: str = Form(...),
+    shares: str = Form(""),
+    share_class_id: str = Form(""),
+    member_type: str = Form("individual"),
+    certificate_no: str = Form(""),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    from app.services import share_register as share_svc
+
+    if not db.query(Client).filter(Client.id == client_id).first():
+        return RedirectResponse("/clients", status_code=303)
+    sh = None
+    if (shares or "").strip():
+        try:
+            sh = float(shares.replace(",", ""))
+        except ValueError:
+            sh = None
+    scid = int(share_class_id) if (share_class_id or "").isdigit() else None
+    share_svc.add_holding(
+        db,
+        client_id,
+        member_name=member_name,
+        shares=sh,
+        share_class_id=scid,
+        member_type=member_type,
+        certificate_no=certificate_no,
+        notes=notes,
+        source="manual",
+        status="draft",
+    )
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=shares&msg=Member+added", status_code=303
+    )
+
+
+@router.post("/{client_id:int}/shares/holding/{holding_id:int}/shares")
+async def client_shareholding_set_shares(
+    client_id: int,
+    holding_id: int,
+    shares: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Allocate exact share count — turns potential member into shareholder."""
+    from app.models.share_register import Shareholding
+
+    h = (
+        db.query(Shareholding)
+        .filter(Shareholding.id == holding_id, Shareholding.client_id == client_id)
+        .first()
+    )
+    if not h:
+        return RedirectResponse(
+            f"/clients/{client_id}?tab=shares&msg=Member+not+found", status_code=303
+        )
+    raw = (shares or "").strip().replace(",", "")
+    if not raw:
+        h.shares = None
+    else:
+        try:
+            h.shares = float(raw)
+        except ValueError:
+            return RedirectResponse(
+                f"/clients/{client_id}?tab=shares&msg=Invalid+share+number",
+                status_code=303,
+            )
+    from datetime import datetime as _dt
+
+    h.updated_at = _dt.utcnow()
+    db.commit()
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=shares&msg=Shares+updated", status_code=303
+    )
+
+
+@router.post("/{client_id:int}/shares/holding/{holding_id:int}/delete")
+async def client_shareholding_delete(
+    client_id: int, holding_id: int, db: Session = Depends(get_db)
+):
+    from app.services import share_register as share_svc
+
+    share_svc.delete_holding(db, holding_id, client_id)
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=shares&msg=Member+removed", status_code=303
+    )
+
+
+@router.post("/{client_id:int}/shares/class/{class_id:int}/delete")
+async def client_share_class_delete(
+    client_id: int, class_id: int, db: Session = Depends(get_db)
+):
+    from app.services import share_register as share_svc
+
+    share_svc.delete_share_class(db, class_id, client_id)
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=shares&msg=Share+class+removed", status_code=303
+    )
+
+
+@router.post("/{client_id:int}/shares/verify")
+async def client_shares_verify(
+    client_id: int,
+    verified_by: str = Form("practice"),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    from app.services import share_register as share_svc
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    if (notes or "").strip():
+        client.share_register_notes = notes.strip()
+    share_svc.mark_register_verified(db, client, by=verified_by or "practice")
+    for h in share_svc.list_holdings(db, client_id):
+        if (h.status or "") == "draft":
+            h.status = "verified"
+    db.commit()
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=shares&msg=Register+marked+verified",
+        status_code=303,
+    )
+
+
+@router.post("/{client_id:int}/shares/auth-code")
+async def client_ch_auth_code_save(
+    client_id: int,
+    ch_authentication_code: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    from app.services import share_register as share_svc
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    share_svc.set_ch_auth_code(db, client, ch_authentication_code)
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=shares&msg=CH+auth+code+saved+(encrypted)",
+        status_code=303,
+    )
+

@@ -122,6 +122,14 @@ def _add_missing_columns():
             ("retainer_amount", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
             ("retainer_frequency", "VARCHAR"),
             ("retainer_notes", "TEXT" if not IS_SQLITE else "TEXT"),
+            ("share_register_verified_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+            ("share_register_verified_by", "VARCHAR"),
+            ("share_register_notes", "TEXT" if not IS_SQLITE else "TEXT"),
+            ("ch_register_seeded_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+        ],
+        "shareholdings": [
+            ("is_director", "BOOLEAN DEFAULT FALSE" if not IS_SQLITE else "INTEGER DEFAULT 0"),
+            ("is_psc", "BOOLEAN DEFAULT FALSE" if not IS_SQLITE else "INTEGER DEFAULT 0"),
         ],
         "people": [
             ("client_id", "INTEGER"),

@@ -40,6 +40,7 @@ from app.models.ms_graph_token import MsGraphToken
 from app.models.document import Document, DocumentVersion
 from app.models.email_message import EmailTemplate, EmailMessage
 from app.models.notification import Notification
+from app.models.share_register import ShareClass, Shareholding
 
 __all__ = [
     "Client",
@@ -83,4 +84,6 @@ __all__ = [
     "EmailTemplate",
     "EmailMessage",
     "Notification",
+    "ShareClass",
+    "Shareholding",
 ]

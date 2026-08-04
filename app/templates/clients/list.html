@@ -15,11 +15,20 @@
     <a class="btn btn-sm" href="/clients/new">Add Client</a>
     <a class="btn btn-sm btn-outline" href="/export/clients{% if status %}?status={{ status }}{% endif %}">Export CSV</a>
     <a class="btn btn-sm btn-outline" href="/import/csv?dataset=clients">Reimport CSV</a>
+    <form method="post" action="/clients/shares/seed-all-ch" style="display:inline"
+          onsubmit="return confirm('Seed share registers from Companies House for active companies not yet seeded? This may take a few minutes.');">
+      <button class="btn btn-sm btn-outline" type="submit" title="Directors + PSCs as potential shareholders">
+        Seed all shares from CH
+      </button>
+    </form>
     <a class="btn btn-sm btn-outline" href="/lost/clients">
       Lost{% if lost_count is defined and lost_count %} ({{ lost_count }}){% endif %}
     </a>
   </div>
 </div>
+{% if request.query_params.get('msg') %}
+<div class="chase-banner chase-banner-info">{{ request.query_params.get('msg') }}</div>
+{% endif %}
 
 {# Primary navigation tiles — Add / Companies / People (desk + phone) #}
 <div class="action-tiles page-action-tiles page-action-tiles-always" role="navigation" aria-label="Client book actions">

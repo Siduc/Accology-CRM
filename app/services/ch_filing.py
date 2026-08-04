@@ -171,17 +171,58 @@ def filing_readiness(
             else ("Token expired — re-authorise" if not token_fresh else "Connected")
         ),
     )
-    auth_on_file = bool(client and (client.ch_authentication_code or "").strip())
+    auth_on_file = False
+    if client:
+        try:
+            from app.services.share_register import has_ch_auth_code
+
+            auth_on_file = has_ch_auth_code(client)
+        except Exception:
+            auth_on_file = bool((client.ch_authentication_code or "").strip())
     add(
         "auth_code",
         auth_on_file,
-        "Company authentication code on client record",
+        "Company authentication code (encrypted)",
         (
-            "Stored on client (entered on CH consent when authorising)"
+            "On file — Shares / CH tab"
             if auth_on_file
-            else "Add on client Details — required during CH authorisation"
+            else "Add on client → Shares / CH (required for WebFiling / XML later)"
         ),
     )
+
+    # Share register practice checks
+    shares_ok = False
+    shares_detail = "No client"
+    if client:
+        try:
+            from app.services.share_register import (
+                is_shareholder_row,
+                list_holdings,
+            )
+
+            holdings = list_holdings(db, client.id)
+            n_sh = sum(1 for h in holdings if is_shareholder_row(h))
+            verified = bool(client.share_register_verified_at)
+            shares_ok = verified and n_sh > 0
+            if shares_ok:
+                shares_detail = f"Verified · {n_sh} shareholder(s)"
+            elif n_sh > 0 and not verified:
+                shares_detail = f"{n_sh} with share counts — mark register verified"
+            elif holdings and n_sh == 0:
+                shares_detail = (
+                    f"{len(holdings)} potential member(s) — set share counts"
+                )
+            else:
+                shares_detail = "Seed from CH, then allocate shares"
+        except Exception:
+            shares_detail = "Share register unavailable"
+    add(
+        "share_register",
+        shares_ok,
+        "Share register verified with share counts",
+        shares_detail,
+    )
+
     ready_status = (pack.status or "") in ("ready_to_file", "filed")
     add(
         "pack_ready",
@@ -192,19 +233,28 @@ def filing_readiness(
     add(
         "cs_api",
         False,
-        "Public CS filing API available",
-        "Not yet published by Companies House for third-party software — use WebFiling to submit CS",
+        "Electronic CS01 API / XML submit",
+        "Not wired yet — file on WebFiling; XML Gateway is the planned route",
     )
 
     ok_count = sum(1 for i in items if i["ok"])
-    blocking = [i for i in items if not i["ok"] and i["key"] != "cs_api"]
+    # OAuth + public API are not blocking for practice “ready to file on WebFiling”
+    non_blocking = {"cs_api", "oauth_config", "oauth_token"}
+    blocking = [i for i in items if not i["ok"] and i["key"] not in non_blocking]
+    practice_ready = len(blocking) == 0
     return {
         "checklist": items,
         "ok_count": ok_count,
         "total": len(items),
-        "can_prepare": len(blocking) == 0,
+        "can_prepare": practice_ready,
+        "practice_ready": practice_ready,
         "can_submit_cs": False,
         "blocking": [i["key"] for i in blocking],
+        "level": (
+            "ready"
+            if practice_ready
+            else ("almost" if len(blocking) <= 2 else "missing")
+        ),
     }
 
 

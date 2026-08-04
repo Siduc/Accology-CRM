@@ -235,14 +235,57 @@ async def cs_save(
 
 @router.post("/cs/{pack_id:int}/ready", response_class=HTMLResponse)
 async def cs_ready(
-    pack_id: int, request: Request, db: Session = Depends(get_db)
+    pack_id: int,
+    request: Request,
+    raise_invoice: str = Form(""),
+    fee: str = Form(""),
+    db: Session = Depends(get_db),
 ):
-    result = mark_ready(db, pack_id)
-    if not result.ok:
+    from app.services.cs_readiness import mark_ready_with_invoice
+
+    inv_flag = (raise_invoice or "").lower() in ("1", "yes", "on", "true")
+    fee_val = None
+    if (fee or "").strip():
+        try:
+            fee_val = float(fee.replace(",", "").replace("£", "").strip())
+        except ValueError:
+            fee_val = None
+    result = mark_ready_with_invoice(
+        db, pack_id, raise_invoice=inv_flag, fee=fee_val
+    )
+    if not result.get("ok"):
         return RedirectResponse(
-            f"/cs/{pack_id}?error={url_quote(result.error)}", status_code=303
+            f"/cs/{pack_id}?error={url_quote(result.get('error') or 'Failed')}",
+            status_code=303,
         )
-    return RedirectResponse(f"/cs/{pack_id}?msg=ready", status_code=303)
+    msg = "ready"
+    if result.get("message"):
+        msg = "ready — " + str(result["message"])
+    return RedirectResponse(
+        f"/cs/{pack_id}?msg={url_quote(msg[:180])}", status_code=303
+    )
+
+
+@router.get("/cs/readiness", response_class=HTMLResponse)
+async def cs_readiness_board(
+    request: Request,
+    filter: str = "",
+    db: Session = Depends(get_db),
+):
+    """Practice board: CS jobs with auth / shares / pack readiness."""
+    from app.services.cs_readiness import list_cs_readiness_board
+
+    board = list_cs_readiness_board(db, filter_key=filter or "open")
+    return render(
+        request,
+        "cs/readiness.html",
+        {
+            "rows": board["rows"],
+            "counts": board["counts"],
+            "filter": board["filter"],
+            "today": board["today"],
+        },
+    )
 
 
 @router.post("/cs/{pack_id:int}/filed", response_class=HTMLResponse)

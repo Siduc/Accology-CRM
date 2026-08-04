@@ -540,8 +540,34 @@
 
 <div class="card" style="margin-top:1rem">
   <h2>File / handoff</h2>
-  <div class="actions" style="flex-wrap:wrap">
-    <form method="post" action="/cs/{{ pack.id }}/ready">
+  {% if readiness %}
+  <p class="small" style="margin:0 0 0.75rem">
+    Practice readiness:
+    <strong>{{ readiness.ok_count }}/{{ readiness.total }}</strong>
+    {% if readiness.practice_ready %}<span class="badge badge-active">Ready</span>
+    {% else %}<span class="badge badge-progress">Gaps remain</span>{% endif %}
+    · <a href="/cs/readiness">CS readiness board</a>
+  </p>
+  <ul class="chase-history" style="margin-bottom:1rem">
+    {% for i in readiness.checklist %}
+    {% if i.key not in ('oauth_config', 'oauth_token', 'cs_api') %}
+    <li>
+      {% if i.ok %}✓{% else %}·{% endif %}
+      <strong>{{ i.label }}</strong>
+      {% if i.detail %}<span class="muted small"> — {{ i.detail }}</span>{% endif %}
+    </li>
+    {% endif %}
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <div class="actions" style="flex-wrap:wrap;align-items:flex-end">
+    <form method="post" action="/cs/{{ pack.id }}/ready" class="stack" style="min-width:14rem">
+      <label style="display:flex;align-items:center;gap:0.4rem;font-weight:500">
+        <input type="checkbox" name="raise_invoice" value="yes" checked>
+        Raise sales invoice (CS fee)
+      </label>
+      <label class="small muted">Fee override £ (optional)</label>
+      <input name="fee" inputmode="decimal" placeholder="Default from fee schedule" style="max-width:10rem">
       <button class="btn btn-secondary wc-touch" type="submit">Mark ready to file</button>
     </form>
     <a class="btn wc-touch" href="{{ webfiling_url }}" target="_blank" rel="noopener">Open Companies House to file</a>
@@ -554,7 +580,8 @@
     </form>
   </div>
   <p class="small muted" style="margin-top:0.75rem">
-    Full electronic CS filing via OAuth is paused for now — use WebFiling with the company authentication code.
+    File on WebFiling with the company auth code (encrypted on Shares / CH).
+    XML Gateway electronic CS01 is the next build step after readiness is solid.
   </p>
 </div>
 {% endblock %}

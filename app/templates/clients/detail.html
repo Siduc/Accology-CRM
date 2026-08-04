@@ -36,11 +36,14 @@
       {% if client.is_retainer() %}
       <span class="badge badge-retainer" title="{{ client.retainer_notes or 'Retainer client' }}">{{ client.retainer_label() or 'Retainer' }}</span>
       {% endif %}
-      {% if latest_cs_pack %}
-      <a href="/cs/{{ latest_cs_pack.id }}" class="badge badge-progress" title="Open CS review pack">CS pack · {{ latest_cs_pack.status }}</a>
+      {% if ch_auth_on_file %}
+      <span class="badge badge-active" title="Company auth code on file (encrypted)">CH auth code</span>
       {% endif %}
-      {% if ch_oauth_connected %}
-      <span class="badge badge-active" title="Companies House OAuth token active">CH OAuth</span>
+      {% if client.ch_register_seeded_at %}
+      <span class="badge" title="Share register seeded from CH">Shares seeded</span>
+      {% endif %}
+      {% if latest_cs_pack %}
+      <a href="/cs/{{ latest_cs_pack.id }}" class="badge badge-progress" title="Open CS review pack">CS · {{ latest_cs_pack.status }}</a>
       {% endif %}
       {% if client.engagement_date %}
       · engaged {{ client.engagement_date }}
@@ -52,13 +55,12 @@
   </div>
   <div class="actions">
     {% if cn and cn[:4] != 'IND-' and cn[:7] != 'PENDING' %}
-    {% if latest_cs_pack %}
-    <a class="btn btn-sm btn-outline wc-touch" href="/cs/{{ latest_cs_pack.id }}">Open CS pack</a>
-    {% else %}
-    <form method="post" action="/clients/{{ client.id }}/cs/download" style="display:inline">
-      <button class="btn btn-sm btn-outline wc-touch" type="submit">CS pack from CH</button>
+    <form method="post" action="/clients/{{ client.id }}/ch/refresh" style="display:inline">
+      <button class="btn btn-sm wc-touch" type="submit" title="Directors, PSCs, capital + CS pack">
+        Refresh from Companies House
+      </button>
     </form>
-    {% endif %}
+    <a class="btn btn-sm btn-outline wc-touch" href="?tab=shares">Shares / CS</a>
     {% endif %}
     <a class="btn btn-sm btn-secondary" href="/jobs/new?client_id={{ client.id }}">Add Job</a>
     <a class="btn btn-sm btn-outline wc-touch" href="/emails/compose?client_id={{ client.id }}&amp;return_to=/clients/{{ client.id }}?tab=email">Send email</a>
@@ -78,6 +80,7 @@
 <nav class="tabs" role="tablist" aria-label="Client sections">
   <button type="button" class="tab-btn {% if active_tab == 'overview' or not active_tab %}active{% endif %}" data-tab="overview" role="tab">Overview</button>
   <button type="button" class="tab-btn {% if active_tab == 'details' %}active{% endif %}" data-tab="details" role="tab">Details</button>
+  <button type="button" class="tab-btn {% if active_tab == 'shares' %}active{% endif %}" data-tab="shares" role="tab">Shares / CH{% if shareholdings|default([]) %} ({{ shareholdings|length }}){% endif %}</button>
   <button type="button" class="tab-btn {% if active_tab == 'documents' %}active{% endif %}" data-tab="documents" role="tab">Documents{% if documents %} ({{ documents|length }}){% endif %}</button>
   <button type="button" class="tab-btn {% if active_tab == 'tasks' %}active{% endif %}" data-tab="tasks" role="tab">Tasks{% if client_tasks %} ({{ client_tasks|length }}){% endif %}</button>
   <button type="button" class="tab-btn {% if active_tab == 'email' %}active{% endif %}" data-tab="email" role="tab">Email{% if client_emails %} ({{ client_emails|length }}){% endif %}</button>
@@ -88,32 +91,29 @@
 {# ========== OVERVIEW (stacked) ========== #}
 <div class="tab-panel {% if active_tab == 'overview' or not active_tab %}active{% endif %}" id="tab-overview" role="tabpanel" {% if active_tab and active_tab != 'overview' %}hidden{% endif %}>
 
-  {# 0. Confirmation Statement pack (CH download + review) #}
-  <div class="card" id="cs-pack" style="border-left:4px solid var(--accent, #2563eb);">
+  {# 0. Single Companies House hub (shares + CS) #}
+  <div class="card" id="ch-hub" style="border-left:4px solid #0944F4;">
     <div class="page-header" style="margin-bottom:0.5rem">
-      <h2 style="margin:0">Confirmation Statement pack</h2>
-      {% if latest_cs_pack %}
-      <span class="badge badge-progress">{{ latest_cs_pack.status }}</span>
-      {% endif %}
+      <h2 style="margin:0">Companies House · CS &amp; shares</h2>
+      {% if latest_cs_pack %}<span class="badge badge-progress">CS {{ latest_cs_pack.status }}</span>{% endif %}
     </div>
     <p class="small muted" style="margin-top:0">
-      Download current Companies House data, pre-fill a review pack, then complete filing on WebFiling.
-      Export is a practice file note — not electronic filing and not a re-type sheet.
+      One pull: directors &amp; PSCs as potential shareholders, capital hints, and CS review pack.
+      Allocate share numbers on the <button type="button" class="btn btn-sm btn-outline" data-goto-tab="shares">Shares / CH</button> tab.
+      Electronic CS01 submit (XML Gateway) comes later — WebFiling until then.
+      · <a href="/cs/readiness">CS readiness board</a>
     </p>
     {% if request.query_params.get('cs_error') %}
     <div class="alert alert-error">{{ request.query_params.get('cs_error') }}</div>
     {% endif %}
     {% if cn and cn[:4] != 'IND-' and cn[:7] != 'PENDING' %}
     <div class="actions" style="flex-wrap:wrap">
-      <form method="post" action="/clients/{{ client.id }}/cs/download">
-        <button class="btn btn-sm wc-touch" type="submit">
-          {% if latest_cs_pack %}Refresh from CH{% else %}Download &amp; pre-fill CS{% endif %}
-        </button>
+      <form method="post" action="/clients/{{ client.id }}/ch/refresh">
+        <button class="btn btn-sm wc-touch" type="submit">Refresh from Companies House</button>
       </form>
+      <a class="btn btn-sm btn-outline wc-touch" href="?tab=shares">Open shares &amp; auth code</a>
       {% if latest_cs_pack %}
-      <a class="btn btn-sm btn-outline wc-touch" href="/cs/{{ latest_cs_pack.id }}">
-        Open review pack
-      </a>
+      <a class="btn btn-sm btn-outline wc-touch" href="/cs/{{ latest_cs_pack.id }}">Open CS review pack</a>
       <a class="btn btn-sm btn-outline wc-touch" href="/cs/{{ latest_cs_pack.id }}/export">Export file note</a>
       {% if latest_cs_pack.made_up_to or latest_cs_pack.due_on %}
       <span class="small muted">
@@ -125,9 +125,8 @@
     </div>
     {% else %}
     <div class="alert alert-info" style="margin:0">
-      CS pack needs a real Companies House number.
-      This client is set to <code>{{ client.company_number or '—' }}</code>
-      — open the live company record (e.g. company number on the public register) and set it under Details, or use the matching client that already has the 8-digit number.
+      Needs a real Companies House number (not <code>{{ client.company_number or '—' }}</code>).
+      Set it under Details, or use Add Client / CH pull for a new company.
     </div>
     {% endif %}
   </div>
@@ -172,42 +171,62 @@
     {% endif %}
   </div>
 
-  {# 2. Contacts #}
+  {# 2. Contacts — Director / Shareholder / PSC / Other #}
   <div class="card">
     <div class="page-header" style="margin-bottom:0.75rem">
-      <h2 style="margin:0">Contacts ({{ people|length }})</h2>
-      <button type="button" class="btn btn-sm btn-outline" data-goto-tab="details">Manage on Details</button>
+      <h2 style="margin:0">Contacts</h2>
+      <div class="actions">
+        <button type="button" class="btn btn-sm btn-outline" data-goto-tab="shares">Shares</button>
+        <button type="button" class="btn btn-sm btn-outline" data-goto-tab="details">Manage people</button>
+      </div>
     </div>
-    {% if people %}
+    <p class="small muted" style="margin-top:0">
+      Roles from CRM people + Companies House directors/PSCs (after seed).
+      Shareholder tick appears when you set a share count on Shares / CH.
+    </p>
+    {% if contact_roles %}
     <div class="table-wrap">
       <table class="data">
         <thead>
-          <tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>CH PIC</th></tr>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th class="num">Director</th>
+            <th class="num">Shareholder</th>
+            <th class="num">PSC</th>
+            <th class="num">Other</th>
+          </tr>
         </thead>
         <tbody>
-          {% for p in people %}
+          {% for r in contact_roles %}
           <tr>
             <td>
-              <a href="/people/{{ p.id }}/edit">{{ p.display_name() }}</a>
-              {% if p.is_primary %} <span class="badge badge-active">Primary</span>{% endif %}
-            </td>
-            <td>{{ p.role or '—' }}</td>
-            <td>{{ p.email or '—' }}</td>
-            <td>{{ p.phone or '—' }}</td>
-            <td>
-              {% if p.ch_code %}
-              <span class="badge badge-active" title="Companies House personal identification code on file">On file</span>
+              {% if r.person %}
+              <a href="/people/{{ r.person.id }}/edit"><strong>{{ r.name }}</strong></a>
+              {% if r.person.is_primary %} <span class="badge badge-active">Primary</span>{% endif %}
               {% else %}
-              <span class="muted small">—</span>
+              <strong>{{ r.name }}</strong>
+              <div class="muted small">From CH / share register</div>
               {% endif %}
             </td>
+            <td class="small">{{ r.email or '—' }}</td>
+            <td class="small">{{ r.phone or '—' }}</td>
+            <td class="num">{% if r.is_director %}✓{% else %}<span class="muted">·</span>{% endif %}</td>
+            <td class="num">{% if r.is_shareholder %}✓{% else %}<span class="muted">·</span>{% endif %}</td>
+            <td class="num">{% if r.is_psc %}✓{% else %}<span class="muted">·</span>{% endif %}</td>
+            <td class="num">{% if r.is_other %}✓{% else %}<span class="muted">·</span>{% endif %}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     {% else %}
-    <p class="empty">No contacts linked. Add them on the Details tab.</p>
+    <p class="empty">
+      No contacts yet.
+      <button type="button" class="btn btn-sm btn-outline" data-goto-tab="details">Add people</button>
+      or <strong>Refresh from Companies House</strong> to load directors &amp; PSCs.
+    </p>
     {% endif %}
   </div>
 
@@ -405,7 +424,10 @@
         <dt>Accounts software ID</dt><dd>{{ client.accounts_software_id or client.xero_username or '—' }}</dd>
         <dt>Accounts software password</dt><dd>{% if client.accounts_software_password or client.xero_password %}••••••••{% else %}—{% endif %}</dd>
         {% if (client.client_type or '') != 'Individual' %}
-        <dt>CH authentication code</dt><dd>{{ client.ch_authentication_code or '—' }}</dd>
+        <dt>CH authentication code</dt>
+        <dd>{% if ch_auth_on_file %}<span title="Stored encrypted">{{ ch_auth_masked }}</span> <span class="badge badge-active">Encrypted</span>{% else %}—{% endif %}
+          <a class="small" href="?tab=shares">Manage on Shares / CH →</a>
+        </dd>
         {% endif %}
         {% if (client.client_type or '') == 'Individual' %}
         <dt>CH personal identification code</dt><dd>{{ client.ch_personal_code or '—' }}</dd>
@@ -588,7 +610,10 @@
           {% if (client.client_type or '') != 'Individual' %}
           <div>
             <label for="ch_authentication_code">Companies House authentication code</label>
-            <input id="ch_authentication_code" name="ch_authentication_code" value="{{ client.ch_authentication_code or '' }}" autocomplete="off" placeholder="Company / LLP auth code">
+            <input id="ch_authentication_code" name="ch_authentication_code" type="password"
+                   value="" autocomplete="new-password"
+                   placeholder="{% if ch_auth_on_file %}•••• saved (encrypted) — enter new to replace{% else %}Company / LLP auth code{% endif %}">
+            <p class="small muted" style="margin:0.25rem 0 0">Stored encrypted. Leave blank to keep existing. Prefer the <a href="?tab=shares">Shares / CH</a> tab.</p>
           </div>
           {% endif %}
           {% if (client.client_type or '') == 'Individual' %}
@@ -672,6 +697,212 @@
   {% with emails=client_emails|default([]), embed_title='Email', compose_href='/emails/compose?client_id=' ~ client.id ~ '&return_to=/clients/' ~ client.id ~ '?tab=email', next_url='/clients/' ~ client.id ~ '?tab=email', empty_msg='No structured emails for this client yet.' %}
   {% include "emails/_history.html" %}
   {% endwith %}
+</div>
+
+{# ========== SHARES / CH (CS01 prep) ========== #}
+<div class="tab-panel {% if active_tab == 'shares' %}active{% endif %}" id="tab-shares" role="tabpanel" {% if active_tab != 'shares' %}hidden{% endif %}>
+
+  <div class="card" style="border-left:4px solid #0944F4">
+    <div class="page-header" style="margin-bottom:0.5rem">
+      <h2 style="margin:0">Companies House auth code</h2>
+      {% if ch_auth_on_file %}<span class="badge badge-active">On file · encrypted</span>{% else %}<span class="badge">Missing</span>{% endif %}
+    </div>
+    <p class="small muted">
+      Company authentication code for WebFiling / future CS01 XML submit.
+      Stored <strong>encrypted</strong> at rest — never shown in full after save.
+    </p>
+    <form class="stack" method="post" action="/clients/{{ client.id }}/shares/auth-code" style="max-width:28rem">
+      <label>Authentication code</label>
+      <input name="ch_authentication_code" type="password" autocomplete="new-password"
+             placeholder="{% if ch_auth_on_file %}{{ ch_auth_masked }} — enter new to replace{% else %}6-character company code{% endif %}">
+      <button class="btn btn-sm" type="submit">Save code (encrypt)</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="page-header" style="margin-bottom:0.5rem">
+      <div>
+        <h2 style="margin:0">Share register</h2>
+        <p class="muted small" style="margin:0.35rem 0 0">
+          Practice register for CS01 prep.
+          {% if client.ch_register_seeded_at %}Last CH seed: {{ client.ch_register_seeded_at }} · {% endif %}
+          {% if client.share_register_verified_at %}
+          Verified {{ client.share_register_verified_at }}{% if client.share_register_verified_by %} by {{ client.share_register_verified_by }}{% endif %}
+          {% else %}
+          <strong>Not verified</strong> — confirm exact holdings before filing.
+          {% endif %}
+        </p>
+      </div>
+      <div class="actions">
+        {% if (client.client_type or '') != 'Individual' and client.company_number %}
+        <form method="post" action="/clients/{{ client.id }}/ch/refresh" style="display:inline">
+          <button class="btn btn-sm wc-touch" type="submit"
+                  title="Directors + PSCs as potential shareholders, capital, CS pack">
+            Refresh from Companies House
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    <p class="small muted">
+      One CH pull loads <strong>directors and PSCs</strong> as potential shareholders (same person = one row).
+      <strong>Delete</strong> anyone who is not a member, then type exact share numbers.
+      CH does not publish a full member register — only PSC bands + capital hints.
+    </p>
+    {% if share_summary %}
+    <p class="small">
+      {{ share_summary.holding_count or 0 }} members ·
+      {{ share_summary.class_count or 0 }} class(es) ·
+      known shares: <strong>{{ '{:,.0f}'.format(share_summary.total_shares_known or 0) }}</strong>
+      {% if share_summary.draft_count %} · <span class="badge">{{ share_summary.draft_count }} draft</span>{% endif %}
+    </p>
+    {% endif %}
+    {% if client.share_register_notes %}
+    <p class="small muted">{{ client.share_register_notes }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Share classes</h2>
+    {% if share_classes %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Class</th><th class="num">Nominal</th><th class="num">Aggregate issued</th><th>Source</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for sc in share_classes %}
+          <tr>
+            <td><strong>{{ sc.name }}</strong>
+              {% if sc.rights_notes %}<div class="muted small">{{ sc.rights_notes }}</div>{% endif %}
+            </td>
+            <td class="num">{{ sc.currency or 'GBP' }} {{ '%.4g'|format(sc.nominal_value or 0) }}</td>
+            <td class="num">{% if sc.aggregate_shares is not none %}{{ '{:,.0f}'.format(sc.aggregate_shares) }}{% else %}—{% endif %}</td>
+            <td class="small">{{ sc.source or 'manual' }}</td>
+            <td>
+              <form method="post" action="/clients/{{ client.id }}/shares/class/{{ sc.id }}/delete"
+                    onsubmit="return confirm('Delete this share class?');">
+                <button class="btn btn-sm btn-outline" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No share classes yet — seed from CH or add Ordinary below.</p>
+    {% endif %}
+    <form class="stack" method="post" action="/clients/{{ client.id }}/shares/class" style="margin-top:1rem">
+      <h3 style="margin:0;font-size:1rem">Add share class</h3>
+      <div class="form-grid">
+        <div><label>Name</label><input name="name" value="Ordinary"></div>
+        <div><label>Nominal value</label><input name="nominal_value" value="1" inputmode="decimal"></div>
+        <div><label>Currency</label><input name="currency" value="GBP"></div>
+        <div><label>Aggregate issued</label><input name="aggregate_shares" inputmode="decimal" placeholder="e.g. 100"></div>
+      </div>
+      <label>Rights / notes</label>
+      <input name="rights_notes" placeholder="Voting rights, etc.">
+      <button class="btn btn-sm" type="submit">Add class</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Members (shareholdings)</h2>
+    {% if shareholdings %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Member</th>
+            <th>Class</th>
+            <th class="num">Shares</th>
+            <th>PSC / notes</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for h in shareholdings %}
+          <tr>
+            <td>
+              <strong>{{ h.member_name }}</strong>
+              <div class="muted small">
+                {% if h.is_director %}<span class="badge">Director</span>{% endif %}
+                {% if h.is_psc %}<span class="badge">PSC</span>{% endif %}
+                {% if h.shares is not none and h.shares > 0 %}<span class="badge badge-active">Shareholder</span>{% endif %}
+                · {{ h.source or 'manual' }}
+              </div>
+            </td>
+            <td class="small">{% if h.share_class %}{{ h.share_class.name }}{% else %}—{% endif %}</td>
+            <td class="num">
+              {# Inline allocate shares #}
+              <form method="post" action="/clients/{{ client.id }}/shares/holding/{{ h.id }}/shares" style="display:inline-flex;gap:0.25rem;align-items:center">
+                <input name="shares" inputmode="decimal" value="{% if h.shares is not none %}{{ h.shares|int if h.shares == (h.shares|int) else h.shares }}{% endif %}"
+                       placeholder="?" style="width:4.5rem;margin:0">
+                <button class="btn btn-sm btn-outline" type="submit" title="Save share count">Set</button>
+              </form>
+            </td>
+            <td class="small">{{ h.psc_natures or h.notes or '—' }}</td>
+            <td><span class="badge {% if h.status == 'verified' %}badge-active{% endif %}">{{ h.status or 'draft' }}</span></td>
+            <td>
+              <form method="post" action="/clients/{{ client.id }}/shares/holding/{{ h.id }}/delete"
+                    onsubmit="return confirm('Remove — not a shareholder?');">
+                <button class="btn btn-sm btn-outline" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No members yet — seed from CH (PSC) or add manually.</p>
+    {% endif %}
+    <form class="stack" method="post" action="/clients/{{ client.id }}/shares/holding" style="margin-top:1rem">
+      <h3 style="margin:0;font-size:1rem">Add member</h3>
+      <div class="form-grid">
+        <div><label>Name *</label><input name="member_name" required placeholder="Shareholder name"></div>
+        <div>
+          <label>Type</label>
+          <select name="member_type">
+            <option value="individual">Individual</option>
+            <option value="corporate">Corporate</option>
+          </select>
+        </div>
+        <div><label>Shares</label><input name="shares" inputmode="decimal" placeholder="Exact number"></div>
+        <div>
+          <label>Share class</label>
+          <select name="share_class_id">
+            <option value="">—</option>
+            {% for sc in share_classes %}
+            <option value="{{ sc.id }}">{{ sc.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div><label>Certificate no.</label><input name="certificate_no"></div>
+      </div>
+      <label>Notes</label>
+      <input name="notes" placeholder="Optional">
+      <button class="btn btn-sm" type="submit">Add member</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Verify register</h2>
+    <p class="muted small">
+      When you have confirmed exact holdings (typical simple structure: 100 ordinary shares, 1–2 members),
+      mark verified for CS01 prep.
+    </p>
+    <form class="stack" method="post" action="/clients/{{ client.id }}/shares/verify">
+      <div class="form-grid">
+        <div><label>Verified by</label><input name="verified_by" value="practice"></div>
+      </div>
+      <label>Register notes</label>
+      <textarea name="notes" rows="2">{{ client.share_register_notes or '' }}</textarea>
+      <button class="btn wc-touch" type="submit">Mark share register verified</button>
+    </form>
+  </div>
 </div>
 
 <div class="tab-panel {% if active_tab == 'documents' %}active{% endif %}" id="tab-documents" role="tabpanel" {% if active_tab != 'documents' %}hidden{% endif %}>

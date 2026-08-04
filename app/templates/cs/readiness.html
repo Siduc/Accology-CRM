@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}CS readiness · Accologise{% endblock %}
+{% block minibar_title %}CS readiness{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/confirmation-statements">← CS jobs</a> · <a href="/clients">Clients</a></p>
+    <h1>Confirmation Statement readiness</h1>
+    <p class="muted small">
+      Practice prep for WebFiling (auth code · shares · pack · due date).
+      Electronic CS01 submit comes later via XML Gateway.
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm btn-outline" href="/confirmation-statements">All CS jobs</a>
+    <a class="btn btn-sm btn-outline" href="/clients">Companies</a>
+  </div>
+</div>
+
+{# Filter tiles #}
+<div class="wc-grid" style="grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));margin-bottom:1rem">
+  <a class="wc-box wc-box-wip wc-touch {% if filter in ('open','all','') %}is-selected{% endif %}" href="/cs/readiness">
+    <div class="wc-box-head"><span class="wc-box-title">All open</span></div>
+    <div class="wc-box-value">{{ counts.showing }}</div>
+    <div class="wc-box-meta">On board</div>
+  </a>
+  <a class="wc-box wc-box-creditors wc-touch {% if filter == 'overdue' %}is-selected{% endif %}" href="/cs/readiness?filter=overdue">
+    <div class="wc-box-head"><span class="wc-box-title">Overdue</span></div>
+    <div class="wc-box-value">{{ counts.overdue }}</div>
+    <div class="wc-box-meta">Past due</div>
+  </a>
+  <a class="wc-box wc-box-debtors wc-touch {% if filter == 'due_soon' %}is-selected{% endif %}" href="/cs/readiness?filter=due_soon">
+    <div class="wc-box-head"><span class="wc-box-title">Due soon</span></div>
+    <div class="wc-box-value">{{ counts.due_soon }}</div>
+    <div class="wc-box-meta">≤ 30 days</div>
+  </a>
+  <a class="wc-box wc-box-cash wc-touch {% if filter == 'ready' %}is-selected{% endif %}" href="/cs/readiness?filter=ready">
+    <div class="wc-box-head"><span class="wc-box-title">Ready</span></div>
+    <div class="wc-box-value">{{ counts.ready }}</div>
+    <div class="wc-box-meta">Auth · shares · pack</div>
+  </a>
+  <a class="wc-box wc-box-wip wc-touch {% if filter == 'almost' %}is-selected{% endif %}" href="/cs/readiness?filter=almost">
+    <div class="wc-box-head"><span class="wc-box-title">Almost</span></div>
+    <div class="wc-box-value">{{ counts.almost }}</div>
+    <div class="wc-box-meta">1–2 gaps</div>
+  </a>
+  <a class="wc-box wc-box-creditors wc-touch {% if filter == 'missing' %}is-selected{% endif %}" href="/cs/readiness?filter=missing">
+    <div class="wc-box-head"><span class="wc-box-title">Missing</span></div>
+    <div class="wc-box-value">{{ counts.missing }}</div>
+    <div class="wc-box-meta">More work</div>
+  </a>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Due</th>
+          <th>Status</th>
+          <th>Auth</th>
+          <th>Shares</th>
+          <th>Pack</th>
+          <th>Gaps</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set c = r.client %}
+        {% set pack = r.pack %}
+        {% set job = r.job %}
+        <tr>
+          <td>
+            <a href="/clients/{{ c.id }}"><strong>{{ c.display_name() }}</strong></a>
+            <div class="muted small">{{ c.company_number or '—' }}
+              {% if job %} · <a href="/jobs/{{ job.id }}">Job #{{ job.id }}</a>{% endif %}
+            </div>
+          </td>
+          <td class="small">
+            {% if r.due %}
+              {{ r.due|uk_date }}
+              {% if r.overdue %}<div class="badge badge-overdue">Overdue</div>
+              {% elif r.due_soon %}<div class="badge badge-progress">Soon</div>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if r.level == 'ready' %}
+            <span class="badge badge-active">Ready</span>
+            {% elif r.level == 'almost' %}
+            <span class="badge badge-progress">Almost</span>
+            {% else %}
+            <span class="badge badge-overdue">Missing</span>
+            {% endif %}
+            <div class="muted small">{{ r.ok_count }}/{{ r.total }}</div>
+          </td>
+          <td class="num">{% for i in r.checklist if i.key == 'auth_code' %}{% if i.ok %}✓{% else %}·{% endif %}{% endfor %}</td>
+          <td class="num">{% for i in r.checklist if i.key == 'share_register' %}{% if i.ok %}✓{% else %}·{% endif %}{% endfor %}</td>
+          <td class="num">{% for i in r.checklist if i.key == 'cs_pack' %}{% if i.ok %}✓{% else %}·{% endif %}{% endfor %}</td>
+          <td class="small muted">
+            {% if r.blocking_labels %}
+              {{ r.blocking_labels|join(' · ') }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td class="small">
+            <a class="btn btn-sm btn-outline" href="/clients/{{ c.id }}?tab=shares">Shares</a>
+            {% if pack %}
+            <a class="btn btn-sm btn-outline" href="/cs/{{ pack.id }}">Pack</a>
+            {% if r.practice_ready and pack.status != 'ready_to_file' and pack.status != 'filed' %}
+            <form method="post" action="/cs/{{ pack.id }}/ready" style="display:inline">
+              <input type="hidden" name="raise_invoice" value="yes">
+              <button class="btn btn-sm" type="submit"
+                      onclick="return confirm('Mark ready and raise CS invoice?');">
+                Ready + invoice
+              </button>
+            </form>
+            {% elif pack.status == 'ready_to_file' %}
+            <span class="badge badge-active">Ready to file</span>
+            {% endif %}
+            {% else %}
+            <form method="post" action="/clients/{{ c.id }}/ch/refresh" style="display:inline">
+              <button class="btn btn-sm btn-outline" type="submit">Refresh CH</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">No CS work on this filter.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="small muted">
+  <strong>Ready</strong> = company number · encrypted auth code · share register verified with counts · CS pack exists · due date known.
+  File on WebFiling until XML Gateway is connected.
+</p>
+{% endblock %}
