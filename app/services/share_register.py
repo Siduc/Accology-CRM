@@ -430,10 +430,12 @@ def seed_register_from_ch(
     """
     Pull CH public data and seed share classes + potential shareholders.
 
-    Seeds active **directors** and **PSCs** as draft potential members (deduped —
-    same person who is director + PSC is one row with both flags).
+    Seeds **all** directors (including resigned) and **all** PSCs (including ceased)
+    as draft potential members — useful for silent / retiring partners who may still
+    hold shares. Delete anyone who is not a member. Deduped by name; same person who
+    is director + PSC is one row with both flags.
 
-    Exact share numbers are left blank for you to allocate (simple for most clients).
+    Exact share numbers are left blank for you to allocate.
     """
     from app.services.companies_house import (
         download_cs_bundle,
@@ -471,6 +473,7 @@ def seed_register_from_ch(
 
     stats = {
         "directors": 0,
+        "directors_resigned": 0,
         "pscs": 0,
         "pscs_ceased": 0,
         "capital_hints": len(capital_hints),
@@ -528,36 +531,63 @@ def seed_register_from_ch(
         ordinary.updated_at = datetime.utcnow()
         db.commit()
 
-    # Build merged people map by normalised name
-    # { key: {name, is_director, is_psc, ceased_psc, role, natures, member_type, company_number} }
+    # Build merged people map by normalised name — include ALL officers/PSCs
+    # (active + resigned/ceased) so silent/retiring partners can be allocated or deleted.
     people_map: Dict[str, Dict[str, Any]] = {}
 
+    def _blank_rec(name: str, **kwargs: Any) -> Dict[str, Any]:
+        base = {
+            "name": name,
+            "is_director": False,
+            "is_psc": False,
+            "resigned_director": False,
+            "ceased_psc": False,
+            "roles": [],
+            "natures": [],
+            "member_type": "individual",
+            "company_number": None,
+            "resigned_on": None,
+            "ceased_on": None,
+        }
+        base.update(kwargs)
+        return base
+
     for o in officers:
-        if o.get("resigned_on"):
-            continue
         role = (o.get("officer_role") or "").strip().lower()
-        if "director" not in role and role not in ("llp-member", "member"):
-            continue
-        stats["directors"] += 1
-        name = _format_psc_name(o)  # same name tidy
+        # Directors / LLP members (active or resigned) — skip pure secretaries etc.
+        if "director" not in role and role not in (
+            "llp-member",
+            "member",
+            "corporate-director",
+            "corporate-llp-member",
+        ):
+            # Still include corporate-nominee-director style roles that contain director
+            if "director" not in role and "member" not in role:
+                continue
+        resigned = bool(o.get("resigned_on"))
+        if resigned:
+            stats["directors_resigned"] += 1
+        else:
+            stats["directors"] += 1
+        name = _format_psc_name(o)
         key = _norm_person_key(name)
         if not key:
             continue
-        rec = people_map.setdefault(
-            key,
-            {
-                "name": name,
-                "is_director": False,
-                "is_psc": False,
-                "ceased_psc": False,
-                "roles": [],
-                "natures": [],
-                "member_type": "individual",
-                "company_number": None,
-            },
-        )
-        rec["is_director"] = True
-        rec["roles"].append(o.get("officer_role") or "director")
+        rec = people_map.setdefault(key, _blank_rec(name))
+        if resigned:
+            rec["resigned_director"] = True
+            rec["resigned_on"] = str(o.get("resigned_on") or "")[:10]
+            # Only mark is_director if still active (or never resigned)
+            if not rec["is_director"]:
+                pass
+        else:
+            rec["is_director"] = True
+            rec["resigned_director"] = False
+        role_label = (o.get("officer_role") or "director").replace("-", " ")
+        if resigned:
+            rec["roles"].append(f"{role_label} (resigned {rec['resigned_on']})")
+        else:
+            rec["roles"].append(role_label)
         if name and len(name) > len(rec["name"] or ""):
             rec["name"] = name
 
@@ -594,29 +624,21 @@ def seed_register_from_ch(
         cn_member = None
         if isinstance(item.get("identification"), dict):
             cn_member = item["identification"].get("registration_number")
-        rec = people_map.setdefault(
-            key,
-            {
-                "name": name,
-                "is_director": False,
-                "is_psc": False,
-                "ceased_psc": False,
-                "roles": [],
-                "natures": [],
-                "member_type": mtype,
-                "company_number": cn_member,
-            },
-        )
+        rec = people_map.setdefault(key, _blank_rec(name, member_type=mtype, company_number=cn_member))
         if not ceased:
             rec["is_psc"] = True
+            rec["ceased_psc"] = False
         else:
             rec["ceased_psc"] = True
+            rec["ceased_on"] = str(item.get("ceased_on") or "")[:10]
         if natures_s:
             rec["natures"].append(natures_s)
         if mtype == "corporate":
             rec["member_type"] = "corporate"
         if cn_member:
             rec["company_number"] = cn_member
+        if name and len(name) > len(rec["name"] or ""):
+            rec["name"] = name
 
     # Index existing holdings (keep manual / share-allocated rows)
     existing_by_key: Dict[str, Shareholding] = {}
@@ -629,6 +651,9 @@ def seed_register_from_ch(
         existing = existing_by_key.get(key)
         natures_s = "; ".join(rec["natures"]) if rec["natures"] else ""
         roles_s = ", ".join(rec["roles"]) if rec["roles"] else ""
+        is_ex = bool(rec.get("resigned_director") or rec.get("ceased_psc")) and not (
+            rec.get("is_director") or rec.get("is_psc")
+        )
         if existing:
             # Don't wipe allocated shares; still refresh flags
             changed = False
@@ -641,24 +666,47 @@ def seed_register_from_ch(
             if natures_s and not (existing.psc_natures or "").strip():
                 existing.psc_natures = natures_s
                 changed = True
+            # Enrich notes for exes so Delete is obvious
+            if is_ex and (existing.source or "").startswith("ch_"):
+                note = (existing.notes or "")
+                if "may still hold" not in note.lower() and "former" not in note.lower():
+                    existing.notes = (
+                        (note + " " if note else "")
+                        + "Former officer/PSC — delete if not a shareholder."
+                    ).strip()
+                    changed = True
             if changed:
                 existing.updated_at = datetime.utcnow()
                 stats["holdings_updated"] += 1
             continue
 
-        src = "ch_both" if rec["is_director"] and rec["is_psc"] else (
-            "ch_director" if rec["is_director"] else "ch_psc"
-        )
-        note_bits = [
-            "Potential shareholder from Companies House (director/PSC).",
-            "Delete if not a member. Set exact shares when known.",
-        ]
-        if rec.get("ceased_psc") and not rec.get("is_psc") and not rec.get("is_director"):
+        # Source tag for badges / filtering
+        if rec.get("is_director") and rec.get("is_psc"):
+            src = "ch_both"
+        elif rec.get("is_director"):
+            src = "ch_director"
+        elif rec.get("is_psc"):
+            src = "ch_psc"
+        elif rec.get("resigned_director") and rec.get("ceased_psc"):
+            src = "ch_ex_both"
+        elif rec.get("resigned_director"):
+            src = "ch_director_resigned"
+        elif rec.get("ceased_psc"):
+            src = "ch_psc_ceased"
+        else:
+            src = "ch_other"
+
+        if is_ex:
             note_bits = [
-                "Former PSC on Companies House — included in case they still hold shares.",
+                "Former officer/PSC on Companies House — included in case they still hold shares "
+                "(retiring / silent partners).",
                 "Delete if not a member. Set exact shares when known.",
             ]
-            src = "ch_psc_ceased"
+        else:
+            note_bits = [
+                "Potential shareholder from Companies House (director/PSC).",
+                "Delete if not a member. Set exact shares when known.",
+            ]
         if roles_s:
             note_bits.append(f"Officer: {roles_s}.")
         if natures_s:
@@ -685,25 +733,32 @@ def seed_register_from_ch(
     cap_note = (
         f"issued capital {agg_best:g}" if agg_best is not None else "issued capital unknown — set manually"
     )
+    ex_bits = []
+    if stats.get("directors_resigned"):
+        ex_bits.append(f"{stats['directors_resigned']} ex-director")
+    if stats.get("pscs_ceased"):
+        ex_bits.append(f"{stats['pscs_ceased']} ceased PSC")
     client.share_register_notes = (
         f"Last CH seed {client.ch_register_seeded_at.date().isoformat()}. "
         f"Directors: {stats['directors']}; PSCs: {stats['pscs']}"
-        + (f" (+{stats['pscs_ceased']} ceased)" if stats.get("pscs_ceased") else "")
+        + (f" (+{', '.join(ex_bits)})" if ex_bits else "")
         + f"; {cap_note}; capital filing hits: {stats['capital_hints']}. "
-        "Allocate share numbers; delete anyone who is not a shareholder."
+        "Includes former officers/PSCs — delete anyone who is not a shareholder."
     )
     client.updated_at = datetime.utcnow()
     db.commit()
 
     msg = (
         f"CH seed: {stats['holdings_added']} potential shareholder(s) "
-        f"({stats['directors']} directors, {stats['pscs']} PSCs"
+        f"({stats['directors']} directors"
+        + (f", {stats['directors_resigned']} resigned" if stats.get("directors_resigned") else "")
+        + f", {stats['pscs']} PSCs"
         + (f", {stats['pscs_ceased']} ceased PSC" if stats.get("pscs_ceased") else "")
         + " — de-duplicated)"
         + (f", {stats['holdings_updated']} updated" if stats["holdings_updated"] else "")
         + (f", cleared {stats['holdings_cleared']} old draft rows" if stats["holdings_cleared"] else "")
         + (f", issued capital {agg_best:g}" if agg_best is not None else ", issued capital not found on CH filings — set Aggregate issued manually")
-        + ". Set share counts; delete non-shareholders."
+        + ". Ex-officers included — delete non-shareholders."
     )
     return True, msg, stats
 

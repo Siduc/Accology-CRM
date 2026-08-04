@@ -750,8 +750,8 @@
       </div>
     </div>
     <p class="small muted">
-      One CH pull loads <strong>directors and PSCs</strong> as potential shareholders (same person = one row).
-      <strong>Delete</strong> anyone who is not a member, then type exact share numbers.
+      One CH pull loads <strong>all directors and PSCs</strong> (including resigned / ceased) as potential shareholders.
+      Same person = one row. <strong>Delete</strong> exes who are not members, then set share numbers.
       CH does not publish a full member register — only PSC bands + capital hints.
     </p>
     {% if share_summary %}
@@ -884,6 +884,10 @@
 
   <div class="card">
     <h2>Members (shareholdings)</h2>
+    <p class="small muted">
+      Seed includes <strong>current and former</strong> directors/PSCs (retiring silent partners often still hold shares).
+      <strong>Delete</strong> anyone who is not a member — allocate shares for those who are.
+    </p>
     {% if shareholdings %}
     <div class="table-wrap">
       <table class="data">
@@ -899,15 +903,20 @@
         </thead>
         <tbody>
           {% for h in shareholdings %}
-          <tr>
+          {% set src = h.source or '' %}
+          {% set is_ex = src in ('ch_director_resigned', 'ch_psc_ceased', 'ch_ex_both')
+             or ('resigned' in src) or ('ceased' in src) or ('ch_ex' in src) %}
+          {% set is_sh = h.shares is not none and h.shares > 0 %}
+          <tr {% if is_ex and not is_sh %}style="opacity:0.92"{% endif %}>
             <td>
               <strong>{{ h.member_name }}</strong>
               <div class="muted small">
                 {% if h.is_director %}<span class="badge">Director</span>{% endif %}
                 {% if h.is_psc %}<span class="badge">PSC</span>{% endif %}
-                {% if (h.source or '') == 'ch_psc_ceased' %}<span class="badge">Ceased PSC</span>{% endif %}
-                {% if h.shares is not none and h.shares > 0 %}<span class="badge badge-active">Shareholder</span>{% endif %}
-                · {{ h.source or 'manual' }}
+                {% if src == 'ch_director_resigned' or src == 'ch_ex_both' %}<span class="badge badge-overdue">Ex-director</span>{% endif %}
+                {% if src == 'ch_psc_ceased' or src == 'ch_ex_both' %}<span class="badge badge-overdue">Ceased PSC</span>{% endif %}
+                {% if is_sh %}<span class="badge badge-active">Shareholder</span>{% endif %}
+                · {{ src or 'manual' }}
               </div>
             </td>
             <td class="small">{% if h.share_class %}{{ h.share_class.name }}{% else %}—{% endif %}</td>
@@ -923,8 +932,12 @@
             <td><span class="badge {% if h.status == 'verified' %}badge-active{% endif %}">{{ h.status or 'draft' }}</span></td>
             <td>
               <form method="post" action="/clients/{{ client.id }}/shares/holding/{{ h.id }}/delete"
-                    onsubmit="return confirm('Remove — not a shareholder?');">
-                <button class="btn btn-sm btn-outline" type="submit">Delete</button>
+                    onsubmit="return confirm('Remove {{ h.member_name }} — not a shareholder?');">
+                <button class="btn btn-sm {% if is_ex and not is_sh %}btn-secondary{% else %}btn-outline{% endif %}"
+                        type="submit"
+                        title="{% if is_ex %}Former officer/PSC — remove if they no longer hold shares{% else %}Remove if not a shareholder{% endif %}">
+                  {% if is_ex and not is_sh %}Delete ex{% else %}Delete{% endif %}
+                </button>
               </form>
             </td>
           </tr>
