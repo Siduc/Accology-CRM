@@ -167,6 +167,11 @@ def _add_missing_columns():
             ("ch_transaction_id", "VARCHAR"),
             ("filing_prep_json", "TEXT"),
             ("oauth_token_id", "INTEGER"),
+            ("xml_export_json", "TEXT"),
+            ("xml_last_export_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+            ("xml_submission_ref", "VARCHAR"),
+            ("xml_submission_status", "VARCHAR"),
+            ("xml_submission_response", "TEXT"),
         ],
         "bank_accounts": [
             ("bank_name", "VARCHAR"),

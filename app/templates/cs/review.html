@@ -575,13 +575,43 @@
       <button class="btn btn-outline wc-touch" type="submit">Mark filed in Accologise</button>
     </form>
     <a class="btn btn-outline wc-touch" href="/cs/{{ pack.id }}/export">Export file note (.txt)</a>
+    <a class="btn wc-touch" href="/cs/{{ pack.id }}/xml">CS01 XML export</a>
     <form method="post" action="/cs/{{ pack.id }}/refresh" onsubmit="return confirm('Refresh from Companies House? This reloads public data into the pack.')">
       <button class="btn btn-outline btn-sm" type="submit">Refresh from CH</button>
     </form>
   </div>
+
+  {% if xml_readiness %}
+  <div class="card" style="margin-top:1rem;padding:0.85rem 1rem">
+    <h3 class="h4" style="margin:0 0 0.5rem">XML Gateway · CS01</h3>
+    <p class="small muted" style="margin:0 0 0.5rem">
+      {% if xml_readiness.can_export %}
+      Export ready
+      {% else %}
+      Export blocked:
+      {{ xml_readiness.export_blockers|join(', ') if xml_readiness.export_blockers else 'check pack data' }}
+      {% endif %}
+      · {{ xml_readiness.ok_count }}/{{ xml_readiness.total }} checks
+      {% if xml_gateway and xml_gateway.configured %}
+      · presenter {{ xml_gateway.presenter_id_mask }}
+      {% else %}
+      · presenter not set (export still works; submit later)
+      {% endif %}
+    </p>
+    <div class="actions" style="flex-wrap:wrap">
+      <a class="btn btn-outline wc-touch" href="/cs/{{ pack.id }}/xml">Open XML tools</a>
+      {% if xml_readiness.can_export %}
+      <a class="btn btn-outline wc-touch" href="/cs/{{ pack.id }}/xml/download">Download .xml</a>
+      {% endif %}
+    </div>
+    <p class="small muted" style="margin:0.6rem 0 0">
+      File on WebFiling until live XML submit is enabled. Auth codes stay encrypted on Shares / CH.
+    </p>
+  </div>
+  {% else %}
   <p class="small muted" style="margin-top:0.75rem">
     File on WebFiling with the company auth code (encrypted on Shares / CH).
-    XML Gateway electronic CS01 is the next build step after readiness is solid.
   </p>
+  {% endif %}
 </div>
 {% endblock %}

@@ -230,16 +230,50 @@ def filing_readiness(
         "Pack reviewed / ready to file",
         f"Status: {pack.status or '—'}",
     )
+
+    xml_configured = False
+    xml_can_submit = False
+    xml_detail = "Export/preview available; set presenter env for submit later"
+    try:
+        from app.config import CH_XML_SUBMIT_LIVE, ch_xml_gateway_configured
+
+        xml_configured = ch_xml_gateway_configured()
+        # Submit needs presenter + live flag + practice share/auth readiness
+        xml_can_submit = bool(
+            CH_XML_SUBMIT_LIVE and xml_configured and auth_on_file and shares_ok
+        )
+        if CH_XML_SUBMIT_LIVE and xml_configured:
+            xml_detail = "Presenter set · live submit enabled (use with care)"
+        elif xml_configured:
+            xml_detail = "Presenter set · export on · live submit off"
+        else:
+            xml_detail = (
+                "Export/preview works now; set CH_XML_PRESENTER_ID + "
+                "CH_XML_PRESENTER_AUTH for submit later"
+            )
+    except Exception:
+        xml_detail = "XML module unavailable"
+
+    add(
+        "xml_gateway",
+        True,  # non-blocking for WebFiling workflow
+        "XML Gateway CS01 export",
+        xml_detail,
+    )
     add(
         "cs_api",
-        False,
-        "Electronic CS01 API / XML submit",
-        "Not wired yet — file on WebFiling; XML Gateway is the planned route",
+        xml_can_submit,
+        "Electronic CS01 live submit",
+        (
+            "Ready to POST (CH_XML_SUBMIT_LIVE=1)"
+            if xml_can_submit
+            else "Disabled — file on WebFiling or enable after schema sign-off"
+        ),
     )
 
     ok_count = sum(1 for i in items if i["ok"])
-    # OAuth + public API are not blocking for practice “ready to file on WebFiling”
-    non_blocking = {"cs_api", "oauth_config", "oauth_token"}
+    # OAuth + live XML submit are not blocking for practice “ready to file on WebFiling”
+    non_blocking = {"cs_api", "oauth_config", "oauth_token", "xml_gateway"}
     blocking = [i for i in items if not i["ok"] and i["key"] not in non_blocking]
     practice_ready = len(blocking) == 0
     return {
@@ -248,7 +282,8 @@ def filing_readiness(
         "total": len(items),
         "can_prepare": practice_ready,
         "practice_ready": practice_ready,
-        "can_submit_cs": False,
+        "can_submit_cs": xml_can_submit,
+        "xml_configured": xml_configured,
         "blocking": [i["key"] for i in blocking],
         "level": (
             "ready"

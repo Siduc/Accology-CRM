@@ -300,6 +300,41 @@ def ch_oauth_configured() -> bool:
     )
 
 
+# Companies House XML Gateway (Software Filing / presenter account)
+# Apply: https://www.gov.uk/guidance/apply-to-file-with-companies-house-using-software
+CH_XML_PRESENTER_ID = _env("CH_XML_PRESENTER_ID") or ""
+CH_XML_PRESENTER_AUTH = _env("CH_XML_PRESENTER_AUTH") or ""
+# Live gateway (production). Test/sandbox when CH_XML_GATEWAY_TEST=1
+CH_XML_GATEWAY_URL = (
+    _env(
+        "CH_XML_GATEWAY_URL",
+        "https://xmlgw.companieshouse.gov.uk/v1-0/xmlgw/Gateway",
+    )
+    or "https://xmlgw.companieshouse.gov.uk/v1-0/xmlgw/Gateway"
+)
+CH_XML_GATEWAY_TEST_URL = (
+    _env(
+        "CH_XML_GATEWAY_TEST_URL",
+        "https://xmlgw.companieshouse.gov.uk/v1-0/xmlgw/Gateway",
+    )
+    or "https://xmlgw.companieshouse.gov.uk/v1-0/xmlgw/Gateway"
+)
+CH_XML_GATEWAY_TEST = _env_bool_early("CH_XML_GATEWAY_TEST", True)
+# Package / product reference registered with CH for your software (when issued)
+CH_XML_PACKAGE_REFERENCE = _env("CH_XML_PACKAGE_REFERENCE") or "0000"
+CH_XML_PRODUCT = _env("CH_XML_PRODUCT") or "Accologise"
+CH_XML_PRODUCT_VERSION = _env("CH_XML_PRODUCT_VERSION") or "1.0"
+# Live submit is OFF by default — export/preview only until presenter + schema signed off
+CH_XML_SUBMIT_LIVE = _env_bool_early("CH_XML_SUBMIT_LIVE", False)
+
+
+def ch_xml_gateway_configured() -> bool:
+    """Presenter ID + authentication code present (env)."""
+    return bool(
+        (CH_XML_PRESENTER_ID or "").strip() and (CH_XML_PRESENTER_AUTH or "").strip()
+    )
+
+
 # Microsoft Graph / OneDrive (delegated OAuth for practice OneDrive)
 # Exact env names (required for Connect):
 #   MS_GRAPH_CLIENT_ID

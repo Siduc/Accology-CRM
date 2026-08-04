@@ -15,6 +15,11 @@ from app.config import (
     CH_OAUTH_CLIENT_ID,
     CH_OAUTH_CLIENT_SECRET,
     CH_OAUTH_REDIRECT_URI,
+    CH_XML_GATEWAY_TEST,
+    CH_XML_GATEWAY_URL,
+    CH_XML_PACKAGE_REFERENCE,
+    CH_XML_PRESENTER_AUTH,
+    CH_XML_SUBMIT_LIVE,
     CHASE_LIVE_MODE,
     PRACTICE_EMAIL,
     PRACTICE_NAME,
@@ -22,6 +27,7 @@ from app.config import (
     SMTP_FROM,
     SMTP_HOST,
     ch_oauth_configured,
+    ch_xml_gateway_configured,
     ms_graph_configured,
     refresh_ms_graph_settings,
 )
@@ -37,6 +43,8 @@ from app.services.ch_oauth import (
     mask_client_id,
     redirect_uri_warning,
 )
+from app.services.ch_xml_gateway import gateway_url as ch_xml_gateway_url_fn
+from app.services.ch_xml_gateway import presenter_id_masked as ch_xml_presenter_mask_fn
 from app.services.dev_backlog import list_backlog, seed_system_backlog
 from app.services.ms_graph_oauth import (
     connection_status as ms_connection_status,
@@ -122,6 +130,13 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "ch_oauth_tokens": oauth_tokens,
             "ch_oauth_last": oauth_last,
             "ch_oauth_stu": oauth_stu,
+            "ch_xml_configured": ch_xml_gateway_configured(),
+            "ch_xml_presenter_mask": ch_xml_presenter_mask_fn(),
+            "ch_xml_auth_set": bool((CH_XML_PRESENTER_AUTH or "").strip()),
+            "ch_xml_gateway_test": bool(CH_XML_GATEWAY_TEST),
+            "ch_xml_gateway_url": ch_xml_gateway_url_fn() or (CH_XML_GATEWAY_URL or ""),
+            "ch_xml_package": CH_XML_PACKAGE_REFERENCE or "0000",
+            "ch_xml_submit_live": bool(CH_XML_SUBMIT_LIVE),
             "ms_graph_configured": ms_ok,
             "ms_graph_client_mask": ms_mask_client_id(app_config.MS_GRAPH_CLIENT_ID),
             "ms_graph_secret_set": bool(

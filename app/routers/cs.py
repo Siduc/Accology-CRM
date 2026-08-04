@@ -5,13 +5,14 @@ from __future__ import annotations
 from urllib.parse import quote as url_quote
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Client, Job
 from app.services.ch_filing import prepare_cs_filing, prep_dict, readiness_for_pack
 from app.services.ch_oauth import latest_token_for_client, oauth_is_ready, token_is_fresh
+from app.services import ch_xml_gateway as xml_svc
 from app.models.person import Person
 from app.services.cs_automation import (
     apply_ch_address_to_client,
@@ -92,6 +93,7 @@ async def cs_review(
         latest_token_for_client(db, pack.client_id) if pack.client_id else None
     )
     readiness = readiness_for_pack(db, pack, client)
+    xml_readiness = xml_svc.xml_export_readiness(db, pack, client)
     return render(
         request,
         "cs/review.html",
@@ -113,6 +115,9 @@ async def cs_review(
             "oauth_token_fresh": token_is_fresh(oauth_token) if oauth_token else False,
             "readiness": readiness,
             "filing_prep": prep_dict(pack),
+            "xml_readiness": xml_readiness,
+            "xml_gateway": xml_svc.gateway_status(),
+            "xml_export": xml_svc.export_dict(pack),
         },
     )
 
@@ -334,6 +339,104 @@ async def cs_export(pack_id: int, db: Session = Depends(get_db)):
         text,
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@router.get("/cs/{pack_id:int}/xml", response_class=HTMLResponse)
+async def cs_xml_page(
+    pack_id: int, request: Request, db: Session = Depends(get_db)
+):
+    """XML Gateway CS01 preview page — build / download / (gated) submit."""
+    pack = get_pack(db, pack_id)
+    if not pack:
+        return RedirectResponse("/clients", status_code=303)
+    client = db.query(Client).filter(Client.id == pack.client_id).first()
+    readiness = xml_svc.xml_export_readiness(db, pack, client)
+    preview_xml = ""
+    build_error = ""
+    if readiness.get("can_export"):
+        built = xml_svc.build_cs01_xml(db, pack, client, include_auth_code=False)
+        if built.ok:
+            preview_xml = built.xml
+        else:
+            build_error = built.error
+    return render(
+        request,
+        "cs/xml_export.html",
+        {
+            "pack": pack,
+            "client": client,
+            "xml_readiness": readiness,
+            "xml_gateway": xml_svc.gateway_status(),
+            "xml_export": xml_svc.export_dict(pack),
+            "preview_xml": preview_xml,
+            "build_error": build_error,
+            "msg": request.query_params.get("msg", ""),
+            "error": request.query_params.get("error", ""),
+        },
+    )
+
+
+@router.post("/cs/{pack_id:int}/xml/build")
+async def cs_xml_build(pack_id: int, db: Session = Depends(get_db)):
+    pack = get_pack(db, pack_id)
+    if not pack:
+        return RedirectResponse("/clients", status_code=303)
+    client = db.query(Client).filter(Client.id == pack.client_id).first()
+    result = xml_svc.save_xml_export(db, pack, client)
+    if not result.ok:
+        return RedirectResponse(
+            f"/cs/{pack_id}/xml?error={url_quote(result.error or 'Build failed')}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/cs/{pack_id}/xml?msg={url_quote('XML export saved (auth codes redacted)')}",
+        status_code=303,
+    )
+
+
+@router.get("/cs/{pack_id:int}/xml/download")
+async def cs_xml_download(pack_id: int, db: Session = Depends(get_db)):
+    pack = get_pack(db, pack_id)
+    if not pack:
+        return RedirectResponse("/clients", status_code=303)
+    client = db.query(Client).filter(Client.id == pack.client_id).first()
+    result = xml_svc.build_cs01_xml(db, pack, client, include_auth_code=False)
+    if not result.ok:
+        return RedirectResponse(
+            f"/cs/{pack_id}/xml?error={url_quote(result.error or 'Build failed')}",
+            status_code=303,
+        )
+    # Persist summary when downloading
+    try:
+        xml_svc.save_xml_export(db, pack, client)
+    except Exception:
+        pass
+    cn = pack.company_number or pack.id
+    fname = f"cs01-{cn}-pack{pack.id}.xml"
+    return Response(
+        content=result.xml,
+        media_type="application/xml; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@router.post("/cs/{pack_id:int}/xml/submit")
+async def cs_xml_submit(pack_id: int, db: Session = Depends(get_db)):
+    """Live gateway submit — gated by CH_XML_SUBMIT_LIVE (default off)."""
+    pack = get_pack(db, pack_id)
+    if not pack:
+        return RedirectResponse("/clients", status_code=303)
+    client = db.query(Client).filter(Client.id == pack.client_id).first()
+    result = xml_svc.submit_cs01_xml(db, pack, client)
+    if not result.get("ok"):
+        return RedirectResponse(
+            f"/cs/{pack_id}/xml?error={url_quote((result.get('error') or 'Submit failed')[:300])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/cs/{pack_id}/xml?msg={url_quote('Submitted to XML Gateway — check response status')}",
+        status_code=303,
     )
 
 

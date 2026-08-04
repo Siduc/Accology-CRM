@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}CS01 XML · {{ client.display_name() if client else pack.id }} · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted">
+      <a href="/cs/{{ pack.id }}">← CS review pack</a>
+      {% if client %} · <a href="/clients/{{ client.id }}?tab=shares">Shares / CH</a>{% endif %}
+    </p>
+    <h1>CS01 · XML Gateway export</h1>
+    <p class="muted small">
+      {{ client.display_name() if client else '—' }}
+      · {{ pack.company_number or '—' }}
+      · pack #{{ pack.id }}
+      · <span class="badge">{{ pack.status }}</span>
+    </p>
+  </div>
+  <div class="actions" style="flex-wrap:wrap">
+    <a class="btn btn-outline wc-touch" href="/cs/{{ pack.id }}">CS pack</a>
+    <a class="btn btn-outline wc-touch" href="/settings#settings-ch-xml">XML settings</a>
+  </div>
+</div>
+
+{% if msg %}
+<div class="chase-banner chase-banner-info">{{ msg }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+{% if build_error %}
+<div class="alert alert-error">Build: {{ build_error }}</div>
+{% endif %}
+
+<div class="chase-banner chase-banner-practice" role="status">
+  <strong>Slice A — export / preview</strong>
+  Auth codes and presenter secrets are <strong>redacted</strong> in downloads.
+  Live electronic submit stays off until you have a presenter account, package
+  reference, and set <code>CH_XML_SUBMIT_LIVE=1</code> on Render after schema sign-off.
+  Until then, file on WebFiling as usual.
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 class="h3" style="margin-top:0">Gateway</h2>
+  <dl class="dl-grid">
+    <dt>Presenter</dt>
+    <dd>
+      {% if xml_gateway.configured %}
+      <span class="badge badge-ok">configured</span>
+      · id <code>{{ xml_gateway.presenter_id_mask }}</code>
+      · auth {% if xml_gateway.presenter_auth_set %}set{% else %}<em>missing</em>{% endif %}
+      {% else %}
+      <span class="badge">not configured</span>
+      — add <code>CH_XML_PRESENTER_ID</code> + <code>CH_XML_PRESENTER_AUTH</code>
+      {% endif %}
+    </dd>
+    <dt>Mode</dt>
+    <dd>
+      {% if xml_gateway.gateway_test %}Gateway <strong>test</strong> flag on{% else %}Gateway <strong>live</strong> flag{% endif %}
+      · package <code>{{ xml_gateway.package_reference }}</code>
+      · product {{ xml_gateway.product }} {{ xml_gateway.product_version }}
+    </dd>
+    <dt>Live submit</dt>
+    <dd>
+      {% if xml_gateway.can_submit %}
+      <span class="badge badge-overdue">ENABLED</span>
+      {% else %}
+      <span class="badge">off</span>
+      (export only)
+      {% endif %}
+    </dd>
+    {% if pack.xml_last_export_at %}
+    <dt>Last export</dt>
+    <dd>{{ pack.xml_last_export_at }}</dd>
+    {% endif %}
+    {% if pack.xml_submission_status %}
+    <dt>Last submit status</dt>
+    <dd>{{ pack.xml_submission_status }}
+      {% if pack.xml_submission_ref %} · ref {{ pack.xml_submission_ref }}{% endif %}
+    </dd>
+    {% endif %}
+  </dl>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 class="h3" style="margin-top:0">Export checklist</h2>
+  <ul class="stack" style="list-style:none;padding:0;margin:0">
+    {% for item in xml_readiness.checklist %}
+    <li style="display:flex;gap:0.6rem;align-items:flex-start;padding:0.35rem 0;border-bottom:1px solid var(--border, #e5e5e5)">
+      <span aria-hidden="true">{% if item.ok %}✓{% else %}○{% endif %}</span>
+      <div>
+        <strong>{{ item.label }}</strong>
+        {% if item.detail %}<div class="small muted">{{ item.detail }}</div>{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="small muted" style="margin-top:0.75rem">
+    Export needs company number + made-up-to + pack data.
+    Submit also needs auth code, share counts, and presenter credentials.
+  </p>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 class="h3" style="margin-top:0">Actions</h2>
+  <div class="actions" style="flex-wrap:wrap">
+    {% if xml_readiness.can_export %}
+    <a class="btn wc-touch" href="/cs/{{ pack.id }}/xml/download">Download CS01 XML</a>
+    <form method="post" action="/cs/{{ pack.id }}/xml/build">
+      <button class="btn btn-outline wc-touch" type="submit">Save export record</button>
+    </form>
+    {% else %}
+    <span class="muted">Fix export blockers above, then download.</span>
+    {% endif %}
+    {% if client %}
+    <a class="btn btn-outline wc-touch" href="/clients/{{ client.id }}?tab=shares">Edit shares / auth code</a>
+    {% endif %}
+    <a class="btn btn-outline wc-touch" href="/cs/{{ pack.id }}/export">File note (.txt)</a>
+  </div>
+
+  {% if xml_gateway.submit_live_enabled %}
+  <form method="post" action="/cs/{{ pack.id }}/xml/submit" style="margin-top:1rem"
+        onsubmit="return confirm('POST this CS01 to the Companies House XML Gateway? Only do this with a validated schema and presenter account.');">
+    <button class="btn btn-secondary wc-touch" type="submit"
+      {% if not xml_readiness.can_submit %}disabled title="Not ready"{% endif %}>
+      Submit to XML Gateway (live)
+    </button>
+  </form>
+  {% else %}
+  <p class="small muted" style="margin-top:1rem">
+    Live submit button hidden while <code>CH_XML_SUBMIT_LIVE</code> is off (recommended).
+  </p>
+  {% endif %}
+</div>
+
+{% if preview_xml %}
+<div class="card">
+  <h2 class="h3" style="margin-top:0">Preview (secrets redacted)</h2>
+  <pre class="code-block" style="max-height:28rem;overflow:auto;font-size:0.75rem;white-space:pre-wrap;word-break:break-word">{{ preview_xml }}</pre>
+</div>
+{% endif %}
+
+<p class="small muted" style="margin-top:1.25rem">
+  Apply for a presenter account:
+  <a href="https://www.gov.uk/guidance/apply-to-file-with-companies-house-using-software" target="_blank" rel="noopener">
+    GOV.UK · software filing
+  </a>
+</p>
+{% endblock %}

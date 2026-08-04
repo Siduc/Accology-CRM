@@ -532,6 +532,46 @@
 <section class="settings-section" id="settings-other">
   <h2 class="settings-section-title">Other</h2>
 
+  <div class="card settings-card" id="settings-ch-xml">
+    <h3>Companies House · XML Gateway (CS01)</h3>
+    <p class="muted small">
+      Software Filing via the XML Gateway uses a <strong>presenter ID and authentication code</strong>
+      (separate from company auth codes and from OAuth API Filing).
+      Accologise can <strong>export CS01 XML</strong> from a ready pack now; live submit stays off until you enable it.
+    </p>
+    {% if ch_xml_configured %}
+    <div class="chase-banner chase-banner-info" role="status">
+      <strong>Presenter configured</strong>
+      · id <code>{{ ch_xml_presenter_mask or '…' }}</code>
+      · auth {% if ch_xml_auth_set %}set{% else %}<em>missing</em>{% endif %}
+      · {% if ch_xml_gateway_test %}test mode{% else %}live gateway flag{% endif %}
+      · package <code>{{ ch_xml_package or '0000' }}</code>
+    </div>
+    {% else %}
+    <div class="chase-banner chase-banner-practice" role="status">
+      <strong>Presenter not set</strong> — export still works (secrets redacted).
+      For later submit, add on Render / <code>.env</code> then redeploy:
+      <code>CH_XML_PRESENTER_ID</code>, <code>CH_XML_PRESENTER_AUTH</code>
+      (optional: <code>CH_XML_PACKAGE_REFERENCE</code>, <code>CH_XML_GATEWAY_TEST=1</code>,
+      <code>CH_XML_SUBMIT_LIVE=0</code>).
+    </div>
+    {% endif %}
+    <dl class="dl-grid">
+      <dt>Live submit</dt>
+      <dd>{% if ch_xml_submit_live %}<span class="badge badge-overdue">ON</span>{% else %}<span class="badge">off</span> (recommended){% endif %}</dd>
+      <dt>Gateway URL</dt>
+      <dd class="small"><code>{{ ch_xml_gateway_url or '—' }}</code></dd>
+    </dl>
+    <p class="small muted">
+      Apply for a presenter account:
+      <a href="https://www.gov.uk/guidance/apply-to-file-with-companies-house-using-software" target="_blank" rel="noopener">GOV.UK software filing</a>.
+      Open a CS pack → <strong>CS01 XML export</strong> to download.
+    </p>
+    <div class="actions" style="flex-wrap:wrap">
+      <a class="btn btn-outline wc-touch" href="/cs/readiness">CS readiness board</a>
+    </div>
+  </div>
+
   <div class="card settings-card">
     <h3>Companies House · API Filing (OAuth)</h3>
     <p class="muted small">
