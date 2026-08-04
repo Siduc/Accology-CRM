@@ -757,6 +757,16 @@ async def client_detail(
             "ch_auth_masked": ch_auth_masked,
             "ch_auth_on_file": ch_auth_on_file,
             "msg": request.query_params.get("msg", ""),
+            "over_warn": request.query_params.get("over_warn", ""),
+            "over_holding_id": request.query_params.get("holding_id", ""),
+            "over_want": request.query_params.get("want", ""),
+            "over_issued": request.query_params.get("issued", ""),
+            "over_other": request.query_params.get("other", ""),
+            "over_remaining": request.query_params.get("remaining", ""),
+            "over_by": request.query_params.get("over_by", ""),
+            "over_total": request.query_params.get("total", ""),
+            "over_member": request.query_params.get("member", ""),
+            "over_reason": request.query_params.get("reason", ""),
         },
     )
 
@@ -1351,10 +1361,18 @@ async def client_shareholding_set_shares(
     holding_id: int,
     shares: str = Form(""),
     return_to: str = Form(""),
+    force: str = Form(""),
+    action: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    """Allocate exact share count — turns potential member into shareholder."""
-    from app.models.share_register import Shareholding
+    """Allocate exact share count — turns potential member into shareholder.
+
+    On over-allocation, blocks unless action is one of:
+      force — save anyway
+      raise_issued — set class aggregate to total allocated then save
+      cap_remaining — set shares to remaining pool then save
+    """
+    from app.models.share_register import Shareholding, ShareClass
     from app.services import share_register as share_svc
     from datetime import datetime as _dt
 
@@ -1385,25 +1403,78 @@ async def client_shareholding_set_shares(
                 status_code=303,
             )
 
-    # Remaining pool check (same class)
-    summary = share_svc.register_summary(db, client_id)
-    issued = summary.get("issued")
-    if new_shares is not None and issued is not None:
-        other_alloc = sum(
-            float(x.shares or 0)
-            for x in share_svc.list_holdings(db, client_id)
-            if x.id != h.id
-            and x.share_class_id == h.share_class_id
-            and x.shares is not None
+    act = (action or force or "").strip().lower()
+    chk = share_svc.allocation_check(db, client_id, h, new_shares)
+
+    # Unknown issued capital — still allow save, but surface a warning banner
+    if chk.get("status") == "unknown_issued" and new_shares is not None and act not in (
+        "force",
+        "yes",
+        "raise_issued",
+        "set_issued",
+    ):
+        # Soft warn once: user can force, or set issued = total
+        q = (
+            f"over_warn=1&holding_id={holding_id}"
+            f"&want={url_quote(str(new_shares))}"
+            f"&other={chk['other_alloc']:g}"
+            f"&total={chk['total']:g}"
+            f"&member={url_quote(h.member_name or '')}"
+            f"&reason=unknown_issued"
         )
-        if other_alloc + new_shares > float(issued) + 0.0001:
-            rem = float(issued) - other_alloc
+        return RedirectResponse(
+            f"/clients/{client_id}?tab=shares&{q}",
+            status_code=303,
+        )
+
+    if chk.get("status") == "over" and new_shares is not None:
+        if act in ("force", "yes"):
+            pass  # save over-allocation
+        elif act in ("raise_issued", "set_issued"):
+            # Raise aggregate issued to match new total allocation
+            sc = None
+            if h.share_class_id:
+                sc = (
+                    db.query(ShareClass)
+                    .filter(
+                        ShareClass.id == h.share_class_id,
+                        ShareClass.client_id == client_id,
+                    )
+                    .first()
+                )
+            if sc:
+                sc.aggregate_shares = float(chk["total"])
+                sc.updated_at = _dt.utcnow()
+                db.commit()
+            else:
+                # No class — create Ordinary with this issued
+                sc = share_svc.add_share_class(
+                    db,
+                    client_id,
+                    name="Ordinary",
+                    aggregate_shares=float(chk["total"]),
+                    source="manual",
+                    rights_notes="Issued raised to match allocation",
+                )
+                h.share_class_id = sc.id
+        elif act == "cap_remaining":
+            rem = max(0.0, float(chk.get("remaining") or 0))
+            new_shares = rem
+        else:
+            # Block and show options on shares tab
+            q = (
+                f"over_warn=1&holding_id={holding_id}"
+                f"&want={url_quote(str(new_shares))}"
+                f"&issued={chk['issued']:g}"
+                f"&other={chk['other_alloc']:g}"
+                f"&remaining={chk['remaining']:g}"
+                f"&over_by={chk['over_by']:g}"
+                f"&total={chk['total']:g}"
+                f"&member={url_quote(h.member_name or '')}"
+                f"&reason=over"
+            )
             return RedirectResponse(
-                f"/clients/{client_id}?tab=shares&msg="
-                + url_quote(
-                    f"Only {rem:g} shares left unallocated "
-                    f"(issued {float(issued):g}, already allocated {other_alloc:g})."
-                ),
+                f"/clients/{client_id}?tab=shares&{q}",
                 status_code=303,
             )
 
@@ -1411,8 +1482,53 @@ async def client_shareholding_set_shares(
     h.updated_at = _dt.utcnow()
     db.commit()
     sep = "&" if "?" in dest else "?"
+    note = "Shares+updated"
+    if act in ("raise_issued", "set_issued"):
+        note = "Shares+updated+issued+capital+raised"
+    elif act == "cap_remaining":
+        note = "Shares+capped+to+remaining"
+    elif act in ("force", "yes") and chk.get("status") == "over":
+        note = "Shares+saved+over+issued+(forced)"
+    return RedirectResponse(f"{dest}{sep}msg={note}", status_code=303)
+
+
+@router.post("/{client_id:int}/shares/class/{class_id:int}/aggregate")
+async def client_share_class_set_aggregate(
+    client_id: int,
+    class_id: int,
+    aggregate_shares: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Edit issued (aggregate) share count for a class."""
+    from app.services import share_register as share_svc
+
+    raw = (aggregate_shares or "").strip().replace(",", "")
+    val = None
+    if raw:
+        try:
+            val = float(raw)
+        except ValueError:
+            return RedirectResponse(
+                f"/clients/{client_id}?tab=shares&msg=Invalid+issued+number",
+                status_code=303,
+            )
+        if val < 0:
+            return RedirectResponse(
+                f"/clients/{client_id}?tab=shares&msg=Issued+cannot+be+negative",
+                status_code=303,
+            )
+    sc = share_svc.update_share_class_aggregate(db, class_id, client_id, val)
+    if not sc:
+        return RedirectResponse(
+            f"/clients/{client_id}?tab=shares&msg=Share+class+not+found",
+            status_code=303,
+        )
     return RedirectResponse(
-        f"{dest}{sep}msg=Shares+updated", status_code=303
+        f"/clients/{client_id}?tab=shares&msg="
+        + url_quote(
+            f"Issued capital set to {val:g}" if val is not None else "Issued capital cleared"
+        ),
+        status_code=303,
     )
 
 

@@ -773,8 +773,63 @@
     {% endif %}
   </div>
 
+  {% if over_warn %}
+  <div class="alert alert-error" role="alert" style="margin-bottom:1rem">
+    {% if over_reason == 'unknown_issued' %}
+    <strong>Issued capital not set</strong>
+    — you are allocating <strong>{{ over_want }}</strong> to
+    <strong>{{ over_member or 'member' }}</strong>
+    (total would be {{ over_total }}; already allocated elsewhere {{ over_other or 0 }}).
+    CH seed does not always find the incorporation capital figure — check the certificate
+    of incorporation / statement of capital (e.g. <strong>90</strong> ordinary).
+    {% else %}
+    <strong>Over-allocation</strong>
+    — {{ over_member or 'Member' }}: you entered <strong>{{ over_want }}</strong>
+    but only <strong>{{ over_remaining }}</strong> remain unallocated
+    (issued <strong>{{ over_issued }}</strong>, already allocated
+    <strong>{{ over_other }}</strong>, over by <strong>{{ over_by }}</strong>).
+    {% endif %}
+    <div class="actions" style="flex-wrap:wrap;margin-top:0.75rem">
+      {% if over_reason == 'over' %}
+      <form method="post" action="/clients/{{ client.id }}/shares/holding/{{ over_holding_id }}/shares" style="display:inline">
+        <input type="hidden" name="shares" value="{{ over_want }}">
+        <input type="hidden" name="action" value="cap_remaining">
+        <button class="btn btn-sm" type="submit">Cap at remaining ({{ over_remaining }})</button>
+      </form>
+      <form method="post" action="/clients/{{ client.id }}/shares/holding/{{ over_holding_id }}/shares" style="display:inline">
+        <input type="hidden" name="shares" value="{{ over_want }}">
+        <input type="hidden" name="action" value="raise_issued">
+        <button class="btn btn-sm btn-outline" type="submit">Raise issued capital to {{ over_total }}</button>
+      </form>
+      <form method="post" action="/clients/{{ client.id }}/shares/holding/{{ over_holding_id }}/shares" style="display:inline"
+            onsubmit="return confirm('Save even though this exceeds issued capital?');">
+        <input type="hidden" name="shares" value="{{ over_want }}">
+        <input type="hidden" name="action" value="force">
+        <button class="btn btn-sm btn-outline" type="submit">Force save {{ over_want }}</button>
+      </form>
+      {% else %}
+      <form method="post" action="/clients/{{ client.id }}/shares/holding/{{ over_holding_id }}/shares" style="display:inline">
+        <input type="hidden" name="shares" value="{{ over_want }}">
+        <input type="hidden" name="action" value="raise_issued">
+        <button class="btn btn-sm" type="submit">Set issued capital to {{ over_total }} and save</button>
+      </form>
+      <form method="post" action="/clients/{{ client.id }}/shares/holding/{{ over_holding_id }}/shares" style="display:inline">
+        <input type="hidden" name="shares" value="{{ over_want }}">
+        <input type="hidden" name="action" value="force">
+        <button class="btn btn-sm btn-outline" type="submit">Save {{ over_want }} without setting issued</button>
+      </form>
+      {% endif %}
+      <a class="btn btn-sm btn-outline" href="/clients/{{ client.id }}?tab=shares">Cancel</a>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="card">
     <h2>Share classes</h2>
+    <p class="small muted">
+      <strong>Aggregate issued</strong> = total shares in that class (from incorporation / capital statement).
+      <strong>Nominal</strong> is the face value of one share (often £1) — not the share count.
+    </p>
     {% if share_classes %}
     <div class="table-wrap">
       <table class="data">
@@ -788,7 +843,16 @@
               {% if sc.rights_notes %}<div class="muted small">{{ sc.rights_notes }}</div>{% endif %}
             </td>
             <td class="num">{{ sc.currency or 'GBP' }} {{ '%.4g'|format(sc.nominal_value or 0) }}</td>
-            <td class="num">{% if sc.aggregate_shares is not none %}{{ '{:,.0f}'.format(sc.aggregate_shares) }}{% else %}—{% endif %}</td>
+            <td class="num">
+              <form method="post" action="/clients/{{ client.id }}/shares/class/{{ sc.id }}/aggregate"
+                    style="display:inline-flex;gap:0.25rem;align-items:center;justify-content:flex-end">
+                <input name="aggregate_shares" inputmode="decimal"
+                       value="{% if sc.aggregate_shares is not none %}{{ sc.aggregate_shares|int if sc.aggregate_shares == (sc.aggregate_shares|int) else sc.aggregate_shares }}{% endif %}"
+                       placeholder="e.g. 90" style="width:5rem;margin:0;text-align:right"
+                       title="Total issued shares in this class">
+                <button class="btn btn-sm btn-outline" type="submit" title="Save issued count">Set</button>
+              </form>
+            </td>
             <td class="small">{{ sc.source or 'manual' }}</td>
             <td>
               <form method="post" action="/clients/{{ client.id }}/shares/class/{{ sc.id }}/delete"
@@ -841,6 +905,7 @@
               <div class="muted small">
                 {% if h.is_director %}<span class="badge">Director</span>{% endif %}
                 {% if h.is_psc %}<span class="badge">PSC</span>{% endif %}
+                {% if (h.source or '') == 'ch_psc_ceased' %}<span class="badge">Ceased PSC</span>{% endif %}
                 {% if h.shares is not none and h.shares > 0 %}<span class="badge badge-active">Shareholder</span>{% endif %}
                 · {{ h.source or 'manual' }}
               </div>

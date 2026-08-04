@@ -186,6 +186,97 @@ def delete_share_class(db: Session, class_id: int, client_id: int) -> bool:
     return True
 
 
+def update_share_class_aggregate(
+    db: Session,
+    class_id: int,
+    client_id: int,
+    aggregate_shares: Optional[float],
+) -> Optional[ShareClass]:
+    """Set issued (aggregate) shares for a class — used when CH seed missed capital."""
+    sc = (
+        db.query(ShareClass)
+        .filter(ShareClass.id == class_id, ShareClass.client_id == client_id)
+        .first()
+    )
+    if not sc:
+        return None
+    sc.aggregate_shares = (
+        float(aggregate_shares) if aggregate_shares is not None else None
+    )
+    sc.updated_at = datetime.utcnow()
+    if (sc.source or "") == "ch_capital":
+        sc.source = "ch_capital+manual"
+    db.commit()
+    db.refresh(sc)
+    return sc
+
+
+def allocation_check(
+    db: Session,
+    client_id: int,
+    holding: Shareholding,
+    new_shares: Optional[float],
+) -> Dict[str, Any]:
+    """
+    Check whether allocating new_shares would over-allocate the class pool.
+
+    Returns ok / over / unknown_issued with remaining, issued, other_alloc, total.
+    """
+    summary = register_summary(db, client_id)
+    issued = summary.get("issued")
+    # Prefer class-specific issued when holding has a class
+    if holding.share_class_id:
+        sc = (
+            db.query(ShareClass)
+            .filter(
+                ShareClass.id == holding.share_class_id,
+                ShareClass.client_id == client_id,
+            )
+            .first()
+        )
+        if sc and sc.aggregate_shares is not None:
+            issued = float(sc.aggregate_shares)
+
+    other_alloc = sum(
+        float(x.shares or 0)
+        for x in list_holdings(db, client_id)
+        if x.id != holding.id
+        and (
+            (holding.share_class_id and x.share_class_id == holding.share_class_id)
+            or (not holding.share_class_id)
+        )
+        and x.shares is not None
+    )
+    proposed = float(new_shares) if new_shares is not None else 0.0
+    total = other_alloc + proposed
+
+    if issued is None:
+        return {
+            "status": "unknown_issued",
+            "ok": True,  # allow save, but UI should warn
+            "issued": None,
+            "other_alloc": other_alloc,
+            "proposed": proposed,
+            "total": total,
+            "remaining": None,
+            "over_by": None,
+        }
+
+    issued_f = float(issued)
+    remaining = issued_f - other_alloc
+    over = total > issued_f + 0.0001
+    return {
+        "status": "over" if over else "ok",
+        "ok": not over,
+        "issued": issued_f,
+        "other_alloc": other_alloc,
+        "proposed": proposed,
+        "total": total,
+        "remaining": remaining,
+        "over_by": (total - issued_f) if over else 0.0,
+    }
+
+
 def mark_register_verified(
     db: Session, client: Client, *, by: str = "practice"
 ) -> Client:
@@ -198,55 +289,121 @@ def mark_register_verified(
 
 
 def _parse_float(val: Any) -> Optional[float]:
-    if val is None:
+    if val is None or val == "":
         return None
-    try:
-        s = str(val).replace(",", "").replace("£", "").strip()
-        if not s:
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip().replace(",", "").replace("£", "")
+    if not s:
+        return None
+    # "90.00" or "90 ordinary shares"
+    m = re.match(r"^([0-9]+(?:\.[0-9]+)?)", s)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
             return None
+    try:
         return float(s)
     except (TypeError, ValueError):
         return None
 
 
+def _capital_from_one_item(it: dict) -> List[Dict[str, Any]]:
+    """Extract capital figures from one filing (or associated sub-filing)."""
+    found: List[Dict[str, Any]] = []
+    if not isinstance(it, dict):
+        return found
+    desc = (it.get("description") or "").lower()
+    vals = it.get("description_values") or {}
+    if not isinstance(vals, dict):
+        vals = {}
+    capital = vals.get("capital")
+    ftype = (it.get("type") or "").upper()
+    if isinstance(capital, list):
+        for c in capital:
+            if not isinstance(c, dict):
+                continue
+            found.append(
+                {
+                    "figure": c.get("figure"),
+                    "currency": c.get("currency") or "GBP",
+                    "description": it.get("description"),
+                    "date": it.get("date") or it.get("action_date") or vals.get("date"),
+                    "type": ftype or it.get("type"),
+                }
+            )
+    # Scalar capital / figure on capital-related filings
+    if "capital" in desc or "statement-of-capital" in desc or ftype in (
+        "SH01",
+        "SH02",
+        "SH19",
+        "CS01",
+        "NEWINC",
+    ):
+        fig = vals.get("figure")
+        if fig is None and capital is not None and not isinstance(capital, list):
+            fig = capital
+        if fig is not None and not isinstance(fig, (list, dict)):
+            found.append(
+                {
+                    "figure": fig,
+                    "currency": vals.get("currency") or "GBP",
+                    "description": it.get("description"),
+                    "date": it.get("date") or it.get("action_date"),
+                    "type": ftype or it.get("type"),
+                }
+            )
+    return found
+
+
 def _capital_from_filings(items: List[dict]) -> List[Dict[str, Any]]:
-    """Extract capital class hints from filing history description_values."""
+    """
+    Extract capital class hints from filing history.
+
+    Important: incorporation (NEWINC) often nests the statement of capital under
+    ``associated_filings`` (e.g. SH01 with capital figure 90) — not as a top-level
+    capital-category filing. We must walk those nested items.
+    """
     found: List[Dict[str, Any]] = []
     for it in items or []:
-        desc = (it.get("description") or "").lower()
-        vals = it.get("description_values") or {}
-        capital = vals.get("capital")
-        if isinstance(capital, list):
-            for c in capital:
-                if not isinstance(c, dict):
-                    continue
-                found.append(
-                    {
-                        "figure": c.get("figure"),
-                        "currency": c.get("currency") or "GBP",
-                        "description": it.get("description"),
-                        "date": it.get("date") or it.get("action_date"),
-                        "type": it.get("type"),
-                    }
-                )
-        # Also look for figure in description_values
-        if "capital" in desc or (it.get("type") or "").upper() in (
-            "SH01",
-            "CS01",
-            "NEWINC",
-        ):
-            fig = vals.get("capital") or vals.get("figure")
-            if fig and not isinstance(fig, list):
-                found.append(
-                    {
-                        "figure": fig,
-                        "currency": vals.get("currency") or "GBP",
-                        "description": it.get("description"),
-                        "date": it.get("date"),
-                        "type": it.get("type"),
-                    }
-                )
+        if not isinstance(it, dict):
+            continue
+        found.extend(_capital_from_one_item(it))
+        for af in it.get("associated_filings") or []:
+            found.extend(_capital_from_one_item(af))
     return found
+
+
+def _best_capital_figure(hints: List[Dict[str, Any]]) -> Tuple[Optional[float], str]:
+    """
+    Pick the best aggregate share count from capital hints.
+
+    Prefers statement-of-capital / SH01 figures; skips tiny nonsense if larger
+    values exist. Returns (figure, currency).
+    """
+    candidates: List[Tuple[float, str, int]] = []
+    for h in hints or []:
+        f = _parse_float(h.get("figure"))
+        if not f or f <= 0:
+            continue
+        desc = (h.get("description") or "").lower()
+        ftype = (h.get("type") or "").upper()
+        # Prefer explicit capital statements and allotments
+        rank = 0
+        if "statement-of-capital" in desc or ftype == "SH01":
+            rank = 3
+        elif ftype in ("SH02", "SH19", "NEWINC"):
+            rank = 2
+        elif "capital" in desc:
+            rank = 1
+        cur = (h.get("currency") or "GBP") or "GBP"
+        candidates.append((f, cur, rank))
+    if not candidates:
+        return None, "GBP"
+    # Highest rank, then largest figure (issued capital usually the full pool)
+    candidates.sort(key=lambda x: (x[2], x[0]), reverse=True)
+    return candidates[0][0], candidates[0][1]
 
 
 def _format_psc_name(item: dict) -> str:
@@ -304,21 +461,20 @@ def seed_register_from_ch(
     officers = (bundle.get("officers") or {}).get("items") or []
     pscs = (bundle.get("pscs") or {}).get("items") or []
 
-    hist = fetch_filing_history(cn, category="capital", items_per_page=50)
-    capital_items = (hist.profile or {}).get("items") or [] if hist.ok else []
-    hist2 = fetch_filing_history(cn, items_per_page=30)
-    extra = []
-    if hist2.ok:
-        for it in (hist2.profile or {}).get("items") or []:
-            t = (it.get("type") or "").upper()
-            if t in ("CS01", "NEWINC", "SH01", "SH02", "SH19"):
-                extra.append(it)
-    capital_hints = _capital_from_filings(capital_items + extra)
+    # Full filing history (capital often nested under NEWINC associated_filings)
+    hist_all = fetch_filing_history(cn, items_per_page=100)
+    all_items = (hist_all.profile or {}).get("items") or [] if hist_all.ok else []
+    hist_cap = fetch_filing_history(cn, category="capital", items_per_page=50)
+    capital_items = (hist_cap.profile or {}).get("items") or [] if hist_cap.ok else []
+    capital_hints = _capital_from_filings(list(capital_items) + list(all_items))
+    agg_best, cur_best = _best_capital_figure(capital_hints)
 
     stats = {
         "directors": 0,
         "pscs": 0,
+        "pscs_ceased": 0,
         "capital_hints": len(capital_hints),
+        "capital_figure": agg_best,
         "classes_added": 0,
         "holdings_added": 0,
         "holdings_updated": 0,
@@ -343,37 +499,37 @@ def seed_register_from_ch(
             break
 
     if not ordinary:
-        agg = None
-        cur = "GBP"
-        for h in capital_hints:
-            f = _parse_float(h.get("figure"))
-            if f and f > 0:
-                agg = f
-                cur = h.get("currency") or "GBP"
-                break
         ordinary = add_share_class(
             db,
             client.id,
             name="Ordinary",
             nominal_value=1.0,
-            currency=cur,
-            aggregate_shares=agg,
-            rights_notes="Seeded from Companies House capital filings / defaults",
+            currency=cur_best or "GBP",
+            aggregate_shares=agg_best,
+            rights_notes=(
+                f"Seeded from Companies House capital filings"
+                + (f" (issued {agg_best:g})" if agg_best else " — issued unknown, set manually")
+            ),
             source="ch_capital",
         )
         stats["classes_added"] += 1
-    elif ordinary.aggregate_shares is None and capital_hints:
-        for h in capital_hints:
-            f = _parse_float(h.get("figure"))
-            if f and f > 0:
-                ordinary.aggregate_shares = f
-                ordinary.currency = h.get("currency") or ordinary.currency or "GBP"
-                ordinary.updated_at = datetime.utcnow()
-                db.commit()
-                break
+    elif agg_best and (
+        ordinary.aggregate_shares is None
+        or (ordinary.source or "") in ("ch_capital", "ch_filing")
+    ):
+        # Refresh CH-sourced issued capital (e.g. was blank; now found 90 on NEWINC)
+        prev = ordinary.aggregate_shares
+        ordinary.aggregate_shares = agg_best
+        ordinary.currency = cur_best or ordinary.currency or "GBP"
+        ordinary.rights_notes = (
+            f"Seeded from Companies House capital filings (issued {agg_best:g})"
+            + (f" — was {prev:g}" if prev is not None and float(prev) != float(agg_best) else "")
+        )
+        ordinary.updated_at = datetime.utcnow()
+        db.commit()
 
     # Build merged people map by normalised name
-    # { key: {name, is_director, is_psc, role, natures, member_type, company_number} }
+    # { key: {name, is_director, is_psc, ceased_psc, role, natures, member_type, company_number} }
     people_map: Dict[str, Dict[str, Any]] = {}
 
     for o in officers:
@@ -393,6 +549,7 @@ def seed_register_from_ch(
                 "name": name,
                 "is_director": False,
                 "is_psc": False,
+                "ceased_psc": False,
                 "roles": [],
                 "natures": [],
                 "member_type": "individual",
@@ -405,14 +562,16 @@ def seed_register_from_ch(
             rec["name"] = name
 
     for item in pscs:
-        if item.get("ceased_on"):
-            continue
         kind = (item.get("kind") or "").lower()
         if "statement" in kind and "person" not in kind:
             continue
         if kind.endswith("statement"):
             continue
-        stats["pscs"] += 1
+        ceased = bool(item.get("ceased_on"))
+        if ceased:
+            stats["pscs_ceased"] += 1
+        else:
+            stats["pscs"] += 1
         name = _format_psc_name(item)
         key = _norm_person_key(name)
         if not key:
@@ -422,6 +581,11 @@ def seed_register_from_ch(
             natures_s = "; ".join(str(n).replace("-", " ") for n in natures)
         else:
             natures_s = str(natures or "")
+        if ceased:
+            natures_s = (
+                (natures_s + "; " if natures_s else "")
+                + f"Ceased PSC {str(item.get('ceased_on'))[:10]} — may still hold shares"
+            )
         mtype = (
             "corporate"
             if "corporate" in kind or item.get("identification")
@@ -436,13 +600,17 @@ def seed_register_from_ch(
                 "name": name,
                 "is_director": False,
                 "is_psc": False,
+                "ceased_psc": False,
                 "roles": [],
                 "natures": [],
                 "member_type": mtype,
                 "company_number": cn_member,
             },
         )
-        rec["is_psc"] = True
+        if not ceased:
+            rec["is_psc"] = True
+        else:
+            rec["ceased_psc"] = True
         if natures_s:
             rec["natures"].append(natures_s)
         if mtype == "corporate":
@@ -485,6 +653,12 @@ def seed_register_from_ch(
             "Potential shareholder from Companies House (director/PSC).",
             "Delete if not a member. Set exact shares when known.",
         ]
+        if rec.get("ceased_psc") and not rec.get("is_psc") and not rec.get("is_director"):
+            note_bits = [
+                "Former PSC on Companies House — included in case they still hold shares.",
+                "Delete if not a member. Set exact shares when known.",
+            ]
+            src = "ch_psc_ceased"
         if roles_s:
             note_bits.append(f"Officer: {roles_s}.")
         if natures_s:
@@ -508,10 +682,14 @@ def seed_register_from_ch(
         stats["holdings_added"] += 1
 
     client.ch_register_seeded_at = datetime.utcnow()
+    cap_note = (
+        f"issued capital {agg_best:g}" if agg_best is not None else "issued capital unknown — set manually"
+    )
     client.share_register_notes = (
         f"Last CH seed {client.ch_register_seeded_at.date().isoformat()}. "
-        f"Directors: {stats['directors']}; PSCs: {stats['pscs']}; "
-        f"capital hints: {stats['capital_hints']}. "
+        f"Directors: {stats['directors']}; PSCs: {stats['pscs']}"
+        + (f" (+{stats['pscs_ceased']} ceased)" if stats.get("pscs_ceased") else "")
+        + f"; {cap_note}; capital filing hits: {stats['capital_hints']}. "
         "Allocate share numbers; delete anyone who is not a shareholder."
     )
     client.updated_at = datetime.utcnow()
@@ -519,9 +697,12 @@ def seed_register_from_ch(
 
     msg = (
         f"CH seed: {stats['holdings_added']} potential shareholder(s) "
-        f"({stats['directors']} directors, {stats['pscs']} PSCs — de-duplicated)"
+        f"({stats['directors']} directors, {stats['pscs']} PSCs"
+        + (f", {stats['pscs_ceased']} ceased PSC" if stats.get("pscs_ceased") else "")
+        + " — de-duplicated)"
         + (f", {stats['holdings_updated']} updated" if stats["holdings_updated"] else "")
         + (f", cleared {stats['holdings_cleared']} old draft rows" if stats["holdings_cleared"] else "")
+        + (f", issued capital {agg_best:g}" if agg_best is not None else ", issued capital not found on CH filings — set Aggregate issued manually")
         + ". Set share counts; delete non-shareholders."
     )
     return True, msg, stats
