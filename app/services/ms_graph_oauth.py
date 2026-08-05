@@ -319,6 +319,24 @@ def latest_active_token(db: Session) -> Optional[MsGraphToken]:
     )
 
 
+def latest_recoverable_token(db: Session) -> Optional[MsGraphToken]:
+    """
+    Prefer an active token; otherwise an expired/revoked row that still has a
+    refresh_token (Microsoft refresh often still works after we marked expired).
+    """
+    row = latest_active_token(db)
+    if row:
+        return row
+    return (
+        db.query(MsGraphToken)
+        .filter(MsGraphToken.refresh_token.isnot(None))
+        .filter(MsGraphToken.refresh_token != "")
+        .filter(MsGraphToken.status.in_(("expired", "revoked", "active")))
+        .order_by(MsGraphToken.id.desc())
+        .first()
+    )
+
+
 def token_is_fresh(row: MsGraphToken) -> bool:
     if not row or row.status != "active":
         return False
@@ -330,12 +348,13 @@ def token_is_fresh(row: MsGraphToken) -> bool:
 def get_valid_access_token(db: Session) -> Tuple[Optional[str], Optional[str]]:
     """
     Return (access_token, error).
-    Refreshes when near expiry; marks expired on refresh failure.
+    Refreshes when near expiry or when status was previously marked expired
+    but a refresh_token is still present.
     """
-    row = latest_active_token(db)
+    row = latest_recoverable_token(db)
     if not row:
         return None, "Microsoft OneDrive is not connected. Connect it in Settings."
-    if token_is_fresh(row):
+    if token_is_fresh(row) and row.status == "active":
         return row.access_token, None
     if not row.refresh_token:
         row.status = "expired"
@@ -366,13 +385,28 @@ def get_valid_access_token(db: Session) -> Tuple[Optional[str], Optional[str]]:
 def connection_status(db: Session) -> Dict[str, Any]:
     configured = oauth_is_ready()
     row = latest_active_token(db)
+    recoverable = latest_recoverable_token(db) if not row else row
+    # Attempt silent recovery so Settings / docs / email come back without
+    # forcing the user to re-consent when the refresh token is still valid.
+    if not (row and token_is_fresh(row)) and recoverable and recoverable.refresh_token:
+        token, _err = get_valid_access_token(db)
+        if token:
+            row = latest_active_token(db)
     fresh = bool(row and token_is_fresh(row))
     return {
         "configured": configured,
         "connected": bool(row and row.status == "active"),
         "fresh": fresh,
-        "needs_reauth": bool(row and row.status in ("expired", "active") and not fresh),
-        "email": (row.ms_user_email if row else None) or "",
+        "needs_reauth": bool(
+            not fresh
+            and (
+                (row and row.status in ("expired", "active"))
+                or (recoverable and recoverable.status in ("expired", "revoked"))
+            )
+        ),
+        "email": (row.ms_user_email if row else None)
+        or (recoverable.ms_user_email if recoverable else None)
+        or "",
         "drive_id": (row.drive_id if row else None) or "",
         "root_folder_id": (row.root_folder_id if row else None) or "",
         "token_id": row.id if row else None,
