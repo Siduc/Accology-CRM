@@ -108,6 +108,11 @@ def render(request, name: str, context: dict | None = None, status_code: int = 2
 
             db = SessionLocal()
             try:
+                # Raise job/task alert_on notifications into the top banner
+                try:
+                    notify_svc.sync_work_alerts(db)
+                except Exception:
+                    pass
                 ctx["notify_unread_count"] = notify_svc.unread_count(db)
                 ctx["notify_preview"] = notify_svc.list_unread(db, limit=5)
             finally:

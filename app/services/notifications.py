@@ -84,6 +84,154 @@ def create_notification(
     return n
 
 
+def _has_unread_entity(
+    db: Session, *, type: str, entity_type: str, entity_id: int
+) -> bool:
+    return (
+        db.query(Notification)
+        .filter(Notification.read_at.is_(None))
+        .filter(Notification.type == type)
+        .filter(Notification.entity_type == entity_type)
+        .filter(Notification.entity_id == entity_id)
+        .first()
+        is not None
+    )
+
+
+def sync_work_alerts(db: Session) -> int:
+    """
+    Raise top-banner alerts for jobs/tasks with alert_on due today or overdue.
+
+    Safe to call on each page load — skips entities that already have an unread
+    alert of the same type. Returns number of notifications created.
+    """
+    from datetime import date
+
+    from app.models.job import Job
+    from app.models.practice_task import PracticeTask
+
+    today = date.today()
+    created = 0
+
+    # Open jobs with alert_on set
+    try:
+        jobs = (
+            db.query(Job)
+            .filter(Job.alert_on.isnot(None))
+            .filter(Job.alert_on <= today)
+            .filter(Job.status.notin_(list(Job.CLOSED_STATUSES) + list(Job.HOLD_STATUSES)))
+            .order_by(Job.alert_on.asc())
+            .limit(80)
+            .all()
+        )
+    except Exception:
+        jobs = []
+
+    for job in jobs:
+        if _has_unread_entity(db, type="job_alert", entity_type="job", entity_id=job.id):
+            continue
+        try:
+            label = job.label(with_client=True)
+        except Exception:
+            label = job.title or job.type or f"Job {job.id}"
+        note = (job.alert_note or "").strip()
+        when = job.alert_on.isoformat() if job.alert_on else today.isoformat()
+        overdue = bool(job.alert_on and job.alert_on < today)
+        title = (
+            f"{'Overdue alert' if overdue else 'Alert'}: {label}"
+            + (f" — {note}" if note else "")
+        )
+        body = (
+            f"Alert date: {when}"
+            + (f"\n{note}" if note else "\n(no note — set one on the job)")
+            + "\nOpen the job to clear the alert or set a new date."
+        )
+        create_notification(
+            db,
+            type="job_alert",
+            title=title[:240],
+            body=body,
+            link=f"/jobs/{job.id}",
+            entity_type="job",
+            entity_id=job.id,
+            commit=False,
+            send_email=False,
+        )
+        created += 1
+
+    try:
+        tasks = (
+            db.query(PracticeTask)
+            .filter(PracticeTask.alert_on.isnot(None))
+            .filter(PracticeTask.alert_on <= today)
+            .filter(
+                PracticeTask.status.notin_(
+                    list(PracticeTask.CLOSED) + list(PracticeTask.HOLD)
+                )
+            )
+            .order_by(PracticeTask.alert_on.asc())
+            .limit(80)
+            .all()
+        )
+    except Exception:
+        tasks = []
+
+    for task in tasks:
+        if _has_unread_entity(
+            db, type="task_alert", entity_type="task", entity_id=task.id
+        ):
+            continue
+        note = (task.alert_note or "").strip()
+        when = task.alert_on.isoformat() if task.alert_on else today.isoformat()
+        overdue = bool(task.alert_on and task.alert_on < today)
+        ttitle = (task.title or f"Task {task.id}").strip()
+        title = (
+            f"{'Overdue alert' if overdue else 'Alert'}: {ttitle}"
+            + (f" — {note}" if note else "")
+        )
+        body = (
+            f"Alert date: {when}"
+            + (f"\n{note}" if note else "")
+            + "\nOpen the task to clear the alert or set a new date."
+        )
+        create_notification(
+            db,
+            type="task_alert",
+            title=title[:240],
+            body=body,
+            link=f"/tasks/{task.id}/edit",
+            entity_type="task",
+            entity_id=task.id,
+            commit=False,
+            send_email=False,
+        )
+        created += 1
+
+    if created:
+        db.commit()
+    return created
+
+
+def clear_entity_alerts(
+    db: Session, *, entity_type: str, entity_id: int
+) -> int:
+    """Mark unread job/task alerts as read (e.g. after clearing alert_on)."""
+    rows = (
+        db.query(Notification)
+        .filter(Notification.read_at.is_(None))
+        .filter(Notification.entity_type == entity_type)
+        .filter(Notification.entity_id == entity_id)
+        .filter(Notification.type.in_(("job_alert", "task_alert")))
+        .all()
+    )
+    now = datetime.utcnow()
+    for n in rows:
+        n.read_at = now
+    if rows:
+        db.commit()
+    return len(rows)
+
+
 def notify_website_prospect(
     db: Session,
     *,

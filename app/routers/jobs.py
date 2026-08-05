@@ -436,6 +436,8 @@ async def create_job(
     target_completion: str = Form(""),
     actual_start: str = Form(""),
     actual_completion: str = Form(""),
+    alert_on: str = Form(""),
+    alert_note: str = Form(""),
     db: Session = Depends(get_db),
 ):
     clients = db.query(Client).order_by(Client.company_name).all()
@@ -492,6 +494,8 @@ async def create_job(
         status=status_val,
         is_recurring=is_recurring or "Yes",
         notes=notes or None,
+        alert_on=_parse_date(alert_on) if alert_on else None,
+        alert_note=(alert_note or "").strip() or None,
     )
     db.add(job)
     db.commit()
@@ -680,6 +684,8 @@ async def update_job(
     target_completion: str = Form(""),
     actual_start: str = Form(""),
     actual_completion: str = Form(""),
+    alert_on: str = Form(""),
+    alert_note: str = Form(""),
     return_to: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -701,7 +707,17 @@ async def update_job(
     job.status = status
     job.is_recurring = is_recurring
     job.notes = notes or None
+    new_alert = _parse_date(alert_on) if alert_on else None
+    job.alert_on = new_alert
+    job.alert_note = (alert_note or "").strip() or None
     job.updated_at = datetime.utcnow()
+    if not new_alert:
+        try:
+            from app.services.notifications import clear_entity_alerts
+
+            clear_entity_alerts(db, entity_type="job", entity_id=job.id)
+        except Exception:
+            pass
 
     if recalculate_dates == "yes" or not job.statutory_due_date:
         statutory, calc_ts, calc_tc = calculate_dates(type, pe)

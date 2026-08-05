@@ -18,6 +18,9 @@
       {% else %}
       <span class="badge">{{ job|job_status }}</span>
       {% endif %}
+      {% if job.alert_on %}
+      · <span class="badge badge-overdue" title="{{ job.alert_note or 'Alert' }}">Alert {{ job.alert_on|uk_date }}{% if job.alert_note %}: {{ job.alert_note }}{% endif %}</span>
+      {% endif %}
     </p>
   </div>
   <div class="actions">
@@ -59,6 +62,14 @@
 {% endif %}
 {% if asana_error %}
 <div class="alert alert-error">{{ asana_error }}</div>
+{% endif %}
+{% if job.alert_on %}
+<div class="chase-banner chase-banner-practice" role="status">
+  <strong>Alert set</strong> for {{ job.alert_on|uk_date }}
+  {% if job.alert_note %} — {{ job.alert_note }}{% endif %}.
+  On that day it appears in the top <a href="/notifications?unread=1">Alerts</a> banner (same style as website enquiries).
+  <a class="btn btn-sm btn-outline" href="/jobs/{{ job.id }}/edit">Change / clear alert</a>
+</div>
 {% endif %}
 
 <div class="card">

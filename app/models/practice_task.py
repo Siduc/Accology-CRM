@@ -45,6 +45,9 @@ class PracticeTask(Base):
     outlook_archived_at = Column(DateTime, nullable=True)
     # none | pending | archived | failed
     outlook_archive_status = Column(String, nullable=True, index=True)
+    # Staff alert (surfaces in top notify banner when due)
+    alert_on = Column(Date, nullable=True, index=True)
+    alert_note = Column(String, nullable=True)
 
     def is_from_email(self) -> bool:
         src = (self.import_source or "").strip().lower()

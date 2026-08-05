@@ -10,7 +10,7 @@
     <p class="desk-page-sub muted small">
       {{ doc.category }} · v{{ doc.version }}
       {% if doc.client %} · <a href="/clients/{{ doc.client.id }}">{{ doc.client.display_name() }}</a>{% endif %}
-      {% if doc.job %} · <a href="/jobs/{{ doc.job.id }}">JOB-{{ doc.job.id }}</a>{% endif %}
+      {% if doc.job %} · <a href="/jobs/{{ doc.job.id }}">{{ doc.job.label() }}</a>{% endif %}
     </p>
   </div>
   <div class="actions doc-detail-actions">
@@ -142,7 +142,9 @@
         <select name="job_id" style="width:100%">
           <option value="">—</option>
           {% for j in jobs %}
-          <option value="{{ j.id }}" {% if doc.job_id == j.id %}selected{% endif %}>JOB-{{ j.id }} · {{ j.type or '' }}</option>
+          <option value="{{ j.id }}" {% if doc.job_id == j.id %}selected{% endif %}>
+            {{ j.label() }}
+          </option>
           {% endfor %}
         </select>
       </div>

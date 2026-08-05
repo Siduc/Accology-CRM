@@ -13,6 +13,8 @@ NOTIFY_TYPES = (
     "website_prospect",
     "prospect",
     "system",
+    "job_alert",
+    "task_alert",
 )
 
 

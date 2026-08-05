@@ -92,6 +92,19 @@
       </div>
     </div>
 
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div>
+        <label>Alert on</label>
+        <input name="alert_on" type="date" value="{{ task.alert_on if task and task.alert_on else '' }}" style="width:100%">
+        <p class="small muted">Top Alerts banner on this date (even if status is Today).</p>
+      </div>
+      <div>
+        <label>Alert note</label>
+        <input name="alert_note" value="{{ task.alert_note if task and task.alert_note else '' }}"
+               placeholder="e.g. Chase / bill / call" style="width:100%">
+      </div>
+    </div>
+
     <label>Period end (optional)</label>
     <input name="period_end" type="date" value="{{ task.period_end if task and task.period_end else '' }}">
 
@@ -111,7 +124,7 @@
       <option value="">— None —</option>
       {% for j in jobs %}
       <option value="{{ j.id }}" {% if (task and task.job_id == j.id) or pre_job_id == j.id %}selected{% endif %}>
-        #{{ j.id }} {{ j.type }} · {{ j.period_end or '—' }}
+        {{ j.label() }}
       </option>
       {% endfor %}
     </select>

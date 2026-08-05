@@ -354,6 +354,8 @@ async def task_create_route(
     priority: str = Form("Medium"),
     source_email_date: str = Form(""),
     outlook_message_id: str = Form(""),
+    alert_on: str = Form(""),
+    alert_note: str = Form(""),
     next: str = Form("/tasks"),
     db: Session = Depends(get_db),
 ):
@@ -373,11 +375,13 @@ async def task_create_route(
         priority=priority if priority in TASK_PRIORITIES else "Medium",
         source_email_date=_parse_date(source_email_date),
     )
+    task.alert_on = _parse_date(alert_on) if alert_on else None
+    task.alert_note = (alert_note or "").strip() or None
     oid = (outlook_message_id or "").strip()
     if oid:
         task.outlook_message_id = oid
         task.outlook_archive_status = "none"
-        db.commit()
+    db.commit()
     dest = _safe_return_path(next, "/tasks")
     return RedirectResponse(dest, status_code=303)
 
@@ -453,6 +457,8 @@ async def task_update(
     priority: str = Form("Medium"),
     source_email_date: str = Form(""),
     outlook_message_id: str = Form(""),
+    alert_on: str = Form(""),
+    alert_note: str = Form(""),
     next: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -470,12 +476,22 @@ async def task_update(
     task.notes = (notes or "").strip() or None
     task.priority = priority if priority in TASK_PRIORITIES else (task.priority or "Medium")
     task.source_email_date = _parse_date(source_email_date)
+    new_alert = _parse_date(alert_on) if alert_on else None
+    task.alert_on = new_alert
+    task.alert_note = (alert_note or "").strip() or None
     oid = (outlook_message_id or "").strip()
     if oid != (task.outlook_message_id or ""):
         task.outlook_message_id = oid or None
         task.outlook_archive_status = "none" if oid else None
         task.outlook_archived_at = None
     task.updated_at = datetime.utcnow()
+    if not new_alert:
+        try:
+            from app.services.notifications import clear_entity_alerts
+
+            clear_entity_alerts(db, entity_type="task", entity_id=task.id)
+        except Exception:
+            pass
     db.commit()
     # After save, return to the list (or page) the user came from
     dest = _safe_return_path(next, "/tasks")

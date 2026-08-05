@@ -71,8 +71,7 @@
           <option value="">— Optional —</option>
           {% for j in jobs %}
           <option value="{{ j.id }}" {% if job_id == j.id %}selected{% endif %}>
-            JOB-{{ j.id }} · {{ j.type or 'Job' }}
-            {% if j.client %} · {{ j.client.display_name() }}{% endif %}
+            {{ j.label(with_client=true) }}
           </option>
           {% endfor %}
         </select>

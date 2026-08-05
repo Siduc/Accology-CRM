@@ -86,6 +86,17 @@
         <input id="actual_completion" type="date" name="actual_completion"
           value="{{ job.actual_completion.isoformat() if job and job.actual_completion else '' }}">
       </div>
+      <div>
+        <label for="alert_on">Alert on</label>
+        <input id="alert_on" type="date" name="alert_on"
+          value="{{ job.alert_on.isoformat() if job and job.alert_on else '' }}">
+        <p class="small muted">Shows in the top Alerts banner (like website enquiries) on this date — e.g. bill Friday.</p>
+      </div>
+      <div>
+        <label for="alert_note">Alert note</label>
+        <input id="alert_note" name="alert_note" placeholder="e.g. Raise invoice / bill client"
+          value="{{ job.alert_note if job and job.alert_note else '' }}">
+      </div>
       {% if job %}
       <div>
         <label for="recalculate_dates">Recalculate statutory/target from period end?</label>

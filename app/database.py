@@ -148,6 +148,8 @@ def _add_missing_columns():
             ("invoice_reference", "VARCHAR"),
             ("billing_status", "VARCHAR"),
             ("gross_amount", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
+            ("alert_on", "DATE"),
+            ("alert_note", "VARCHAR"),
             ("vat_amount", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
             ("was_late", "VARCHAR"),
             ("lost_reason", "VARCHAR"),
@@ -246,6 +248,8 @@ def _add_missing_columns():
             ("outlook_archived_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
             ("outlook_archive_status", "VARCHAR"),
             ("prospect_id", "INTEGER"),
+            ("alert_on", "DATE"),
+            ("alert_note", "VARCHAR"),
         ],
         "documents": [
             ("prospect_id", "INTEGER"),
