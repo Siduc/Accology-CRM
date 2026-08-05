@@ -811,4 +811,36 @@ def summary_counts(db: Session) -> dict:
 
 
 def docs_connection(db: Session) -> dict:
+    """
+    Microsoft / OneDrive status for document UI.
+
+    Always attempt a silent token refresh first so a briefly expired access
+    token does not show “not connected” when the refresh token still works.
+    """
+    try:
+        get_valid_access_token(db)
+    except Exception:
+        pass
     return connection_status(db)
+
+
+def attach_document_to_job(
+    db: Session, doc_id: int, job_id: int
+) -> Tuple[bool, str]:
+    """Link an existing CRM document (e.g. from OneDrive scan) to a job."""
+    from app.models import Job
+
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        return False, "Document not found."
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        return False, "Job not found."
+    if doc.client_id and job.client_id and doc.client_id != job.client_id:
+        return False, "Document belongs to a different client."
+    if not doc.client_id and job.client_id:
+        doc.client_id = job.client_id
+    doc.job_id = job.id
+    doc.updated_at = datetime.utcnow()
+    db.commit()
+    return True, "Document linked to job."

@@ -23,7 +23,7 @@
       Open letterhead (Word)
     </a>
     <a class="btn btn-sm wc-touch" href="/documents/new">Upload</a>
-    {% if conn.connected and conn.fresh %}
+    {% if conn.configured %}
     <form method="post" action="/documents/scan-onedrive" style="display:inline">
       <input type="hidden" name="return_to" value="/documents">
       {% if filter_client_id %}<input type="hidden" name="client_id" value="{{ filter_client_id }}">{% endif %}
@@ -38,8 +38,9 @@
   </div>
 </div>
 <p class="muted small" style="margin:0 0 0.75rem">
-  OneDrive path: <code>Accologise / Clients / Client name / Job name</code>
-  (e.g. Accounts — not JOB numbers). Scan picks up files you drop in manually.
+  OneDrive path: <code>Accologise Documents / Clients / Client name</code>
+  (optional job subfolder). After adding files in Explorer, click <strong>Scan OneDrive</strong> —
+  the CRM does not watch the folder automatically.
 </p>
 
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}

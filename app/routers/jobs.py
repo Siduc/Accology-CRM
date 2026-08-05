@@ -582,6 +582,7 @@ async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db
 
     asana_enabled = is_connected(db, job.client_id, "asana") if job.client_id else False
     documents = []
+    client_docs_unlinked = []
     docs_conn = {
         "configured": False,
         "connected": False,
@@ -592,8 +593,15 @@ async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db
 
         documents = docs_svc.list_documents(db, job_id=job_id, limit=100)
         docs_conn = docs_svc.docs_connection(db)
+        if job.client_id:
+            # Files on the client from OneDrive scan that are not on this job yet
+            for d in docs_svc.list_documents(db, client_id=job.client_id, limit=100):
+                if not d.job_id or d.job_id != job.id:
+                    if not d.job_id:
+                        client_docs_unlinked.append(d)
     except Exception:
         documents = []
+        client_docs_unlinked = []
     job_tasks = []
     try:
         from app.services.practice_tasks import list_tasks
@@ -620,10 +628,12 @@ async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db
             "asana_error": request.query_params.get("asana_error", ""),
             "asana_enabled": asana_enabled,
             "documents": documents,
+            "client_docs_unlinked": client_docs_unlinked,
             "docs_conn": docs_conn,
             "job_tasks": job_tasks,
             "job_emails": job_emails,
             "msg": request.query_params.get("msg", ""),
+            "error": request.query_params.get("error", ""),
             "return_to": return_to,
         },
     )

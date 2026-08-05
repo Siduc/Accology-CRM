@@ -132,15 +132,15 @@
     </div>
     <div class="actions">
       <a class="btn btn-sm wc-touch" href="/documents/new?job_id={{ job.id }}{% if job.client_id %}&amp;client_id={{ job.client_id }}{% endif %}">Upload</a>
-      {% if docs_conn.connected and docs_conn.fresh and job.client_id %}
+      {% if docs_conn.configured and job.client_id %}
       <form method="post" action="/documents/scan-onedrive" style="display:inline">
         <input type="hidden" name="client_id" value="{{ job.client_id }}">
         <input type="hidden" name="job_id" value="{{ job.id }}">
         <input type="hidden" name="return_to" value="/jobs/{{ job.id }}">
-        <button class="btn btn-sm btn-secondary wc-touch" type="submit" title="Link files added manually in OneDrive">Scan OneDrive</button>
+        <button class="btn btn-sm btn-secondary wc-touch" type="submit" title="Link files added manually in OneDrive under this client">Scan OneDrive</button>
       </form>
       {% endif %}
-      <a class="btn btn-sm btn-outline wc-touch" href="/documents?job_id={{ job.id }}">Filter list</a>
+      <a class="btn btn-sm btn-outline wc-touch" href="/documents?client_id={{ job.client_id }}">Client docs</a>
     </div>
   </div>
   {% if not docs_conn.connected or not docs_conn.fresh %}
@@ -148,10 +148,31 @@
     {% if not docs_conn.configured %}
     Configure Microsoft Graph in Settings to store documents in OneDrive.
     {% elif not docs_conn.connected %}
-    <a href="/oauth/microsoft/start?return_to=/jobs/{{ job.id }}">Connect Microsoft</a> to upload.
+    Microsoft OneDrive is not connected.
+    <a href="/settings/microsoft-graph">Open Microsoft settings</a>
+    · <a href="/oauth/microsoft/start?return_to=/jobs/{{ job.id }}">Connect</a>
+    (needs a public HTTPS redirect on Render — not localhost).
     {% else %}
-    <a href="/oauth/microsoft/start?return_to=/jobs/{{ job.id }}">Reconnect Microsoft</a>.
+    Session needs refresh — try <strong>Scan OneDrive</strong> or
+    <a href="/oauth/microsoft/start?return_to=/jobs/{{ job.id }}">Reconnect</a>.
     {% endif %}
+  </div>
+  {% endif %}
+  {% if client_docs_unlinked %}
+  <div class="chase-banner chase-banner-practice" style="margin-bottom:0.75rem">
+    <strong>Client files not yet on this job</strong> (e.g. from OneDrive scan):
+    <ul style="margin:0.4rem 0 0;padding-left:1.2rem">
+      {% for d in client_docs_unlinked %}
+      <li style="margin:0.25rem 0">
+        {{ d.title }}
+        <form method="post" action="/documents/{{ d.id }}/attach-job" style="display:inline;margin-left:0.35rem">
+          <input type="hidden" name="job_id" value="{{ job.id }}">
+          <input type="hidden" name="return_to" value="/jobs/{{ job.id }}">
+          <button class="btn btn-sm" type="submit">Attach to this job</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
   </div>
   {% endif %}
   {% if documents %}

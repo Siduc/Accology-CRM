@@ -43,9 +43,11 @@ async def documents_scan_onedrive(
     db: Session = Depends(get_db),
 ):
     """
-    Scan OneDrive Accologise / Clients / … for files added outside CRM
+    Scan OneDrive Accologise Documents / Clients / … for files added outside CRM
     and create Document links on the matching client (and job when possible).
     """
+    # Ensure token is refreshed before scanning (avoids false “not connected”)
+    docs_svc.docs_connection(db)
     cid = int(client_id) if (client_id or "").isdigit() else None
     jid = int(job_id) if (job_id or "").isdigit() else None
     result = docs_svc.scan_onedrive_for_documents(
@@ -64,6 +66,26 @@ async def documents_scan_onedrive(
         f"{result.get('skipped', 0)} already linked, "
         f"{result.get('clients_matched', 0)} client folder(s)."
     )
+    return RedirectResponse(_flash_url(dest, msg=msg), status_code=303)
+
+
+@router.post("/documents/{doc_id:int}/attach-job")
+async def document_attach_job(
+    doc_id: int,
+    job_id: str = Form(...),
+    return_to: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Link a scanned/uploaded document to a job (no re-upload)."""
+    jid = int(job_id) if (job_id or "").isdigit() else 0
+    ok, msg = docs_svc.attach_document_to_job(db, doc_id, jid)
+    dest = (return_to or "").strip()
+    if not dest.startswith("/"):
+        dest = f"/jobs/{jid}" if jid else f"/documents/{doc_id}"
+    if not ok:
+        return RedirectResponse(
+            _flash_url(dest, error=msg), status_code=303
+        )
     return RedirectResponse(_flash_url(dest, msg=msg), status_code=303)
 
 
