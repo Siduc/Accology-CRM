@@ -46,9 +46,43 @@ def _job_display_status(job, today=None) -> str:
     return getattr(job, "status", None) or "—"
 
 
+def _job_label(job, with_client: bool = False) -> str:
+    """Safe job title for templates (never raises)."""
+    if job is None:
+        return "—"
+    try:
+        if hasattr(job, "label") and callable(job.label):
+            return job.label(with_client=bool(with_client)) or "—"
+    except Exception:
+        pass
+    title = (getattr(job, "title", None) or "").strip()
+    jtype = (getattr(job, "type", None) or "").strip()
+    pe = getattr(job, "period_end", None)
+    pe_s = pe.isoformat() if pe is not None and hasattr(pe, "isoformat") else ""
+    if title:
+        core = title
+    elif jtype and pe_s:
+        core = f"{jtype} — {pe_s}"
+    elif jtype:
+        core = jtype
+    else:
+        core = f"Job {getattr(job, 'id', '')}"
+    if with_client:
+        client = getattr(job, "client", None)
+        if client is not None:
+            try:
+                cname = client.display_name() if hasattr(client, "display_name") else ""
+            except Exception:
+                cname = getattr(client, "company_name", None) or ""
+            if cname:
+                return f"{cname} · {core}"
+    return core
+
+
 templates.env.filters["uk_date"] = _fmt_uk_date
 templates.env.filters["job_overdue"] = _job_is_overdue
 templates.env.filters["job_status"] = _job_display_status
+templates.env.filters["job_label"] = _job_label
 templates.env.filters["norm_caps"] = _normalize_caps
 templates.env.filters["norm_person"] = _normalize_person_name
 templates.env.filters["urlquote"] = _urlquote
@@ -66,6 +100,7 @@ def render(request, name: str, context: dict | None = None, status_code: int = 2
     templates.env.filters.setdefault("uk_date", _fmt_uk_date)
     templates.env.filters.setdefault("job_overdue", _job_is_overdue)
     templates.env.filters.setdefault("job_status", _job_display_status)
+    templates.env.filters.setdefault("job_label", _job_label)
     templates.env.filters.setdefault("norm_caps", _normalize_caps)
     templates.env.filters.setdefault("norm_person", _normalize_person_name)
     templates.env.filters.setdefault("urlquote", _urlquote)

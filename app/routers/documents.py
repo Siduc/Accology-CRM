@@ -277,12 +277,23 @@ async def document_detail(
     doc_id: int,
     db: Session = Depends(get_db),
 ):
-    doc = docs_svc.get_document(db, doc_id)
+    try:
+        doc = docs_svc.get_document(db, doc_id)
+    except Exception:
+        doc = None
     if not doc:
         return RedirectResponse(
             f"/documents?error={url_quote('Document not found')}", status_code=303
         )
-    status = docs_svc.docs_connection(db)
+    try:
+        status = docs_svc.docs_connection(db)
+    except Exception:
+        status = {
+            "configured": False,
+            "connected": False,
+            "fresh": False,
+            "email": "",
+        }
     clients = (
         db.query(Client)
         .order_by(Client.company_name.asc())
@@ -291,22 +302,37 @@ async def document_detail(
     )
     jobs = []
     if doc.client_id:
-        jobs = (
-            db.query(Job)
-            .filter(Job.client_id == doc.client_id)
-            .order_by(Job.id.desc())
-            .limit(100)
-            .all()
-        )
+        try:
+            jobs = (
+                db.query(Job)
+                .filter(Job.client_id == doc.client_id)
+                .order_by(Job.id.desc())
+                .limit(100)
+                .all()
+            )
+        except Exception:
+            jobs = []
     # Prefer Graph embed for Office; PDF/image use local stream
-    embed_url, embed_kind, embed_err = docs_svc.resolve_preview_embed_url(db, doc)
-    open_url, _ = docs_svc.resolve_open_url(db, doc)
+    embed_url, embed_kind, embed_err = None, "none", ""
+    open_url = None
+    try:
+        embed_url, embed_kind, embed_err = docs_svc.resolve_preview_embed_url(db, doc)
+    except Exception as exc:
+        embed_kind, embed_err = "none", str(exc)[:200]
+    try:
+        open_url, _ = docs_svc.resolve_open_url(db, doc)
+    except Exception:
+        open_url = (doc.onedrive_web_url or "").strip() or None
+    try:
+        versions = list(doc.versions or [])
+    except Exception:
+        versions = []
     return render(
         request,
         "documents/detail.html",
         {
             "doc": doc,
-            "versions": doc.versions or [],
+            "versions": versions,
             "categories": DOCUMENT_CATEGORIES,
             "clients": clients,
             "jobs": jobs,

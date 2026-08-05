@@ -103,30 +103,33 @@ class Job(Base):
 
     def label(self, *, with_client: bool = False) -> str:
         """Human label for pickers: title · type · period (not raw JOB-id)."""
-        title = (self.title or "").strip()
-        jtype = (self.type or "").strip()
-        pe = ""
-        if self.period_end is not None and hasattr(self.period_end, "isoformat"):
-            pe = self.period_end.isoformat()
-        # Prefer full title when it already carries type
-        if title and (not jtype or jtype.lower() in title.lower() or "—" in title):
-            core = title
-        elif jtype and pe:
-            core = f"{jtype} — {pe}"
-        elif jtype:
-            core = jtype
-        elif title:
-            core = title
-        else:
-            core = f"Job {self.id}"
-        if with_client and self.client is not None:
-            try:
-                cname = self.client.display_name()
-            except Exception:
-                cname = getattr(self.client, "company_name", None) or ""
-            if cname:
-                return f"{cname} · {core}"
-        return core
+        try:
+            title = (self.title or "").strip()
+            jtype = (self.type or "").strip()
+            pe = ""
+            if self.period_end is not None and hasattr(self.period_end, "isoformat"):
+                pe = self.period_end.isoformat()
+            # Prefer full title when it already carries type
+            if title and (not jtype or jtype.lower() in title.lower() or "—" in title):
+                core = title
+            elif jtype and pe:
+                core = f"{jtype} — {pe}"
+            elif jtype:
+                core = jtype
+            elif title:
+                core = title
+            else:
+                core = f"Job {self.id}"
+            if with_client and self.client is not None:
+                try:
+                    cname = self.client.display_name()
+                except Exception:
+                    cname = getattr(self.client, "company_name", None) or ""
+                if cname:
+                    return f"{cname} · {core}"
+            return core
+        except Exception:
+            return f"Job {getattr(self, 'id', '')}"
 
     def display_status(self, today: Optional[date] = None) -> str:
         """

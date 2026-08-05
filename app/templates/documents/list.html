@@ -155,7 +155,7 @@
           <td class="small">{{ d.category }}</td>
           <td class="small">
             {% if d.client %}<a href="/clients/{{ d.client.id }}">{{ d.client.display_name() }}</a>{% else %}—{% endif %}
-            {% if d.job %}<div class="muted"><a href="/jobs/{{ d.job.id }}">{{ d.job.label() }}</a></div>{% endif %}
+            {% if d.job %}<div class="muted"><a href="/jobs/{{ d.job.id }}">{{ d.job|job_label }}</a></div>{% endif %}
           </td>
           <td class="small">
             {{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '—' }}

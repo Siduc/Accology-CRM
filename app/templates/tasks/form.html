@@ -124,7 +124,7 @@
       <option value="">— None —</option>
       {% for j in jobs %}
       <option value="{{ j.id }}" {% if (task and task.job_id == j.id) or pre_job_id == j.id %}selected{% endif %}>
-        {{ j.label() }}
+        {{ j|job_label }}
       </option>
       {% endfor %}
     </select>
