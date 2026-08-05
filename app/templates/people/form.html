@@ -20,11 +20,13 @@
 {% endif %}
 
 <div class="card">
-  <form class="stack" method="post" action="{% if person %}/people/{{ person.id }}/edit{% else %}/people/new{% endif %}">
+  <form class="stack" method="post" action="{% if person %}/people/{{ person.id }}/edit{% else %}/people/new{% endif %}"
+        autocomplete="off">
     <div class="form-grid">
       <div>
         <label for="full_name">Full name *</label>
-        <input id="full_name" name="full_name" required value="{{ person.full_name if person else '' }}">
+        <input id="full_name" name="full_name" required value="{{ person.full_name if person else '' }}"
+               autocomplete="name">
       </div>
       <div>
         <label for="is_individual_client">Client in their own right?</label>
@@ -67,11 +69,17 @@
     <div class="form-grid">
       <div>
         <label for="email">Email</label>
-        <input id="email" type="email" name="email" value="{{ person.email if person and person.email else '' }}">
+        <input id="email" type="email" name="email" value="{{ person.email if person and person.email else '' }}"
+               autocomplete="email">
       </div>
       <div>
         <label for="phone">Phone</label>
-        <input id="phone" name="phone" value="{{ person.phone if person and person.phone else '' }}">
+        <input id="phone" name="phone" type="tel" value="{{ person.phone if person and person.phone else '' }}"
+               autocomplete="tel" inputmode="tel"
+               placeholder="e.g. 07… or 01…">
+        <p class="small muted" style="margin:0.25rem 0 0">
+          This is the person’s number (shown on company contacts). Company switchboard is on the company record.
+        </p>
       </div>
       <div>
         <label for="role">Role</label>
@@ -105,8 +113,11 @@
       </div>
       <div>
         <label for="gov_gateway_password">Government Gateway password</label>
+        {# Never put the real password in value= — browsers treat it as a password
+           field and can overwrite Phone with the saved password (e.g. nokia123). #}
         <input id="gov_gateway_password" name="gov_gateway_password" type="password"
-               value="{{ person.gov_gateway_password if person and person.gov_gateway_password else '' }}"
+               value=""
+               placeholder="{% if person and person.gov_gateway_password %}•••••••• — leave blank to keep{% else %}Optional{% endif %}"
                autocomplete="new-password">
       </div>
       <div>

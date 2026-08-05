@@ -507,9 +507,14 @@ async def update_person(
 
     individual = is_individual_client == "yes"
 
+    old_phone = (person.phone or "").strip()
+    old_email = (person.email or "").strip()
+    new_phone = (phone or "").strip() or None
+    new_email = (email or "").strip() or None
+
     person.full_name = full_name
-    person.email = email or None
-    person.phone = phone or None
+    person.email = new_email
+    person.phone = new_phone
     person.role = role or None
     person.notes = notes or None
     person.is_primary = is_primary == "yes"
@@ -518,7 +523,10 @@ async def update_person(
     person.ni_number = (ni_number or "").strip() or None
     person.ch_code = (ch_code or "").strip() or None
     person.gov_gateway_username = (gov_gateway_username or "").strip() or None
-    person.gov_gateway_password = (gov_gateway_password or "").strip() or None
+    # Password: blank submit keeps existing (browser often blanks password fields)
+    gpw = (gov_gateway_password or "").strip()
+    if gpw:
+        person.gov_gateway_password = gpw
     # Do not change company links here — company page Contacts / Groups manage those.
 
     if individual:
@@ -528,8 +536,47 @@ async def update_person(
     else:
         person.person_status = person_status or person.person_status or "Contact"
 
+    # Keep linked companies in sync when they still carry the old contact phone/email
+    # (or junk values that were mistakenly saved as phone, e.g. software passwords).
+    try:
+        from app.services.individuals import is_individual_shell
+
+        for c in list(person.clients or []):
+            c_phone = (c.phone or "").strip()
+            c_email = (c.email or "").strip()
+            shell = False
+            try:
+                shell = is_individual_shell(c)
+            except Exception:
+                shell = (c.client_type or "").lower() == "individual"
+            if shell or c_phone == old_phone or _looks_like_bad_phone(c_phone):
+                c.phone = new_phone
+            if shell or (old_email and c_email == old_email) or not c_email:
+                if new_email or shell:
+                    c.email = new_email
+            if shell:
+                c.contact_name = person.full_name or c.contact_name
+    except Exception:
+        pass
+
     db.commit()
     return RedirectResponse(f"/people/{person.id}/edit?msg=saved", status_code=303)
+
+
+def _looks_like_bad_phone(value: str) -> bool:
+    """True for values that are almost certainly not a phone number."""
+    s = (value or "").strip()
+    if not s:
+        return False
+    # Real phones are mostly digits; software passwords (e.g. nokia123) mix letters.
+    digits = sum(ch.isdigit() for ch in s)
+    letters = sum(ch.isalpha() for ch in s)
+    if letters >= 3 and digits < 6:
+        return True
+    low = s.lower()
+    if any(x in low for x in ("nokia", "password", "passw", "letmein", "qwerty")):
+        return True
+    return False
 
 
 @router.get("/{person_id:int}/delete", response_class=HTMLResponse)
