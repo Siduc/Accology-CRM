@@ -706,11 +706,22 @@ async def client_detail(
         from app.services import share_register as share_svc
 
         share_classes = share_svc.list_share_classes(db, client_id)
+        # Keep people table in sync with shareholdings / CH members
+        try:
+            share_svc.sync_holdings_to_people(db, client, commit=True)
+            db.refresh(client)
+            people = list(client.people) if client.people is not None else people
+        except Exception:
+            pass
         shareholdings = share_svc.list_holdings(db, client_id)
         share_summary = share_svc.register_summary(db, client_id)
         ch_auth_masked = share_svc.ch_auth_code_masked(client)
         ch_auth_on_file = share_svc.has_ch_auth_code(client)
         contact_roles = share_svc.contact_role_rows(db, client_id, people or [])
+        try:
+            db.commit()  # persist any person_id links set while building rows
+        except Exception:
+            db.rollback()
     except Exception:
         share_classes = []
         shareholdings = []
@@ -1542,6 +1553,11 @@ async def client_contacts_page(
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         return RedirectResponse("/clients", status_code=303)
+    try:
+        share_svc.sync_holdings_to_people(db, client, commit=True)
+        db.refresh(client)
+    except Exception:
+        pass
     people = (
         db.query(Person)
         .options(joinedload(Person.clients))
@@ -1551,6 +1567,10 @@ async def client_contacts_page(
         .all()
     )
     contact_roles = share_svc.contact_role_rows(db, client_id, people)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
     share_summary = share_svc.register_summary(db, client_id)
     shareholdings = share_svc.list_holdings(db, client_id)
     is_ch = share_svc.client_is_ch_entity(client)

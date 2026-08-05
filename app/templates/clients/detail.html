@@ -909,7 +909,12 @@
           {% set is_sh = h.shares is not none and h.shares > 0 %}
           <tr {% if is_ex and not is_sh %}style="opacity:0.92"{% endif %}>
             <td>
+              {% if h.person_id %}
+              <a href="/people/{{ h.person_id }}/edit"><strong>{{ h.member_name }}</strong></a>
+              <div class="muted small">CRM person · edit details</div>
+              {% else %}
               <strong>{{ h.member_name }}</strong>
+              {% endif %}
               <div class="muted small">
                 {% if h.is_director %}<span class="badge">Director</span>{% endif %}
                 {% if h.is_psc %}<span class="badge">PSC</span>{% endif %}

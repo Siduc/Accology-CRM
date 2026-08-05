@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
 from sqlalchemy.orm import Session
 
 from app.models.client import Client
+from app.models.person import Person
 from app.models.share_register import ShareClass, Shareholding
 from app.services.company_numbers import normalize_company_number
 from app.services.secrets_crypto import decrypt_secret, encrypt_secret, mask_secret
@@ -87,6 +88,168 @@ def add_share_class(
     return sc
 
 
+def ensure_person_for_member(
+    db: Session,
+    client: Client,
+    member_name: str,
+    *,
+    role_hint: str = "",
+    is_director: bool = False,
+    is_psc: bool = False,
+    is_shareholder: bool = False,
+    notes: str = "",
+) -> Optional[Person]:
+    """
+    Find or create a CRM Person for a shareholding / CH officer name.
+
+    Cross-references the whole practice directory (first+last / fuzzy name match)
+    so e.g. CH "Philip James Davies" links to existing "Mr Philip Davies".
+    Always ensures the person is linked to this client.
+    """
+    from app.services.cs_automation import (
+        _officer_display_name,
+        find_people_matching_officer,
+    )
+    from app.text_format import normalize_person_name
+
+    raw = (member_name or "").strip()
+    if not raw or raw.lower() in ("unknown member", "—", "-"):
+        return None
+
+    display = normalize_person_name(_officer_display_name(raw) or raw) or raw
+
+    # 1) Prefer person already on this client
+    client_people = list(client.people or [])
+    local_hits = find_people_matching_officer(client_people, raw)
+    if not local_hits:
+        local_hits = find_people_matching_officer(client_people, display)
+
+    person: Optional[Person] = None
+    if local_hits:
+        person = _prefer_richest_person(local_hits)
+    else:
+        # 2) Whole practice directory
+        directory = db.query(Person).order_by(Person.id).all()
+        hits = find_people_matching_officer(directory, raw)
+        if not hits:
+            hits = find_people_matching_officer(directory, display)
+        if hits:
+            person = _prefer_richest_person(hits)
+
+    role = (role_hint or "").strip()
+    if not role:
+        bits = []
+        if is_director:
+            bits.append("Director")
+        if is_psc:
+            bits.append("PSC")
+        if is_shareholder:
+            bits.append("Shareholder")
+        role = " / ".join(bits) if bits else "Contact"
+
+    if person:
+        if client not in (person.clients or []):
+            person.clients.append(client)
+        # Enrich blank fields only
+        if role and not (person.role or "").strip():
+            person.role = role
+        # Prefer fuller legal-style name from CH when CRM is short
+        if display and person.full_name:
+            if len(display.split()) > len((person.full_name or "").split()) and _norm_person_key(
+                display
+            ) == _norm_person_key(person.full_name):
+                # Keep CRM preferred name with title if present; don't overwrite rich CRM
+                pass
+        db.flush()
+        return person
+
+    # 3) Create new person
+    person = Person(
+        full_name=display,
+        role=role,
+        person_status="Contact",
+        is_primary=False,
+        notes=(notes or "").strip()
+        or f"Created from share register / Companies House ({raw})",
+    )
+    person.clients.append(client)
+    db.add(person)
+    db.flush()
+    return person
+
+
+def _prefer_richest_person(people: List[Person]) -> Person:
+    """Prefer person with email/phone/more company links (keep detailed records)."""
+
+    def score(p: Person) -> tuple:
+        return (
+            1 if (p.email or "").strip() else 0,
+            1 if (p.phone or "").strip() else 0,
+            1 if (p.ch_code or "").strip() else 0,
+            1 if (p.notes or "").strip() else 0,
+            len(getattr(p, "clients", None) or []),
+            -(p.id or 0),  # older id first when tied
+        )
+
+    return sorted(people, key=score, reverse=True)[0]
+
+
+def link_holding_to_person(
+    db: Session,
+    client: Client,
+    holding: Shareholding,
+    *,
+    commit: bool = False,
+) -> Optional[Person]:
+    """Ensure holding.person_id points at a CRM person (find/create + link client)."""
+    if holding.person_id:
+        person = db.query(Person).filter(Person.id == holding.person_id).first()
+        if person:
+            if client not in (person.clients or []):
+                person.clients.append(client)
+                db.flush()
+            return person
+    person = ensure_person_for_member(
+        db,
+        client,
+        holding.member_name or "",
+        is_director=bool(holding.is_director),
+        is_psc=bool(holding.is_psc),
+        is_shareholder=is_shareholder_row(holding),
+        notes=(holding.notes or "")[:200],
+    )
+    if person:
+        holding.person_id = person.id
+        # Align member_name display if empty-ish
+        if not (holding.member_name or "").strip():
+            holding.member_name = person.full_name or holding.member_name
+        holding.updated_at = datetime.utcnow()
+        db.flush()
+    if commit:
+        db.commit()
+    return person
+
+
+def sync_holdings_to_people(
+    db: Session,
+    client: Client,
+    *,
+    commit: bool = True,
+) -> Dict[str, int]:
+    """Link every shareholding on the client to a people-table row (no duplicates)."""
+    linked = created_proxy = 0
+    for h in list_holdings(db, client.id):
+        before = h.person_id
+        person = link_holding_to_person(db, client, h, commit=False)
+        if person:
+            linked += 1
+            if before is None:
+                created_proxy += 1
+    if commit:
+        db.commit()
+    return {"linked": linked, "new_or_matched": created_proxy}
+
+
 def add_holding(
     db: Session,
     client_id: int,
@@ -106,6 +269,7 @@ def add_holding(
     is_director: bool = False,
     is_psc: bool = False,
     commit: bool = True,
+    ensure_person: bool = True,
 ) -> Shareholding:
     h = Shareholding(
         client_id=client_id,
@@ -125,6 +289,11 @@ def add_holding(
         is_psc=bool(is_psc),
     )
     db.add(h)
+    db.flush()
+    if ensure_person and not h.person_id:
+        client = db.query(Client).filter(Client.id == client_id).first()
+        if client:
+            link_holding_to_person(db, client, h, commit=False)
     if commit:
         db.commit()
         db.refresh(h)
@@ -675,6 +844,10 @@ def seed_register_from_ch(
                         + "Former officer/PSC — delete if not a shareholder."
                     ).strip()
                     changed = True
+            # Cross-ref to people table
+            if not existing.person_id:
+                link_holding_to_person(db, client, existing, commit=False)
+                changed = True
             if changed:
                 existing.updated_at = datetime.utcnow()
                 stats["holdings_updated"] += 1
@@ -726,8 +899,13 @@ def seed_register_from_ch(
             is_director=bool(rec["is_director"]),
             is_psc=bool(rec["is_psc"]),
             commit=False,
+            ensure_person=True,
         )
         stats["holdings_added"] += 1
+
+    # Final pass: every holding linked to people (manual + CH)
+    sync_stats = sync_holdings_to_people(db, client, commit=False)
+    stats["people_linked"] = sync_stats.get("linked", 0)
 
     client.ch_register_seeded_at = datetime.utcnow()
     cap_note = (
@@ -813,10 +991,15 @@ def contact_role_rows(
     """
     Rows for contacts table with Director / Shareholder / PSC / Other ticks.
 
-    Merges CRM people with CH-seeded shareholdings (by normalised name).
+    Merges CRM people with CH-seeded shareholdings (by person_id then name key).
     Prefer display names from CRM people when matched.
     """
+    from app.services.cs_automation import find_people_matching_officer
+
     holdings = list_holdings(db, client_id)
+    people_list = list(people or [])
+    people_by_id = {p.id: p for p in people_list if getattr(p, "id", None)}
+
     by_key: Dict[str, Dict[str, Any]] = {}
 
     def ensure(key: str, display: str) -> Dict[str, Any]:
@@ -836,26 +1019,76 @@ def contact_role_rows(
             }
         return by_key[key]
 
+    def merge_into(target: Dict[str, Any], source: Dict[str, Any]) -> None:
+        if source.get("holding") and not target.get("holding"):
+            target["holding"] = source["holding"]
+        if source.get("person") and not target.get("person"):
+            target["person"] = source["person"]
+        if source.get("email"):
+            target["email"] = source["email"]
+        if source.get("phone"):
+            target["phone"] = source["phone"]
+        target["is_director"] = target["is_director"] or source.get("is_director")
+        target["is_psc"] = target["is_psc"] or source.get("is_psc")
+        target["is_shareholder"] = target["is_shareholder"] or source.get(
+            "is_shareholder"
+        )
+        if source.get("shares") is not None:
+            target["shares"] = source["shares"]
+        if source.get("person"):
+            target["name"] = (
+                source["person"].display_name()
+                if hasattr(source["person"], "display_name")
+                else source.get("name") or target["name"]
+            )
+
     for h in holdings:
-        key = _norm_person_key(h.member_name or "")
-        if not key:
-            continue
-        row = ensure(key, h.member_name)
+        person = None
+        if h.person_id and h.person_id in people_by_id:
+            person = people_by_id[h.person_id]
+        elif h.person_id:
+            person = db.query(Person).filter(Person.id == h.person_id).first()
+        if not person:
+            # Fuzzy match to client people
+            hits = find_people_matching_officer(people_list, h.member_name or "")
+            if hits:
+                person = _prefer_richest_person(hits)
+                h.person_id = person.id
+
+        key = (
+            f"person-{person.id}"
+            if person
+            else (_norm_person_key(h.member_name or "") or f"holding-{h.id}")
+        )
+        display = (
+            person.display_name()
+            if person and hasattr(person, "display_name")
+            else (h.member_name or "")
+        )
+        row = ensure(key, display)
         row["holding"] = h
+        if person:
+            row["person"] = person
+            row["name"] = display
+            row["email"] = person.email or row.get("email")
+            row["phone"] = person.phone or row.get("phone")
         row["is_director"] = row["is_director"] or bool(getattr(h, "is_director", False))
         row["is_psc"] = row["is_psc"] or bool(getattr(h, "is_psc", False))
         if is_shareholder_row(h):
             row["is_shareholder"] = True
             row["shares"] = h.shares
 
-    for p in people or []:
+    for p in people_list:
         name = p.display_name() if hasattr(p, "display_name") else (p.full_name or "")
-        key = _norm_person_key(name)
-        if not key:
-            key = f"person-{p.id}"
+        key = f"person-{p.id}"
+        # If a holding already merged under a name key, fold into person key
+        name_key = _norm_person_key(name)
         row = ensure(key, name)
+        if name_key and name_key in by_key and name_key != key:
+            merge_into(row, by_key[name_key])
+            del by_key[name_key]
         row["person"] = p
-        row["name"] = name  # CRM name preferred
+        row["name"] = name
         row["email"] = p.email or row.get("email")
         row["phone"] = p.phone or row.get("phone")
         role = (getattr(p, "role", None) or "").lower()
@@ -865,16 +1098,37 @@ def contact_role_rows(
             row["is_shareholder"] = True
         if "psc" in role or "significant control" in role:
             row["is_psc"] = True
-        # Link holding person_id when matched
         if row.get("holding") and not row["holding"].person_id:
             row["holding"].person_id = p.id
+
+    # Collapse any remaining name-key rows that fuzzy-match a person row
+    name_only = [k for k in list(by_key.keys()) if not str(k).startswith("person-")]
+    for nk in name_only:
+        nrow = by_key[nk]
+        if nrow.get("person"):
+            continue
+        hits = find_people_matching_officer(
+            people_list, nrow.get("name") or ""
+        )
+        if not hits and nrow.get("holding"):
+            hits = find_people_matching_officer(
+                people_list, nrow["holding"].member_name or ""
+            )
+        if hits:
+            p = _prefer_richest_person(hits)
+            pk = f"person-{p.id}"
+            prow = ensure(pk, p.display_name() if hasattr(p, "display_name") else p.full_name)
+            merge_into(prow, nrow)
+            prow["person"] = p
+            if nrow.get("holding") and not nrow["holding"].person_id:
+                nrow["holding"].person_id = p.id
+            del by_key[nk]
 
     rows = []
     for row in by_key.values():
         if not (row["is_director"] or row["is_shareholder"] or row["is_psc"]):
             row["is_other"] = True
         rows.append(row)
-    # Directors / shareholders first
     rows.sort(
         key=lambda r: (
             0 if r["is_director"] else 1,
