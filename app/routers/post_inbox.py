@@ -64,8 +64,9 @@ async def post_import(request: Request, db: Session = Depends(get_db)):
             status_code=303,
         )
     msg = (
-        f"Imported {result.get('imported', 0)} file(s), "
-        f"skipped {result.get('skipped', 0)} already seen. "
+        f"Imported {result.get('imported', 0)} file(s) → "
+        f"{result.get('items_created', 0)} document(s) after auto-split, "
+        f"skipped {result.get('skipped', 0)}. "
         f"Inbox: {result.get('inbox_path', '')}"
     )
     return RedirectResponse(f"/post?msg={url_quote(msg[:400])}", status_code=303)

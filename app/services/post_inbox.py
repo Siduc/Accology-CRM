@@ -107,33 +107,216 @@ def _file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
-def _extract_pdf_text_and_pages(path: Path) -> Tuple[int, str]:
-    """Return (page_count, text_excerpt)."""
-    try:
-        from pypdf import PdfReader
-    except ImportError:
-        try:
-            from PyPDF2 import PdfReader  # type: ignore
-        except ImportError:
-            return 0, ""
+def _text_score(t: str) -> int:
+    """Prefer cleaner extract (Ahmed Bros invoice pipeline)."""
+    if not t:
+        return -10_000_000
+    score = len(t)
+    words = re.findall(r"[A-Za-z]{3,}", t)
+    if words:
+        weird = sum(1 for w in words if not re.search(r"[aeiouAEIOU]", w))
+        if weird / max(len(words), 1) > 0.35:
+            score -= 5000
+    return score
+
+
+def extract_pdf_page_texts(path: Path) -> Tuple[List[str], str]:
+    """
+    Per-page text extraction (pdfplumber preferred, pypdf fallback).
+
+    Same approach as Ahmed Bros invoice day-book pipeline.
+    Returns (list of page texts 0-indexed, error_or_empty).
+    """
+    path = Path(path)
+    pages_pl: List[str] = []
+    pages_py: List[str] = []
+    err = ""
 
     try:
-        reader = PdfReader(str(path))
-        n = len(reader.pages)
-        parts: List[str] = []
-        for i, page in enumerate(reader.pages[:30]):
+        import pdfplumber
+
+        with pdfplumber.open(str(path)) as doc:
+            for pg in doc.pages:
+                try:
+                    pages_pl.append(pg.extract_text() or "")
+                except Exception:
+                    pages_pl.append("")
+    except Exception as e:
+        err = f"pdfplumber: {e}"
+
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(str(path), strict=False)
+        for pg in reader.pages:
             try:
-                t = page.extract_text() or ""
+                pages_py.append(pg.extract_text() or "")
             except Exception:
-                t = ""
-            if t.strip():
-                parts.append(t)
-            if sum(len(x) for x in parts) > 12000:
-                break
-        return n, "\n".join(parts)[:15000]
-    except Exception as exc:
-        logger.warning("PDF read failed %s: %s", path, exc)
-        return 0, ""
+                pages_py.append("")
+    except Exception as e:
+        err = (err + "; " if err else "") + f"pypdf: {e}"
+
+    if not pages_pl and not pages_py:
+        return [], err or "Failed to read PDF"
+
+    # Align lengths; pick better text per page
+    n = max(len(pages_pl), len(pages_py))
+    out: List[str] = []
+    for i in range(n):
+        a = pages_pl[i] if i < len(pages_pl) else ""
+        b = pages_py[i] if i < len(pages_py) else ""
+        out.append(a if _text_score(a) >= _text_score(b) else b)
+    return out, ""
+
+
+def _extract_pdf_text_and_pages(path: Path) -> Tuple[int, str]:
+    """Return (page_count, combined text excerpt)."""
+    pages, _err = extract_pdf_page_texts(path)
+    if not pages:
+        # last resort single-shot pypdf
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(str(path), strict=False)
+            pages = [(pg.extract_text() or "") for pg in reader.pages]
+        except Exception as exc:
+            logger.warning("PDF read failed %s: %s", path, exc)
+            return 0, ""
+    combined = "\n".join(pages)
+    return len(pages), combined[:20000]
+
+
+# Patterns that often start a *new* piece of post (page-level)
+_NEW_DOC_MARKERS = (
+    r"\bHM\s*Revenue\s*(?:&|and)\s*Customs\b",
+    r"\bHMRC\b",
+    r"\bCompanies\s+House\b",
+    r"\bSelf\s+Assessment\b",
+    r"\bCorporation\s+Tax\b",
+    r"\bPAYE\b",
+    r"\bVAT\s+(?:Return|Notice|Statement)\b",
+    r"\bForm\s+(?:SA\d+|CT\d+|P\d+|VAT\d+)\b",
+    r"\bDear\s+(?:Sir|Madam|Sir/Madam|Mr|Mrs|Ms|Miss)\b",
+    r"\bFinal\s+(?:demand|notice|reminder)\b",
+    r"\bLetter\s+before\s+action\b",
+    r"\bStatutory\s+demand\b",
+    r"\bInvoice\s+(?:No\.?|Number|#)\b",
+    r"\bTax\s+Invoice\b",
+    r"\bStatement\s+of\s+Account\b",
+    r"\bReminder\s+notice\b",
+)
+
+
+def _page_is_blank(text: str) -> bool:
+    s = re.sub(r"\s+", "", text or "")
+    return len(s) < 8
+
+
+def _page_looks_like_new_document(text: str, *, is_first: bool) -> bool:
+    """True if this page likely starts a new letter/document."""
+    if is_first:
+        return True
+    if _page_is_blank(text):
+        return False
+    head = (text or "")[:800]
+    # Strong markers near top of page
+    for pat in _NEW_DOC_MARKERS:
+        if re.search(pat, head, re.I):
+            return True
+    # "Page 1 of N" often restarts a multi-page letter
+    if re.search(r"\bPage\s*1\s*(?:of|/)\s*\d+\b", head, re.I):
+        return True
+    return False
+
+
+def detect_document_page_ranges(page_texts: List[str]) -> List[Tuple[int, int, str]]:
+    """
+    Split a multi-page PDF into documents (Ahmed-style content boundaries).
+
+    Returns list of (page_start, page_end, reason) 1-based inclusive.
+    Uses:
+      - blank separator pages (dropped from content)
+      - letter/form start markers on a page (new document)
+    """
+    n = len(page_texts)
+    if n == 0:
+        return []
+    if n == 1:
+        return [(1, 1, "single page")]
+
+    # Build starts: page indices (0-based) that begin a document
+    starts: List[int] = [0]
+    reasons: Dict[int, str] = {0: "start of file"}
+
+    for i in range(1, n):
+        t = page_texts[i] or ""
+        prev = page_texts[i - 1] or ""
+
+        # Blank page after content → next non-blank starts new doc
+        if _page_is_blank(t):
+            continue
+
+        if _page_is_blank(prev) and not _page_is_blank(t):
+            if i not in starts:
+                starts.append(i)
+                reasons[i] = "after blank separator"
+            continue
+
+        if _page_looks_like_new_document(t, is_first=False):
+            # Avoid splitting mid-letter if previous page was also same form header only
+            # (repeated HMRC header on page 2) — require either blank before or "Page 1"
+            head = t[:500]
+            page1 = bool(re.search(r"\bPage\s*1\s*(?:of|/)\s*\d+\b", head, re.I))
+            strong_new = bool(
+                re.search(
+                    r"\bDear\s+(?:Sir|Madam|Sir/Madam|Mr|Mrs|Ms|Miss)\b"
+                    r"|\bFinal\s+(?:demand|notice)\b"
+                    r"|\bInvoice\s+(?:No\.?|Number)\b"
+                    r"|\bForm\s+(?:SA\d+|CT\d+|P\d+)\b",
+                    head,
+                    re.I,
+                )
+            )
+            # If previous page clearly continued ("Page 2 of") don't split on HMRC alone
+            prev_cont = bool(
+                re.search(r"\bPage\s*[2-9]\d*\s*(?:of|/)\s*\d+\b", prev[:400], re.I)
+            )
+            if prev_cont and not page1 and not strong_new:
+                continue
+            if page1 or strong_new or _page_is_blank(prev):
+                if i not in starts:
+                    starts.append(i)
+                    reasons[i] = "letter/form marker" if not page1 else "page 1 of N"
+            elif not prev_cont and re.search(
+                r"\bHM\s*Revenue|\bHMRC\b|\bCompanies\s+House\b", head, re.I
+            ):
+                # New agency letterhead after non-continuation page
+                if i not in starts:
+                    starts.append(i)
+                    reasons[i] = "new letterhead"
+
+    starts = sorted(set(starts))
+    ranges: List[Tuple[int, int, str]] = []
+    for idx, st in enumerate(starts):
+        # Skip pure blank start pages
+        while st < n and _page_is_blank(page_texts[st]):
+            st += 1
+        if st >= n:
+            continue
+        if idx + 1 < len(starts):
+            en = starts[idx + 1] - 1
+        else:
+            en = n - 1
+        # Trim trailing blanks
+        while en > st and _page_is_blank(page_texts[en]):
+            en -= 1
+        if en < st:
+            continue
+        ranges.append((st + 1, en + 1, reasons.get(starts[idx], "split")))
+
+    if not ranges:
+        return [(1, n, "whole file")]
+    return ranges
 
 
 def _split_pdf_pages(
@@ -149,13 +332,17 @@ def _split_pdf_pages(
             return False, "pypdf not installed"
 
     try:
-        reader = PdfReader(str(source))
+        reader = PdfReader(str(source), strict=False)
         writer = PdfWriter()
         n = len(reader.pages)
         start = max(1, page_start) - 1
         end = min(n, page_end)
-        if start >= end and start >= n:
-            return False, "Invalid page range"
+        if start >= n or end < start + 1:
+            # allow single page: start inclusive, end exclusive in loop → end must be > start
+            if start < n and page_start == page_end:
+                end = start + 1
+            else:
+                return False, "Invalid page range"
         for i in range(start, end):
             writer.add_page(reader.pages[i])
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -164,6 +351,89 @@ def _split_pdf_pages(
         return True, ""
     except Exception as exc:
         return False, str(exc)
+
+
+def _title_from_text(text: str, fallback: str) -> str:
+    for ln in (text or "").splitlines():
+        s = ln.strip()
+        if 8 <= len(s) <= 100 and not s.lower().startswith("page "):
+            return s[:200]
+    return (fallback or "Document")[:200]
+
+
+def _build_items_for_batch(
+    db: Session,
+    batch: PostBatch,
+    source_pdf: Path,
+    page_texts: List[str],
+    dirs: Dict[str, Path],
+    *,
+    ranges: Optional[List[Tuple[int, int, str]]] = None,
+) -> int:
+    """Create PostItem rows for ranges; returns count created."""
+    n_pages = len(page_texts) or batch.page_count or 1
+    if ranges is None:
+        ranges = detect_document_page_ranges(page_texts) if page_texts else [(1, n_pages, "whole")]
+    if not ranges:
+        ranges = [(1, n_pages, "whole")]
+
+    created = 0
+    for idx, (ps, pe, reason) in enumerate(ranges):
+        text = "\n".join(page_texts[ps - 1 : pe]) if page_texts else ""
+        out = dirs["splits"] / f"batch{batch.id}_p{ps}-{pe}.pdf"
+        if source_pdf.suffix.lower() == ".pdf" and source_pdf.is_file():
+            ok, err = _split_pdf_pages(source_pdf, out, ps, pe)
+            if not ok:
+                # fall back: copy whole file once
+                if idx == 0:
+                    out = dirs["splits"] / f"batch{batch.id}_full.pdf"
+                    shutil.copy2(str(source_pdf), str(out))
+                else:
+                    logger.warning("Split pages %s-%s failed: %s", ps, pe, err)
+                    continue
+        else:
+            out = dirs["splits"] / f"batch{batch.id}_full{source_pdf.suffix.lower()}"
+            if not out.exists():
+                shutil.copy2(str(source_pdf), str(out))
+
+        rule, action, category, conf = apply_rules(db, text)
+        client, cconf, match_reason = suggest_client(db, text)
+        if rule and rule.client_id and not client:
+            client = db.query(Client).filter(Client.id == rule.client_id).first()
+            if client:
+                match_reason = f"Rule: {rule.name}"
+                cconf = max(cconf, 0.7)
+
+        title = _title_from_text(text, f"{batch.original_filename} p{ps}-{pe}")
+        if len(ranges) > 1:
+            match_reason = (
+                f"{match_reason + ' · ' if match_reason else ''}Auto-split: {reason}"
+            )
+
+        item = PostItem(
+            batch_id=batch.id,
+            sort_order=idx,
+            title=title,
+            page_start=ps,
+            page_end=pe,
+            local_path=str(out),
+            content_type="application/pdf"
+            if out.suffix.lower() == ".pdf"
+            else f"image/{out.suffix.lower().lstrip('.')}",
+            size_bytes=int(out.stat().st_size) if out.is_file() else 0,
+            text_excerpt=(text or "")[:8000] or None,
+            category=category,
+            suggested_action=action,
+            suggested_client_id=client.id if client else None,
+            confidence=max(conf, cconf) if (conf or cconf) else None,
+            match_reason=match_reason or None,
+            status="suggested" if action != "review" and client else "inbox",
+            rule_id=rule.id if rule else None,
+            created_at=datetime.utcnow(),
+        )
+        db.add(item)
+        created += 1
+    return created
 
 
 def _find_company_numbers(text: str) -> List[str]:
@@ -306,15 +576,16 @@ def suggest_client(
 def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
     """
     Import new files from inbox/ into post_batches + post_items.
-    Multi-page PDFs stay as one item initially (user can split in review).
+
+    Multi-page PDFs are auto-split into multiple items using content markers
+    (letterheads, Dear…, Form SA…, blank separators) — same approach as the
+    Ahmed Bros multi-invoice pipeline, adapted for post.
     """
     dirs = ensure_inbox_dirs()
     seed_default_rules(db)
 
-    inbox = dirs["inbox"]
-    # Also pick up loose files in root (scanner may dump there)
     candidates: List[Path] = []
-    for folder in (inbox, dirs["root"]):
+    for folder in (dirs["inbox"], dirs["root"]):
         if not folder.is_dir():
             continue
         for p in sorted(folder.iterdir(), key=lambda x: x.stat().st_mtime):
@@ -325,7 +596,6 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
                 "thumbs.db",
             }:
                 continue
-            # Skip our managed subdirs if scanning root
             if p.parent == dirs["root"] and p.name.lower() in {
                 "inbox",
                 "processing",
@@ -344,6 +614,7 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
             break
 
     imported = 0
+    items_created = 0
     skipped = 0
     errors: List[str] = []
 
@@ -357,7 +628,6 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
             )
             if exists:
                 skipped += 1
-                # Move to done if still in inbox
                 try:
                     dest = dirs["done"] / path.name
                     if path.resolve() != dest.resolve() and path.exists():
@@ -373,10 +643,11 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
                 proc = dirs["processing"] / f"{path.stem}_{h[:8]}{path.suffix}"
             shutil.move(str(path), str(proc))
 
+            page_texts: List[str] = []
             page_count = 1
-            text = ""
             if proc.suffix.lower() == ".pdf":
-                page_count, text = _extract_pdf_text_and_pages(proc)
+                page_texts, _terr = extract_pdf_page_texts(proc)
+                page_count = len(page_texts) or 1
             if page_count < 1:
                 page_count = 1
 
@@ -392,57 +663,24 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
             db.add(batch)
             db.flush()
 
-            # Default: one item covering full document
-            rule, action, category, conf = apply_rules(db, text)
-            client, cconf, reason = suggest_client(db, text)
-            if rule and rule.client_id and not client:
-                client = db.query(Client).filter(Client.id == rule.client_id).first()
-                if client:
-                    reason = f"Rule: {rule.name}"
-                    cconf = max(cconf, 0.7)
-
-            # Copy working file to splits for stable path
-            split_path = dirs["splits"] / f"batch{batch.id}_full{proc.suffix.lower()}"
-            shutil.copy2(str(proc), str(split_path))
-
-            title = proc.stem[:200]
-            # Prefer first non-empty line of text as title hint
-            for ln in (text or "").splitlines():
-                s = ln.strip()
-                if 8 <= len(s) <= 100 and not s.lower().startswith("page "):
-                    title = s[:200]
-                    break
-
-            item = PostItem(
-                batch_id=batch.id,
-                sort_order=0,
-                title=title,
-                page_start=1,
-                page_end=page_count,
-                local_path=str(split_path),
-                content_type="application/pdf"
-                if proc.suffix.lower() == ".pdf"
-                else f"image/{proc.suffix.lower().lstrip('.')}",
-                size_bytes=int(split_path.stat().st_size),
-                text_excerpt=(text or "")[:8000] or None,
-                category=category,
-                suggested_action=action,
-                suggested_client_id=client.id if client else None,
-                confidence=max(conf, cconf) if (conf or cconf) else None,
-                match_reason=reason or None,
-                status="suggested" if action != "review" and client else "inbox",
-                rule_id=rule.id if rule else None,
-                created_at=datetime.utcnow(),
-            )
-            db.add(item)
-
-            # Archive original
+            # Archive original first so splits use a stable path
             done = dirs["done"] / f"{batch.id}_{path.name}"
             try:
                 shutil.move(str(proc), str(done))
                 batch.archived_path = str(done)
+                source_for_split = done
             except Exception:
                 batch.archived_path = str(proc)
+                source_for_split = proc
+
+            n_items = _build_items_for_batch(
+                db,
+                batch,
+                source_for_split,
+                page_texts,
+                dirs,
+            )
+            items_created += n_items
 
             batch.status = "ready"
             batch.processed_at = datetime.utcnow()
@@ -456,8 +694,9 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
                     db,
                     type="post_inbox",
                     title=f"New post: {path.name}",
-                    body=f"{page_count} page(s) · suggested {action}"
-                    + (f" · {client.company_name}" if client else ""),
+                    body=(
+                        f"{page_count} page(s) · {n_items} document(s) after auto-split"
+                    ),
                     link="/post",
                     entity_type="post_batch",
                     entity_id=batch.id,
@@ -485,6 +724,7 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
     return {
         "ok": True,
         "imported": imported,
+        "items_created": items_created,
         "skipped": skipped,
         "errors": errors,
         "inbox_path": str(dirs["inbox"]),

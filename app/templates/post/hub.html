@@ -122,8 +122,8 @@
 <div class="card">
   <h2 style="margin-top:0">How it works &amp; best practice</h2>
   <ol class="small" style="margin:0;padding-left:1.2rem;line-height:1.55">
-    <li><strong>Scan multi-doc batches</strong> as one PDF; insert a blank sheet between documents if you can — later we can auto-split on blanks. Until then use <em>Split after pages</em> on review.</li>
-    <li><strong>Import</strong> pulls new files, extracts text (where the PDF has a text layer), suggests client (company number / name) and action (HMRC file · chaser email · review).</li>
+    <li><strong>Scan a pile</strong> as one multi-page PDF (or many files). Import auto-splits on letter markers (HMRC, Dear…, Form SA…, blank separator sheets) — same idea as the Ahmed invoice multi-pack splitter.</li>
+    <li><strong>Import</strong> extracts text (pdfplumber + pypdf), splits into separate review items, suggests client (company number / name) and action (HMRC file · chaser email · review). Manual page split still available if auto-split misses.</li>
     <li><strong>Review</strong> confirms or corrects client, then File / File as HMRC / Email client / Dismiss. Tick <em>Learn this</em> to save keywords → action as a rule.</li>
     <li><strong>HMRC standard letters</strong> usually file to the client Tax / Correspondence folder without emailing.</li>
     <li><strong>Chasers / demands</strong> usually email the client (and optionally file a copy).</li>
