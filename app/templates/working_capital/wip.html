@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}WIP · Accologise{% endblock %}
+{% block title %}WIP · Accology{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
     <h1 class="desk-page-title" style="font-size:clamp(1.55rem,3vw,1.95rem)">Work in progress</h1>
     <p class="desk-page-sub">
-      {{ count }} open jobs · £{{ '{:,.0f}'.format(total) }}
-      · as at {{ today.strftime('%d-%m-%Y') }}
+      {{ count }} open jobs · {{total|money}}
+      · as at {{ today.strftime('%d/%m/%Y') }}
     </p>
   </div>
 </div>
@@ -23,7 +23,7 @@
         <span class="wc-box-title">{{ t.label }}</span>
         <span class="wc-box-link">List →</span>
       </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(t.amount) }}</div>
+      <div class="wc-box-value">{{t.amount|money}}</div>
       <div class="wc-box-meta"><span class="wc-box-meta-num">{{ t.count }}</span> jobs</div>
     </a>
     {% else %}
@@ -56,7 +56,7 @@
      href="/working-capital/wip?horizon=today">
     <div class="wc-net-main">
       <div class="wc-net-label">Today</div>
-      <div class="wc-net-value">£{{ '{:,.0f}'.format(today_band.amount) }}</div>
+      <div class="wc-net-value">{{today_band.amount|money}}</div>
       <div class="wc-net-formula small">{{ today_band.count }} jobs · overdue · due today · status Today</div>
     </div>
     <p class="wc-net-hint small">Types + list →</p>
@@ -69,7 +69,7 @@
         <span class="wc-box-title">Tomorrow</span>
         <span class="wc-box-link">List →</span>
       </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(tomorrow_band.amount|default(0)) }}</div>
+      <div class="wc-box-value">{{tomorrow_band.amount|default(0)|money}}</div>
       <div class="wc-box-meta"><span class="wc-box-meta-num">{{ tomorrow_band.count|default(0) }}</span> jobs · imminent</div>
     </a>
     <a class="wc-box wc-box-cash wc-touch" href="/working-capital/wip?horizon=this_week">
@@ -77,7 +77,7 @@
         <span class="wc-box-title">This week</span>
         <span class="wc-box-link">List →</span>
       </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(this_week_band.amount|default(0)) }}</div>
+      <div class="wc-box-value">{{this_week_band.amount|default(0)|money}}</div>
       <div class="wc-box-meta"><span class="wc-box-meta-num">{{ this_week_band.count|default(0) }}</span> jobs · rest of week</div>
     </a>
   </div>
@@ -91,7 +91,7 @@
         <span class="wc-box-title">{{ loop.index }} · {{ b.label }}</span>
         <span class="wc-box-link">Types →</span>
       </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(b.amount|default(0)) }}</div>
+      <div class="wc-box-value">{{b.amount|default(0)|money}}</div>
       <div class="wc-box-meta">
         <span class="wc-box-meta-num">{{ b.count|default(0) }}</span>
         jobs{% if b.detail %} · {{ b.detail }}{% endif %}
@@ -105,11 +105,11 @@
      href="/working-capital/wip?horizon=all" style="margin-top:0.75rem">
     <div class="wc-net-main">
       <div class="wc-net-label">Total WIP</div>
-      <div class="wc-net-value">£{{ '{:,.0f}'.format(total) }}</div>
+      <div class="wc-net-value">{{total|money}}</div>
       <div class="wc-net-formula small">
-        Jobs £{{ '{:,.0f}'.format(jobs_value|default(0)) }}
-        {% if (retainer_annual|default(0)) > 0 %}+ retainers £{{ '{:,.0f}'.format(retainer_annual) }}/yr{% endif %}
-        {% if (tasks_value|default(0)) > 0 %}+ tasks £{{ '{:,.0f}'.format(tasks_value) }}{% endif %}
+        Jobs {{jobs_value|default(0)|money}}
+        {% if (retainer_annual|default(0)) > 0 %}+ retainers {{retainer_annual|money}}/yr{% endif %}
+        {% if (tasks_value|default(0)) > 0 %}+ tasks {{tasks_value|money}}{% endif %}
       </div>
     </div>
     <p class="wc-net-hint small">Full open book →</p>
@@ -124,7 +124,7 @@
   <a class="live-tile live-tile-wide {{ type_tile_class.get(th[0].key, 'tile-wip') }}"
      href="{{ th[0].href }}" style="margin-bottom:0.55rem">
     <span class="live-kicker">{{ th[0].label }}</span>
-    <span class="live-value">£{{ '{:,.0f}'.format(th[0].amount) }}</span>
+    <span class="live-value">{{th[0].amount|money}}</span>
     <span class="live-sub">{{ th[0].count }} jobs · full list →</span>
   </a>
   {% endif %}
@@ -132,30 +132,30 @@
   <div class="live-grid" style="margin-bottom:0.65rem">
     <a class="live-tile {{ type_tile_class.get(th[1].key, 'tile-cash') }}" href="{{ th[1].href }}">
       <span class="live-kicker">{{ th[1].label }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(th[1].amount) }}</span>
+      <span class="live-value">{{th[1].amount|money}}</span>
       <span class="live-sub">{{ th[1].count }} jobs</span>
     </a>
     <a class="live-tile {{ type_tile_class.get(th[2].key, 'tile-creditors') }}" href="{{ th[2].href }}">
       <span class="live-kicker">{{ th[2].label }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(th[2].amount) }}</span>
+      <span class="live-value">{{th[2].amount|money}}</span>
       <span class="live-sub">{{ th[2].count }} jobs</span>
     </a>
   </div>
   {% endif %}
   <a class="live-tile live-tile-wide tile-creditors" href="/working-capital/wip?horizon=today">
     <span class="live-kicker">Today</span>
-    <span class="live-value">£{{ '{:,.0f}'.format(today_band.amount) }}</span>
+    <span class="live-value">{{today_band.amount|money}}</span>
     <span class="live-sub">{{ today_band.count }} jobs · overdue</span>
   </a>
   <div class="live-grid">
     <a class="live-tile tile-debtors" href="/working-capital/wip?horizon=tomorrow">
       <span class="live-kicker">Tomorrow</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(tomorrow_band.amount|default(0)) }}</span>
+      <span class="live-value">{{tomorrow_band.amount|default(0)|money}}</span>
       <span class="live-sub">{{ tomorrow_band.count|default(0) }} jobs</span>
     </a>
     <a class="live-tile tile-cash" href="/working-capital/wip?horizon=this_week">
       <span class="live-kicker">This week</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(this_week_band.amount|default(0)) }}</span>
+      <span class="live-value">{{this_week_band.amount|default(0)|money}}</span>
       <span class="live-sub">{{ this_week_band.count|default(0) }} jobs</span>
     </a>
   </div>
@@ -164,14 +164,14 @@
     <a class="live-tile {{ mid_tile_class.get(b.key, 'tile-wip') }}"
        href="/working-capital/wip?horizon={{ b.key }}">
       <span class="live-kicker">{{ b.label }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(b.amount|default(0)) }}</span>
+      <span class="live-value">{{b.amount|default(0)|money}}</span>
       <span class="live-sub">{{ b.count|default(0) }} jobs</span>
     </a>
     {% endfor %}
   </div>
   <a class="live-tile live-tile-wide tile-wip" href="/working-capital/wip?horizon=all">
     <span class="live-kicker">Total WIP</span>
-    <span class="live-value">£{{ '{:,.0f}'.format(total) }}</span>
+    <span class="live-value">{{total|money}}</span>
     <span class="live-sub">Jobs + retainers · list →</span>
   </a>
 </div>
@@ -201,7 +201,7 @@
         <span class="wc-box-title">{{ t.label }}</span>
         <span class="wc-box-link">{% if filter_type == t.key %}Selected{% else %}List →{% endif %}</span>
       </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(t.amount) }}</div>
+      <div class="wc-box-value">{{t.amount|money}}</div>
       <div class="wc-box-meta">
         <span class="wc-box-meta-num">{{ t.count }}</span>
         {% if t.key == 'Other' %}items{% else %}jobs{% endif %}
@@ -223,7 +223,7 @@
      href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type=Accounts#wip-list"
      style="margin-bottom:0.55rem">
     <span class="live-kicker">{{ t0.label }}</span>
-    <span class="live-value">£{{ '{:,.0f}'.format(t0.amount) }}</span>
+    <span class="live-value">{{t0.amount|money}}</span>
     <span class="live-sub">{{ t0.count }} jobs</span>
   </a>
   {% endif %}
@@ -234,13 +234,13 @@
     <a class="live-tile {{ type_tile_class.get(t1.key, 'tile-cash') }} {% if filter_type == t1.key %}is-selected{% endif %}"
        href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type=Self+Assessment#wip-list">
       <span class="live-kicker">{{ t1.label }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(t1.amount) }}</span>
+      <span class="live-value">{{t1.amount|money}}</span>
       <span class="live-sub">{{ t1.count }} jobs</span>
     </a>
     <a class="live-tile {{ type_tile_class.get(t2.key, 'tile-creditors') }} {% if filter_type == t2.key %}is-selected{% endif %}"
        href="/working-capital/wip?horizon={{ filter_horizon }}&amp;type=Other#wip-list">
       <span class="live-kicker">{{ t2.label }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(t2.amount) }}</span>
+      <span class="live-value">{{t2.amount|money}}</span>
       <span class="live-sub">{{ t2.count }} items · CS + retainers</span>
     </a>
   </div>
@@ -256,7 +256,7 @@
     <div>
       <h2 style="margin:0">{{ filter_label or 'List' }}</h2>
       <p class="muted small" style="margin:0.35rem 0 0">
-        {{ filter_count }} · £{{ '{:,.2f}'.format(filter_fee) }}
+        {{ filter_count }} · {{filter_fee|money2}}
         · <a href="/working-capital/wip">← All WIP ages</a>
       </p>
     </div>
@@ -381,11 +381,13 @@
             <span class="badge">{{ r.list_status }}</span>
             {% endif %}
           </td>
-          <td class="num"><strong>£{{ '%.2f'|format(r.amount) }}</strong></td>
+          <td class="num"><strong>{{r.amount|money2}}</strong></td>
           <td class="actions-cell nowrap">
-            {% if j and (j.status or '') != 'Cancelled' and (j.billing_status or '')|lower not in ('invoiced', 'paid') %}
+            {% set bill_st = (j.billing_status or '')|lower if j else '' %}
+            {% if j and (j.status or '') != 'Cancelled' and bill_st not in ('invoiced', 'paid', 'retainer', 'not_billable', 'included', 'waived') %}
             <button class="btn btn-sm btn-outline" type="submit"
-              form="wip-job-done-{{ j.id }}" title="Complete, create next year if recurring, open invoice">Done</button>
+              form="wip-job-done-{{ j.id }}"
+              title="{% if j.client and j.client.is_retainer() %}Complete without invoice (retainer){% else %}Complete and open draft invoice{% endif %}">Done</button>
             {% endif %}
           </td>
         </tr>
@@ -396,9 +398,12 @@
   </form>
   {% for r in rows %}
   {% set j = r.job %}
-  {% if j and (j.status or '') != 'Cancelled' and (j.billing_status or '')|lower not in ('invoiced', 'paid') %}
+  {% set bill_st = (j.billing_status or '')|lower if j else '' %}
+  {% if j and (j.status or '') != 'Cancelled' and bill_st not in ('invoiced', 'paid', 'retainer', 'not_billable', 'included', 'waived') %}
   <form id="wip-job-done-{{ j.id }}" method="post" action="/jobs/{{ j.id }}/done" style="display:none">
     <input type="hidden" name="next" value="{{ wip_return }}">
+    {# Empty → server uses client job pattern, else retainer / draft defaults #}
+    <input type="hidden" name="billing" value="">
   </form>
   {% endif %}
   {% endfor %}
@@ -469,12 +474,12 @@
       <div class="wc-net-formula small" style="margin-top:0.15rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;opacity:0.9">
         Jobs completed
       </div>
-      <div class="wc-net-value">£{{ '{:,.0f}'.format(pe_layout.completed.amount) }}</div>
+      <div class="wc-net-value">{{pe_layout.completed.amount|money}}</div>
       <div class="wc-net-formula small">
         {{ pe_layout.completed.count }} completed
         {% if (pe_layout.retainer_completed_months|default(0)) > 0 %}
         · includes {{ pe_layout.retainer_completed_months }} retainer months
-        (£{{ '{:,.0f}'.format(pe_layout.retainer_completed_amount|default(0)) }})
+        ({{pe_layout.retainer_completed_amount|default(0)|money}})
         {% endif %}
       </div>
     </div>
@@ -490,7 +495,7 @@
         <span class="wc-box-title">{{ m.label }}</span>
         <span class="wc-box-link">{% if filter_pe_slice == m.key %}Selected{% else %}List →{% endif %}</span>
       </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(m.amount) }}</div>
+      <div class="wc-box-value">{{m.amount|money}}</div>
       <div class="wc-box-meta">
         <span class="wc-box-meta-num">{{ m.count }}</span> open
       </div>
@@ -503,7 +508,7 @@
      href="{{ pe_layout.year_total.href }}">
     <div class="wc-net-main">
       <div class="wc-net-label">Jobs for the year · {{ pe_layout.year_label|default('') }}</div>
-      <div class="wc-net-value">£{{ '{:,.0f}'.format(pe_layout.year_total.amount) }}</div>
+      <div class="wc-net-value">{{pe_layout.year_total.amount|money}}</div>
       <div class="wc-net-formula small">
         {{ pe_layout.year_total.count }} · completed + outstanding
         {% if (pe_layout.retainer_outstanding_months|default(0)) > 0 or (pe_layout.retainer_completed_months|default(0)) > 0 %}
@@ -520,7 +525,7 @@
      href="{{ pe_layout.completed.href }}">
     <span class="live-kicker" style="font-size:1.05rem;font-weight:800">{{ pe_layout.year_label|default(pe_layout.label) }}</span>
     <span class="live-sub" style="font-weight:700;text-transform:uppercase;letter-spacing:0.03em">Jobs completed</span>
-    <span class="live-value">£{{ '{:,.0f}'.format(pe_layout.completed.amount) }}</span>
+    <span class="live-value">{{pe_layout.completed.amount|money}}</span>
     <span class="live-sub">{{ pe_layout.completed.count }} completed</span>
   </a>
   <div class="live-grid">
@@ -528,7 +533,7 @@
     <a class="live-tile {{ pe_mid_tile.get(m.key, 'tile-wip') }} {% if filter_pe_slice == m.key %}is-selected{% endif %}"
        href="{{ m.href }}">
       <span class="live-kicker">{{ m.label }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(m.amount) }}</span>
+      <span class="live-value">{{m.amount|money}}</span>
       <span class="live-sub">{{ m.count }} open</span>
     </a>
     {% endfor %}
@@ -536,7 +541,7 @@
   <a class="live-tile live-tile-wide tile-wip {% if filter_pe_slice == 'year' %}is-selected{% endif %}"
      href="{{ pe_layout.year_total.href }}">
     <span class="live-kicker">Jobs for the year</span>
-    <span class="live-value">£{{ '{:,.0f}'.format(pe_layout.year_total.amount) }}</span>
+    <span class="live-value">{{pe_layout.year_total.amount|money}}</span>
     <span class="live-sub">{{ pe_layout.year_total.count }} jobs</span>
   </a>
 </div>
@@ -549,7 +554,7 @@
     <div>
       <h2 style="margin:0">{{ filter_label or 'List' }}</h2>
       <p class="muted small" style="margin:0.35rem 0 0">
-        {{ filter_count }} · £{{ '{:,.2f}'.format(filter_fee) }}
+        {{ filter_count }} · {{filter_fee|money2}}
         · <a href="/working-capital/wip?pe_year={{ pe_q }}">← {{ pe_layout.label }} tiles</a>
         · <a href="/working-capital/wip">WIP home</a>
       </p>
@@ -587,7 +592,7 @@
           <td class="small">{{ r.period_end_fmt }}</td>
           <td>{% if j and j|job_overdue %}<span class="badge badge-overdue">{{ r.due_fmt }}</span>{% else %}{{ r.due_fmt }}{% endif %}</td>
           <td><span class="badge">{{ r.list_status }}</span></td>
-          <td class="num"><strong>£{{ '%.2f'|format(r.amount) }}</strong></td>
+          <td class="num"><strong>{{r.amount|money2}}</strong></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -611,8 +616,8 @@
         Remaining work by period end. <strong>2027</strong> = today’s Total WIP ledger
         (jobs + retainers) plus any converted clients without PE 2026 Accounts not already in WIP.
         Earlier years include job fees and retainer months (a month is completed once its start has passed).
-        Remaining total £{{ '{:,.0f}'.format(wip_book.total_value|default(0)) }}
-        of expected £{{ '{:,.0f}'.format(wip_book.total_expected|default(0)) }}.
+        Remaining total {{wip_book.total_value|default(0)|money}}
+        of expected {{wip_book.total_expected|default(0)|money}}.
       </p>
     </div>
   </div>
@@ -622,14 +627,14 @@
        href="{{ t.href }}">
       <div class="stat-name">{{ t.label }}</div>
       <div class="stat-num" style="font-size:1.55rem;font-weight:800;line-height:1.15;color:#0f172a">
-        £{{ '{:,.0f}'.format(t.amount) }}
+        {{t.amount|money}}
       </div>
       <div class="stat-sub muted small" style="margin-top:0.35rem">
         <strong>{{ t.count }}</strong> {{ t.unit }}
         · <strong>{{ t.pct }}%</strong> remaining
       </div>
       <div class="muted small" style="margin-top:0.2rem">
-        of £{{ '{:,.0f}'.format(t.expected|default(t.amount)) }} known
+        of {{t.expected|default(t.amount)|money}} known
       </div>
       <div class="wip-book-pct-bar" aria-hidden="true">
         <span style="width:{{ t.pct_bar|default(t.pct)|default(0) }}%"></span>
@@ -645,14 +650,14 @@
     <h2>WIP book</h2>
   </div>
   <p class="muted small hub-practice-note" style="margin-bottom:0.55rem">
-    Remaining £{{ '{:,.0f}'.format(wip_book.total_value|default(0)) }}
-    of £{{ '{:,.0f}'.format(wip_book.total_expected|default(0)) }} known
+    Remaining {{wip_book.total_value|default(0)|money}}
+    of {{wip_book.total_expected|default(0)|money}} known
   </p>
   <div class="practice-tiles">
     {% for t in wip_book.tiles|default([]) %}
     <a class="practice-tile {% if t.key == 'prospects' %}practice-new{% elif t.key == 'pe_2027' %}practice-ok{% elif t.key == 'pe_2024_prior' %}practice-lost{% endif %}"
        href="{{ t.href }}">
-      <span class="practice-num">£{{ '{:,.0f}'.format(t.amount) }}</span>
+      <span class="practice-num">{{t.amount|money}}</span>
       <span class="practice-lab">{{ t.label }}</span>
       <span class="practice-sub">{{ t.count }} · {{ t.pct }}%</span>
     </a>

@@ -22,8 +22,8 @@
       {% if p.company_number %}<span class="badge">{{ p.company_number }}</span> · {% endif %}
       {% if p.service_line %}{{ p.service_line }} · {% endif %}
       {{ buckets.total_jobs }} jobs ·
-      gross £{{ '{:,.0f}'.format(buckets.total_value) }} ·
-      pipeline £{{ '{:,.0f}'.format(buckets.total_pipeline) }}
+      gross {{buckets.total_value|money}} ·
+      pipeline {{buckets.total_pipeline|money}}
       ({{ buckets.confidence_pct }}% conf)
     </p>
   </div>
@@ -53,14 +53,14 @@
         <span class="wc-box-title">{{ tile.label }}</span>
         <span class="wc-box-link">{{ tile.count }} job{% if tile.count != 1 %}s{% endif %} →</span>
       </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(tile.value) }}</div>
+      <div class="wc-box-value">{{tile.value|money}}</div>
       <div class="wc-box-meta">
         {% if tile.key == 'other' %}
-        Commercial · pipeline £{{ '{:,.0f}'.format(tile.pipeline) }}
+        Commercial · pipeline {{tile.pipeline|money}}
         {% elif tile.key == 'accounts' %}
-        Guestimate £{{ '{:,.0f}'.format(tile.default_fee) }} avg
+        Guestimate {{tile.default_fee|money}} avg
         {% else %}
-        {{ tile.count }} dir × £{{ '{:,.0f}'.format(tile.per_director) }}
+        {{ tile.count }} dir × {{tile.per_director|money}}
         {% endif %}
       </div>
     </a>
@@ -80,16 +80,16 @@
     <a class="live-tile {{ lt }} {% if bucket_key == tile.key %}is-selected{% endif %}"
        href="/prospecting/prospects/{{ p.id }}?bucket={{ tile.key }}">
       <span class="live-kicker">{{ tile.label }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(tile.value) }}</span>
+      <span class="live-value">{{tile.value|money}}</span>
       <span class="live-sub">{{ tile.count }} job{% if tile.count != 1 %}s{% endif %}</span>
       <span class="live-age">
         <span>
           {% if tile.key == 'other' %}
-          Pipeline £{{ '{:,.0f}'.format(tile.pipeline) }}
+          Pipeline {{tile.pipeline|money}}
           {% elif tile.key == 'accounts' %}
-          £{{ '{:,.0f}'.format(tile.default_fee) }} avg
+          {{tile.default_fee|money}} avg
           {% else %}
-          × £{{ '{:,.0f}'.format(tile.per_director) }}
+          × {{tile.per_director|money}}
           {% endif %}
         </span>
       </span>
@@ -125,8 +125,8 @@
     </div>
     <p class="muted small prospect-jobs-meta" style="margin:0.35rem 0 0">
       {{ active_bucket.count }} job{% if active_bucket.count != 1 %}s{% endif %}
-      · £{{ '{:,.0f}'.format(active_bucket.value) }}
-      {% if active_bucket.pipeline %} · pipeline £{{ '{:,.0f}'.format(active_bucket.pipeline) }}{% endif %}
+      · {{active_bucket.value|money}}
+      {% if active_bucket.pipeline %} · pipeline {{active_bucket.pipeline|money}}{% endif %}
       · <strong>Source:</strong>
       {% if p.referred_by or p.source_channel %}
         {{ source_label }}
@@ -152,8 +152,8 @@
         <tr>
           <td><strong>{{ j.title }}</strong></td>
           <td class="small">{{ j.detail or '—' }}</td>
-          <td class="num"><strong>£{{ '{:,.0f}'.format(j.fee) }}</strong></td>
-          <td class="num">£{{ '{:,.0f}'.format(j.pipeline) }}</td>
+          <td class="num"><strong>{{j.fee|money}}</strong></td>
+          <td class="num">{{j.pipeline|money}}</td>
         </tr>
         {% endfor %}
       </tbody>

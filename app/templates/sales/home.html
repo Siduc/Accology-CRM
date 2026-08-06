@@ -19,14 +19,14 @@
 <div class="sales-kpi-row">
   <a class="sales-kpi sales-kpi-warn" href="/sales/ageing">
     <div class="sales-kpi-lab">Outstanding debtors</div>
-    <div class="sales-kpi-val">£{{ '{:,.0f}'.format(debtors_total) }}</div>
+    <div class="sales-kpi-val">{{debtors_total|money}}</div>
     <div class="sales-kpi-sub">{{ debtors_count }} invoices</div>
   </a>
   <a class="sales-kpi sales-kpi-danger" href="/sales/chase">
     <div class="sales-kpi-lab">Chase pipeline</div>
     <div class="sales-kpi-val">{% if chase_summary %}{{ chase_summary.pipeline_count }}{% else %}—{% endif %}</div>
     <div class="sales-kpi-sub">
-      {% if chase_summary %}£{{ '{:,.0f}'.format(chase_summary.pipeline_amount) }} · 7d+{% else %}Over 30d £{{ '{:,.0f}'.format(overdue_total) }}{% endif %}
+      {% if chase_summary %}{{chase_summary.pipeline_amount|money}} · 7d+{% else %}Over 30d {{overdue_total|money}}{% endif %}
     </div>
   </a>
   <a class="sales-kpi" href="/sales/invoices">
@@ -54,10 +54,10 @@
     <a class="btn btn-sm" href="/sales/chase">Open chase desk</a>
   </div>
   <div class="chase-stage-pills">
-    <span class="chase-pill">Polite {{ chase_summary.by_stage.polite }} · £{{ '{:,.0f}'.format(chase_summary.by_stage_amount.polite) }}</span>
-    <span class="chase-pill">Firm {{ chase_summary.by_stage.firm }} · £{{ '{:,.0f}'.format(chase_summary.by_stage_amount.firm) }}</span>
-    <span class="chase-pill">Final {{ chase_summary.by_stage.final }} · £{{ '{:,.0f}'.format(chase_summary.by_stage_amount.final) }}</span>
-    <span class="chase-pill">Legal {{ chase_summary.by_stage.legal }} · £{{ '{:,.0f}'.format(chase_summary.by_stage_amount.legal) }}</span>
+    <span class="chase-pill">Polite {{ chase_summary.by_stage.polite }} · {{chase_summary.by_stage_amount.polite|money}}</span>
+    <span class="chase-pill">Firm {{ chase_summary.by_stage.firm }} · {{chase_summary.by_stage_amount.firm|money}}</span>
+    <span class="chase-pill">Final {{ chase_summary.by_stage.final }} · {{chase_summary.by_stage_amount.final|money}}</span>
+    <span class="chase-pill">Legal {{ chase_summary.by_stage.legal }} · {{chase_summary.by_stage_amount.legal|money}}</span>
     <span class="chase-pill muted">Actions this week: {{ chase_summary.actions_this_week }}</span>
   </div>
 </div>
@@ -70,7 +70,7 @@
     <div class="wc-age-row">
       <span class="wc-age-lab">{{ b.label }}</span>
       <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-amber" style="width:{{ ((b.amount / ((debtors_total if debtors_total else 1))) * 100)|int }}%"></span></span>
-      <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+      <span class="wc-age-amt">{{b.amount|money}} · {{ b.count }}</span>
     </div>
     {% endfor %}
   </div>

@@ -39,27 +39,27 @@
   <a class="sales-kpi sales-kpi-warn" href="#chase-pipeline">
     <div class="sales-kpi-lab">In chase pipeline</div>
     <div class="sales-kpi-val">{{ summary.pipeline_count }}</div>
-    <div class="sales-kpi-sub">£{{ '{:,.0f}'.format(summary.pipeline_amount) }}</div>
+    <div class="sales-kpi-sub">{{summary.pipeline_amount|money}}</div>
   </a>
   <div class="sales-kpi">
     <div class="sales-kpi-lab">Polite (7d+)</div>
     <div class="sales-kpi-val">{{ summary.by_stage.polite }}</div>
-    <div class="sales-kpi-sub">£{{ '{:,.0f}'.format(summary.by_stage_amount.polite) }}</div>
+    <div class="sales-kpi-sub">{{summary.by_stage_amount.polite|money}}</div>
   </div>
   <div class="sales-kpi sales-kpi-warn">
     <div class="sales-kpi-lab">Firm (14d+)</div>
     <div class="sales-kpi-val">{{ summary.by_stage.firm }}</div>
-    <div class="sales-kpi-sub">£{{ '{:,.0f}'.format(summary.by_stage_amount.firm) }}</div>
+    <div class="sales-kpi-sub">{{summary.by_stage_amount.firm|money}}</div>
   </div>
   <div class="sales-kpi sales-kpi-danger">
     <div class="sales-kpi-lab">Final (30d+)</div>
     <div class="sales-kpi-val">{{ summary.by_stage.final }}</div>
-    <div class="sales-kpi-sub">£{{ '{:,.0f}'.format(summary.by_stage_amount.final) }}</div>
+    <div class="sales-kpi-sub">{{summary.by_stage_amount.final|money}}</div>
   </div>
   <div class="sales-kpi sales-kpi-danger">
     <div class="sales-kpi-lab">Legal (60d+)</div>
     <div class="sales-kpi-val">{{ summary.by_stage.legal }}</div>
-    <div class="sales-kpi-sub">£{{ '{:,.0f}'.format(summary.by_stage_amount.legal) }}</div>
+    <div class="sales-kpi-sub">{{summary.by_stage_amount.legal|money}}</div>
   </div>
   <div class="sales-kpi sales-kpi-ok">
     <div class="sales-kpi-lab">Actions (7 days)</div>
@@ -131,7 +131,7 @@
           <td><a href="/sales/invoices/{{ r.inv.id }}">{{ r.inv.number }}</a></td>
           <td>{% if r.client %}{{ r.client.display_name() }}{% else %}—{% endif %}</td>
           <td><span class="badge badge-overdue">{{ r.overdue }}d</span></td>
-          <td>£{{ '%.2f'|format(r.inv.balance or 0) }}</td>
+          <td>{{(r.inv.balance or 0)|money2}}</td>
           <td>
             {% if r.on_hold %}
             <span class="badge">On hold</span>

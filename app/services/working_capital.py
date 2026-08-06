@@ -297,12 +297,14 @@ def wip_amount_for_job(
     """
     Fee that counts toward WIP for this job.
 
-    Retainer clients: £0 on the job row — retainers bank on the 1st of each
-    month and are allocated via :func:`retainer_wip_band_amounts`.
+    Retainer clients: covered work at £0 stays out of job WIP (retainer book
+    banks monthly). Any **positive** job fee still counts — extra billable
+    work on a retainer client is real WIP.
     """
+    fee = float(job.fee or 0)
     if _client_is_retainer(job.client):
-        return 0.0
-    return float(job.fee or 0)
+        return fee if fee > 0 else 0.0
+    return fee
 
 
 def retainer_forward_month_starts(

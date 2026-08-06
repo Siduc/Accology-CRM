@@ -24,13 +24,30 @@
     </p>
   </div>
   <div class="actions">
-    {% if (job.status or '') != 'Cancelled' and (job.billing_status or '')|lower not in ('invoiced', 'paid') %}
-    <form method="post" action="/jobs/{{ job.id }}/done" style="display:inline">
+    {% set bill_st = (job.billing_status or '')|lower %}
+    {% set is_retainer = job.client and job.client.is_retainer() %}
+    {% set default_billing = job_done_default_billing if job_done_default_billing else ('none' if is_retainer else 'draft') %}
+    {% if (job.status or '') != 'Cancelled' and bill_st not in ('invoiced', 'paid', 'retainer', 'not_billable', 'included', 'waived', 'draft') %}
+    <form method="post" action="/jobs/{{ job.id }}/done" class="actions" style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.35rem">
       <input type="hidden" name="next" value="{{ list_back }}">
-      <button class="btn btn-sm" type="submit" title="Complete job, create next year if recurring, open invoice">Done</button>
+      <label class="small muted" for="done-billing-{{ job.id }}" style="margin:0">On Done:</label>
+      <select id="done-billing-{{ job.id }}" name="billing" class="wc-touch" style="max-width:16rem">
+        <option value="draft" {% if default_billing == 'draft' %}selected{% endif %}>Draft invoice (review — not sent)</option>
+        <option value="sent" {% if default_billing == 'sent' %}selected{% endif %}>Invoice (sent)</option>
+        <option value="none" {% if default_billing == 'none' %}selected{% endif %}>No invoice{% if is_retainer %} (retainer){% endif %}</option>
+      </select>
+      <label class="small muted" style="margin:0;display:inline-flex;align-items:center;gap:0.25rem" title="Save fee + Done choice as this client’s default for this job type">
+        <input type="checkbox" name="remember_pattern" value="yes">
+        Remember for client
+      </label>
+      <button class="btn btn-sm" type="submit" title="Complete job; billing choice on the left">Done</button>
     </form>
-    {% elif (job.billing_status or '')|lower in ('invoiced', 'paid') %}
+    {% elif bill_st == 'draft' and job.invoice_reference %}
+    <a class="btn btn-sm" href="/sales/invoices?q={{ job.invoice_reference|urlquote }}" title="Open draft invoice — send or discard">Draft invoice</a>
+    {% elif bill_st in ('invoiced', 'paid') %}
     <a class="btn btn-sm btn-outline" href="/sales/invoices/new?job_id={{ job.id }}">Invoice</a>
+    {% elif bill_st in ('retainer', 'not_billable', 'included', 'waived') %}
+    <span class="badge" title="Completed without a separate invoice">{{ job.billing_status }}</span>
     {% endif %}
     <a class="btn btn-sm" href="/jobs/{{ job.id }}/edit{{ ret_q }}">Edit</a>
     {% if job.client_id %}
@@ -62,6 +79,20 @@
 {% endif %}
 {% if asana_error %}
 <div class="alert alert-error">{{ asana_error }}</div>
+{% endif %}
+{% if job_billing_pattern %}
+<div class="chase-banner chase-banner-info" role="status">
+  <strong>Client billing pattern</strong> for {{ job.type or 'this type' }}:
+  {% if job_billing_pattern.fee is none %}standard fee{% elif job_billing_pattern.fee == 0 %}£0 (no fee){% else %}{{job_billing_pattern.fee|money2}}{% endif %}
+  · Done → {% if (job_billing_pattern.on_done or '') == 'none' %}no invoice{% elif (job_billing_pattern.on_done or '') == 'draft' %}draft invoice{% elif (job_billing_pattern.on_done or '') == 'sent' %}sent invoice{% else %}standard{% endif %}.
+  You can still change the fee on Edit or override Done below.
+  {% if job.client_id %}<a href="/clients/{{ job.client_id }}?tab=details#client-billing-patterns">Edit patterns</a>{% endif %}
+</div>
+{% elif job.client and job.client.is_retainer() and (job.billing_status or '')|lower not in ('invoiced', 'paid') %}
+<div class="chase-banner chase-banner-info" role="status">
+  <strong>Retainer client</strong> — Done defaults to <em>No invoice</em> (work covered by retainer).
+  Switch the Done menu to draft/sent invoice if this job should be billed separately.
+</div>
 {% endif %}
 {% if job.alert_on %}
 <div class="chase-banner chase-banner-practice" role="status">
@@ -104,7 +135,7 @@
       <span class="badge">{{ job|job_status }}</span>
       {% endif %}
     </dd>
-    <dt>Fee</dt><dd>£{{ '%.2f'|format(job.fee or 0) }}</dd>
+    <dt>Fee</dt><dd>{{(job.fee or 0)|money2}}</dd>
     <dt>Recurring</dt><dd>{{ job.is_recurring or '—' }}</dd>
     <dt>Asana</dt>
     <dd>
@@ -138,7 +169,7 @@
       <p class="muted small" style="margin:0.35rem 0 0">
         OneDrive · Accologise / Clients /
         {% if job.client %}{{ job.client.display_name() }}{% else %}…{% endif %} /
-        {{ job.type or job.title or 'Job' }}{% if job.period_end %} — {{ job.period_end }}{% endif %}
+        {{ job.type or job.title or 'Job' }}{% if job.period_end %} — {{ job.period_end|uk_date }}{% endif %}
       </p>
     </div>
     <div class="actions">
@@ -207,7 +238,7 @@
             <div class="small muted">{{ d.original_filename or '' }}</div>
           </td>
           <td class="small">{{ d.category }}</td>
-          <td class="small">{{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '—' }}</td>
+          <td class="small">{{ d.uploaded_at|uk_date }}</td>
           <td><a class="btn btn-sm btn-outline" href="/documents/{{ d.id }}/download">↓</a></td>
         </tr>
         {% endfor %}

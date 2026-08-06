@@ -50,7 +50,7 @@
           <option value="">— none —</option>
           {% for i in open_invoices %}
           <option value="{{ i.id }}" {% if preselect_invoice_id==i.id %}selected{% endif %}>
-            {{ i.number }} · bal £{{ '%.2f'|format(i.balance) }}
+            {{ i.number }} · bal {{i.balance|money2}}
           </option>
           {% endfor %}
         </select>

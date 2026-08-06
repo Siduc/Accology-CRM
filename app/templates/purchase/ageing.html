@@ -5,7 +5,7 @@
   <div>
     <p class="small muted"><a href="/purchase">← Purchase Ledger</a></p>
     <h1>Creditors ageing</h1>
-    <p class="muted small">Outstanding £{{ '{:,.2f}'.format(total) }} · {{ count }} bills · {{ today }}</p>
+    <p class="muted small">Outstanding {{total|money2}} · {{ count }} bills · {{ today }}</p>
   </div>
 </div>
 <div class="card">
@@ -15,7 +15,7 @@
     <div class="wc-age-row">
       <span class="wc-age-lab">{{ b.label }}</span>
       <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-red" style="width:{{ ((b.amount / ((total if total else 1))) * 100)|int }}%"></span></span>
-      <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+      <span class="wc-age-amt">{{b.amount|money}} · {{ b.count }}</span>
     </div>
     {% endfor %}
   </div>
@@ -33,7 +33,7 @@
           <td>{{ r.bill.supplier_name }}</td>
           <td>{{ r.bill.due_date or '—' }}</td>
           <td><span class="badge badge-overdue">{{ r.age }}d</span></td>
-          <td>£{{ '%.2f'|format(r.balance) }}</td>
+          <td>{{r.balance|money2}}</td>
         </tr>
         {% endfor %}
       </tbody>

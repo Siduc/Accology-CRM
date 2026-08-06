@@ -27,15 +27,31 @@
     else if (pref === "mobile") b.classList.add("dash-force-mobile");
     else b.classList.add("dash-auto");
 
-    // Hub chrome only when mobile view is effectively showing
+    // Dark Live Tiles hub chrome on every small screen (all pages)
     var mobileForced = pref === "mobile";
     var desktopForced = pref === "desktop";
     var narrow =
       typeof window.matchMedia === "function" &&
       window.matchMedia("(max-width: 767.98px)").matches;
-    var showHub = mobileForced || (!desktopForced && narrow);
+    // Prefer hub on narrow viewports even if user picked "desktop" —
+    // small screens stay dark Live Tiles; wide screens can use desk chrome.
+    var showHub = narrow || mobileForced;
+    if (desktopForced && !narrow) showHub = false;
     b.classList.toggle("body-hub", showHub);
     b.classList.toggle("body-page", !showHub);
+  }
+
+  // Re-apply on resize so rotating a tablet flips theme
+  if (typeof window.matchMedia === "function") {
+    try {
+      window
+        .matchMedia("(max-width: 767.98px)")
+        .addEventListener("change", function () {
+          applyToBody(readPref());
+        });
+    } catch (e) {
+      /* older browsers */
+    }
   }
 
   function initDashboard() {

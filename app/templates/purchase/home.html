@@ -18,12 +18,12 @@
 <div class="sales-kpi-row">
   <a class="sales-kpi sales-kpi-danger" href="/purchase/bills?status=outstanding">
     <div class="sales-kpi-lab">Outstanding</div>
-    <div class="sales-kpi-val">£{{ '{:,.0f}'.format(outstanding_total) }}</div>
+    <div class="sales-kpi-val">{{outstanding_total|money}}</div>
     <div class="sales-kpi-sub">{{ outstanding_count }} open bills</div>
   </a>
   <a class="sales-kpi sales-kpi-warn" href="/purchase/ageing">
     <div class="sales-kpi-lab">Overdue</div>
-    <div class="sales-kpi-val">£{{ '{:,.0f}'.format(overdue_total) }}</div>
+    <div class="sales-kpi-val">{{overdue_total|money}}</div>
     <div class="sales-kpi-sub">Past due date</div>
   </a>
   <a class="sales-kpi" href="/purchase/bills">
@@ -45,7 +45,7 @@
     <div class="wc-age-row">
       <span class="wc-age-lab">{{ b.label }}</span>
       <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-red" style="width:{{ ((b.amount / ((outstanding_total if outstanding_total else 1))) * 100)|int }}%"></span></span>
-      <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+      <span class="wc-age-amt">{{b.amount|money}} · {{ b.count }}</span>
     </div>
     {% endfor %}
   </div>

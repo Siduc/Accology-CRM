@@ -8,7 +8,7 @@
     <p class="muted small">
       Stage: <strong>{{ stage_label }}</strong>
       · {{ overdue }} days overdue
-      · balance £{{ '%.2f'|format(inv.balance or 0) }}
+      · balance {{(inv.balance or 0)|money2}}
     </p>
   </div>
 </div>

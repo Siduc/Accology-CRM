@@ -177,7 +177,7 @@ async def opening_balances_page(
         {
             "debtors_total": total,
             "debtors_count": count,
-            "as_at": date.today().strftime("%d-%m-%Y"),
+            "as_at": date.today().strftime("%d/%m/%Y"),
             "msg": msg,
             "error": error,
             "result": request.query_params.get("result", ""),
@@ -218,7 +218,7 @@ async def opening_balances_import(
             {
                 "debtors_total": total,
                 "debtors_count": count,
-                "as_at": date.today().strftime("%d-%m-%Y"),
+                "as_at": date.today().strftime("%d/%m/%Y"),
                 "msg": "",
                 "error": str(exc),
                 "result": "",
@@ -249,7 +249,7 @@ async def opening_balances_import(
         {
             "debtors_total": total,
             "debtors_count": count,
-            "as_at": date.today().strftime("%d-%m-%Y"),
+            "as_at": date.today().strftime("%d/%m/%Y"),
             "msg": summary,
             "error": "",
             "result": err_block or "(no row errors)",
@@ -553,20 +553,133 @@ async def invoice_edit_save(
     )
 
 
+def _do_invoice_discard(
+    db: Session,
+    inv: Invoice,
+    *,
+    reason: str = "Not billed",
+    remember: str = "",
+) -> RedirectResponse:
+    """Shared discard logic (void + mark job not billable)."""
+    from app.services.sales_ledger import discard_invoice_do_not_bill
+
+    if (inv.status or "").lower() in ("paid", "part_paid"):
+        return RedirectResponse(
+            f"/sales/invoices/{inv.id}?error={url_quote('Cannot discard a paid invoice')}",
+            status_code=303,
+        )
+    if float(inv.amount_paid or 0) > 0:
+        return RedirectResponse(
+            f"/sales/invoices/{inv.id}?error={url_quote('Cannot discard - payment already allocated')}",
+            status_code=303,
+        )
+
+    job_id = inv.job_id
+    client_id = inv.client_id
+    discard_invoice_do_not_bill(db, inv, reason=(reason or "Not billed").strip()[:120])
+
+    if (remember or "").strip().lower() in ("1", "yes", "on", "true") and job_id:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if job and job.client_id and job.type:
+            try:
+                from app.services.client_billing import remember_from_job
+
+                remember_from_job(
+                    db,
+                    client_id=int(job.client_id),
+                    job_type=job.type or "",
+                    fee=float(job.fee or 0),
+                    on_done="none",
+                    commit=True,
+                )
+            except Exception:
+                pass
+
+    if job_id:
+        dest = f"/jobs/{job_id}?msg={url_quote('Invoice discarded - job marked not billed')}"
+    elif client_id:
+        dest = f"/clients/{client_id}?msg={url_quote('Invoice discarded - not billed')}"
+    else:
+        dest = f"/sales/invoices?msg={url_quote('Invoice discarded')}"
+    return RedirectResponse(dest, status_code=303)
+
+
 @router.post("/invoices/{invoice_id:int}/status", response_class=HTMLResponse)
 async def invoice_status(
     invoice_id: int,
     request: Request,
     status: str = Form(...),
+    reason: str = Form("Not billed"),
+    remember: str = Form(""),
     db: Session = Depends(get_db),
 ):
     inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-    if inv and status in ("draft", "sent", "void", "written_off"):
-        inv.status = status
-        if status in ("void", "written_off"):
+    if not inv:
+        return RedirectResponse("/sales/invoices", status_code=303)
+
+    # Allow discard via the status form (works even if /discard route was missing)
+    st = (status or "").strip().lower()
+    if st in ("do_not_bill", "discard", "not_billed", "not-billed"):
+        return _do_invoice_discard(db, inv, reason=reason, remember=remember)
+
+    if st in ("draft", "sent", "void", "written_off"):
+        inv.status = st
+        if st in ("void", "written_off"):
             inv.balance = 0.0
+            # Void from dropdown also clears job billing link when unpaid
+            if st == "void" and inv.job_id and float(inv.amount_paid or 0) <= 0:
+                job = db.query(Job).filter(Job.id == inv.job_id).first()
+                if job and (job.billing_status or "").lower() in (
+                    "invoiced",
+                    "draft",
+                    "",
+                ):
+                    job.billing_status = "not_billable"
+                    job.invoice_reference = None
+        if st == "sent" and inv.job_id:
+            job = db.query(Job).filter(Job.id == inv.job_id).first()
+            if job:
+                job.billing_status = "invoiced"
+                job.invoice_reference = inv.number
         db.commit()
     return RedirectResponse(f"/sales/invoices/{invoice_id}", status_code=303)
+
+
+@router.post("/invoices/{invoice_id:int}/discard", response_class=HTMLResponse)
+async def invoice_discard_not_bill(
+    invoice_id: int,
+    request: Request,
+    reason: str = Form("Not billed"),
+    remember: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    After Done -> draft: discard invoice and mark job not billable.
+    Does not send - voids the draft and unlinks the job for billing.
+    """
+    inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not inv:
+        return RedirectResponse("/sales/invoices", status_code=303)
+    return _do_invoice_discard(db, inv, reason=reason, remember=remember)
+
+
+@router.post("/invoices/{invoice_id}/discard", response_class=HTMLResponse)
+async def invoice_discard_not_bill_loose(
+    invoice_id: str,
+    request: Request,
+    reason: str = Form("Not billed"),
+    remember: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Same as discard but accepts non-int path segments (defensive)."""
+    try:
+        iid = int(str(invoice_id).strip())
+    except ValueError:
+        return RedirectResponse("/sales/invoices", status_code=303)
+    inv = db.query(Invoice).filter(Invoice.id == iid).first()
+    if not inv:
+        return RedirectResponse("/sales/invoices", status_code=303)
+    return _do_invoice_discard(db, inv, reason=reason, remember=remember)
 
 
 @router.post("/invoices/{invoice_id:int}/chase", response_class=HTMLResponse)

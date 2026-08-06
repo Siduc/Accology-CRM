@@ -50,6 +50,7 @@ def ensure_sa_service_and_fees(db: Session) -> Dict[str, Any]:
             default_vat_rate=0.0,
             unit="job",
             category="compliance",
+            recurrence="annually",
             is_active=True,
             is_sellable_to_clients=True,
         )

@@ -8,7 +8,7 @@
     <p class="muted small">
       {{ txn.txn_date }} · {{ txn.description }} ·
       <strong class="{% if txn.amount >= 0 %}text-success{% else %}text-danger{% endif %}">
-        {% if txn.amount >= 0 %}+{% endif %}£{{ '%.2f'|format(txn.amount) }}
+        {% if txn.amount >= 0 %}+{% endif %}{{txn.amount|money2}}
       </strong>
     </p>
   </div>
@@ -39,7 +39,7 @@
     <select name="invoice_id">
       <option value="">— none / unallocated —</option>
       {% for i in open_invoices %}
-      <option value="{{ i.id }}">{{ i.number }} · client #{{ i.client_id }} · bal £{{ '%.2f'|format(i.balance) }}</option>
+      <option value="{{ i.id }}">{{ i.number }} · client #{{ i.client_id }} · bal {{i.balance|money2}}</option>
       {% endfor %}
     </select>
     <label>Allocation amount (blank = up to payment / balance)</label>
@@ -59,7 +59,7 @@
     <select name="bill_id" required>
       <option value="">Select…</option>
       {% for b in open_bills %}
-      <option value="{{ b.id }}">{{ b.supplier_name }} · {{ b.number or b.id }} · bal £{{ '%.2f'|format(b.balance or b.amount or 0) }} · due {{ b.due_date or '—' }}</option>
+      <option value="{{ b.id }}">{{ b.supplier_name }} · {{ b.number or b.id }} · bal {{(b.balance or b.amount or 0)|money2}} · due {{ b.due_date or '—' }}</option>
       {% endfor %}
     </select>
     <button class="btn wc-touch" type="submit">Match to creditor</button>

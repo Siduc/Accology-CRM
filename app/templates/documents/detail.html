@@ -91,7 +91,7 @@
   <dl class="dl-grid">
     <dt>File</dt><dd>{{ doc.original_filename or '—' }}</dd>
     <dt>Size</dt><dd>{% if doc.size_bytes %}{{ '%.1f'|format(doc.size_bytes / 1024) }} KB{% else %}—{% endif %}</dd>
-    <dt>Uploaded</dt><dd>{{ doc.uploaded_at.strftime('%d-%m-%Y %H:%M') if doc.uploaded_at else '—' }} · {{ doc.uploaded_by or '—' }}</dd>
+    <dt>Uploaded</dt><dd>{{ doc.uploaded_at|uk_date }}{% if doc.uploaded_at and doc.uploaded_at.strftime %} {{ doc.uploaded_at.strftime('%H:%M') }}{% endif %} · {{ doc.uploaded_by or '—' }}</dd>
     <dt>OneDrive path</dt><dd class="small">{{ doc.onedrive_path or '—' }}</dd>
     <dt>OneDrive link</dt>
     <dd class="small">
@@ -176,7 +176,7 @@
           <td>v{{ v.version }}</td>
           <td class="small">{{ v.original_filename or '—' }}</td>
           <td class="small">{% if v.size_bytes %}{{ '%.0f'|format(v.size_bytes / 1024) }} KB{% else %}—{% endif %}</td>
-          <td class="small">{{ v.uploaded_at.strftime('%d-%m-%Y %H:%M') if v.uploaded_at else '—' }}</td>
+          <td class="small">{{ v.uploaded_at|uk_date }}{% if v.uploaded_at %} {{ v.uploaded_at.strftime('%H:%M') }}{% endif %}</td>
           <td class="small">{{ v.uploaded_by or '—' }}</td>
           <td class="small">{{ v.note or '' }}</td>
         </tr>

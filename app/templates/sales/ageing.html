@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Debtors · Accologise{% endblock %}
+{% block title %}Debtors · Accology{% endblock %}
 {% block apple_title %}Debtors{% endblock %}
 {% block apple_touch_icon %}/static/icons/home/debtors.png?v=home1{% endblock %}
 {% block content %}
@@ -11,8 +11,8 @@
     </p>
     <h1>Debtors</h1>
     <p class="muted small">
-      {{ count }} invoices · £{{ '{:,.2f}'.format(total) }} outstanding ·
-      as at {{ today.strftime('%d-%m-%Y') if today.strftime else today }}
+      {{ count }} invoices · {{total|money2}} outstanding ·
+      as at {{ today.strftime('%d/%m/%Y') if today.strftime else today }}
     </p>
   </div>
   <div class="actions">
@@ -47,7 +47,7 @@
         <span class="wc-box-title">{{ n }} · {{ t.label }}</span>
         <span class="wc-box-link">{% if filter_bucket == t.key %}Selected{% else %}List →{% endif %}</span>
       </div>
-      <div class="wc-box-value">£{{ '{:,.0f}'.format(t.amount) }}</div>
+      <div class="wc-box-value">{{t.amount|money}}</div>
       <div class="wc-box-meta">
         {{ t.count }} invoice{% if t.count != 1 %}s{% endif %}
         · {{ t.detail }}
@@ -59,7 +59,7 @@
   <section class="wc-net-banner wc-net-result wc-net-pos" aria-label="Total debtors">
     <div class="wc-net-main">
       <div class="wc-net-label">Total debtors</div>
-      <div class="wc-net-value">£{{ '{:,.0f}'.format(total) }}</div>
+      <div class="wc-net-value">{{total|money}}</div>
       <div class="wc-net-formula muted small">
         {{ count }} invoices outstanding · 30 + 60 + 90 + Older
       </div>
@@ -79,7 +79,7 @@
     <a class="live-tile {{ tile_class.get(t.key, 'tile-debtors') }} {% if filter_bucket == t.key %}is-selected{% endif %}"
        href="/sales/ageing?bucket={{ t.key }}#debtors-list">
       <span class="live-kicker">{{ n }} · {{ t.label }}</span>
-      <span class="live-value">£{{ '{:,.0f}'.format(t.amount) }}</span>
+      <span class="live-value">{{t.amount|money}}</span>
       <span class="live-sub">{{ t.count }} invoices</span>
       <span class="live-age"><span>{{ t.detail }}</span></span>
     </a>
@@ -87,7 +87,7 @@
   </div>
   <section class="live-net" aria-label="Total debtors">
     <div class="live-net-label">Total debtors</div>
-    <div class="live-net-value">£{{ '{:,.0f}'.format(total) }}</div>
+    <div class="live-net-value">{{total|money}}</div>
     <div class="live-net-formula">{{ count }} invoices · 30 + 60 + 90 + Older</div>
   </section>
   <p class="small muted" style="margin-top:0.65rem">
@@ -127,7 +127,7 @@
        href="{{ t.href }}">
       <div class="stat-name">{{ t.label }}</div>
       <div class="stat-num" style="font-size:1.55rem;font-weight:800;line-height:1.15;color:#0f172a">
-        £{{ '{:,.0f}'.format(t.amount) }}
+        {{t.amount|money}}
       </div>
       {% if t.count is not none %}
       <div class="stat-sub muted small" style="margin-top:0.35rem">
@@ -138,10 +138,10 @@
     {% endfor %}
   </div>
   <p class="muted small" style="margin:0.85rem 0 0">
-    £{{ '{:,.0f}'.format(day_book.b_fwd) }}
-    + £{{ '{:,.0f}'.format(day_book.invoices) }}
-    − £{{ '{:,.0f}'.format(day_book.receipts) }}
-    = <strong>£{{ '{:,.0f}'.format(day_book.c_fwd) }}</strong>
+    {{day_book.b_fwd|money}}
+    + {{day_book.invoices|money}}
+    − {{day_book.receipts|money}}
+    = <strong>{{day_book.c_fwd|money}}</strong>
     · showing <strong>{{ day_book.label }}</strong>
   </p>
 </div>
@@ -166,7 +166,7 @@
     {% for t in day_book.tiles %}
     <a class="practice-tile {% if t.tone == 'ok' %}practice-ok{% elif t.tone == 'lost' %}practice-lost{% elif t.tone == 'new' %}practice-new{% endif %}"
        href="{{ t.href }}">
-      <span class="practice-num">£{{ '{:,.0f}'.format(t.amount) }}</span>
+      <span class="practice-num">{{t.amount|money}}</span>
       <span class="practice-lab">{{ t.label }}</span>
       {% if t.count is not none %}
       <span class="practice-sub">{{ t.count }} {{ t.unit }}</span>
@@ -175,10 +175,10 @@
     {% endfor %}
   </div>
   <p class="muted small hub-practice-note">
-    £{{ '{:,.0f}'.format(day_book.b_fwd) }}
-    + £{{ '{:,.0f}'.format(day_book.invoices) }}
-    − £{{ '{:,.0f}'.format(day_book.receipts) }}
-    = £{{ '{:,.0f}'.format(day_book.c_fwd) }}
+    {{day_book.b_fwd|money}}
+    + {{day_book.invoices|money}}
+    − {{day_book.receipts|money}}
+    = {{day_book.c_fwd|money}}
     · {{ day_book.label }}
   </p>
 </section>
@@ -190,7 +190,7 @@
     <div>
       <h2 style="margin:0">{{ filter_label }}</h2>
       <p class="muted small" style="margin:0.35rem 0 0">
-        {{ filter_count }} · £{{ '{:,.2f}'.format(filter_fee) }}
+        {{ filter_count }} · {{filter_fee|money2}}
         · <a href="/sales/ageing">Clear · back to boxes</a>
       </p>
     </div>
@@ -249,7 +249,7 @@
             {{ r.age }}d
             {% endif %}
           </td>
-          <td class="num"><strong>£{{ '%.2f'|format(r.inv.balance or 0) }}</strong></td>
+          <td class="num"><strong>{{(r.inv.balance or 0)|money2}}</strong></td>
         </tr>
         {% endfor %}
       </tbody>

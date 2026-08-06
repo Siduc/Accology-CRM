@@ -23,16 +23,16 @@
       <dt>Issue</dt><dd>{{ bill.issue_date or '—' }}</dd>
       <dt>Due</dt><dd>{{ bill.due_date or '—' }}</dd>
       <dt>Category</dt><dd>{{ bill.category or 'supplier' }}</dd>
-      <dt>Net</dt><dd>£{{ '%.2f'|format(bill.subtotal or 0) }}</dd>
-      <dt>VAT (input)</dt><dd>£{{ '%.2f'|format(bill.vat_total or bill.vat_amount or 0) }}</dd>
-      <dt>Total</dt><dd>£{{ '%.2f'|format(bill.total or bill.amount or 0) }}</dd>
-      <dt>Paid</dt><dd>£{{ '%.2f'|format(bill.amount_paid or 0) }}</dd>
-      <dt>Balance</dt><dd><strong>£{{ '%.2f'|format(bill.balance or 0) }}</strong></dd>
+      <dt>Net</dt><dd>{{(bill.subtotal or 0)|money2}}</dd>
+      <dt>VAT (input)</dt><dd>{{(bill.vat_total or bill.vat_amount or 0)|money2}}</dd>
+      <dt>Total</dt><dd>{{(bill.total or bill.amount or 0)|money2}}</dd>
+      <dt>Paid</dt><dd>{{(bill.amount_paid or 0)|money2}}</dd>
+      <dt>Balance</dt><dd><strong>{{(bill.balance or 0)|money2}}</strong></dd>
     </dl>
     <h3>Lines</h3>
     <ul>
       {% for ln in bill.lines %}
-      <li>{{ ln.description }} — {{ ln.qty }} × £{{ '%.2f'|format(ln.unit_price) }} + {{ '%.0f'|format((ln.vat_rate or 0)*100) }}% VAT = £{{ '%.2f'|format(ln.line_total) }}</li>
+      <li>{{ ln.description }} — {{ ln.qty }} × {{ln.unit_price|money2}} + {{ '%.0f'|format((ln.vat_rate or 0)*100) }}% VAT = {{ln.line_total|money2}}</li>
       {% else %}
       <li class="muted">{{ bill.description or 'Single-line / legacy bill' }}</li>
       {% endfor %}

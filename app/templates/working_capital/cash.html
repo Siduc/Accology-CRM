@@ -9,7 +9,7 @@
   </div>
   <div class="wc-cash-balance-pill">
     <div class="small muted">Balance</div>
-    <div class="wc-box-value" style="font-size:2rem">£{{ '{:,.2f}'.format(balance) }}</div>
+    <div class="wc-box-value" style="font-size:2rem">{{balance|money2}}</div>
   </div>
 </div>
 
@@ -71,7 +71,7 @@
           <td>{{ t.txn_date }}</td>
           <td>{{ t.description or '—' }}</td>
           <td class="{% if t.amount >= 0 %}text-success{% else %}text-danger{% endif %}">
-            {% if t.amount >= 0 %}+{% endif %}£{{ '%.2f'|format(t.amount) }}
+            {% if t.amount >= 0 %}+{% endif %}{{t.amount|money2}}
           </td>
         </tr>
         {% endfor %}

@@ -30,7 +30,7 @@
           <td>{{ r.bill.issue_date or '—' }}</td>
           <td>{% if r.bill.due_date and r.bill.due_date < today and r.balance > 0 %}<span class="badge badge-overdue">{{ r.bill.due_date }}</span>{% else %}{{ r.bill.due_date or '—' }}{% endif %}</td>
           <td>{{ r.age }}d</td>
-          <td>£{{ '%.2f'|format(r.balance) }}</td>
+          <td>{{r.balance|money2}}</td>
           <td><span class="badge">{{ r.bill.status }}</span></td>
         </tr>
         {% endfor %}

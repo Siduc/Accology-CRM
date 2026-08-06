@@ -50,7 +50,7 @@
           <option value="">— none —</option>
           {% for b in open_bills %}
           <option value="{{ b.id }}" {% if preselect_bill_id==b.id %}selected{% endif %}>
-            {{ b.number or b.id }} · bal £{{ '%.2f'|format(b.balance or b.amount or 0) }}
+            {{ b.number or b.id }} · bal {{(b.balance or b.amount or 0)|money2}}
           </option>
           {% endfor %}
         </select>

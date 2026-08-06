@@ -159,7 +159,7 @@
             {% if d.job %}<div class="muted"><a href="/jobs/{{ d.job.id }}">{{ d.job|job_label }}</a></div>{% endif %}
           </td>
           <td class="small">
-            {{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '—' }}
+            {{ d.uploaded_at|uk_date }}
             <div class="muted">{{ d.uploaded_by or '' }}</div>
           </td>
           <td class="doc-row-actions">
@@ -186,7 +186,7 @@
           <div class="small muted">
             {{ d.category }}
             {% if d.is_office() %} · Office{% elif d.is_pdf() %} · PDF{% endif %}
-            · {{ d.uploaded_at.strftime('%d-%m-%Y') if d.uploaded_at else '' }}
+            · {{ d.uploaded_at|uk_date if d.uploaded_at else '' }}
           </div>
           {% if d.client %}
           <div class="small"><a href="/clients/{{ d.client.id }}">{{ d.client.display_name() }}</a></div>

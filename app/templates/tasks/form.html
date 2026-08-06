@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{% if task %}Edit task{% else %}New task{% endif %} · Accologise{% endblock %}
+{% block title %}{% if task %}Edit task{% else %}New task{% endif %} · Accology{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
@@ -45,7 +45,7 @@
     {% endif %}
     {% if task.outlook_archive_status %}
     <span class="small muted">Archive: <strong>{{ task.outlook_archive_status }}</strong>
-      {% if task.outlook_archived_at %} · {{ task.outlook_archived_at.strftime('%d-%m-%Y %H:%M') }}{% endif %}
+      {% if task.outlook_archived_at %} · {{ task.outlook_archived_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}
     </span>
     {% endif %}
   </div>

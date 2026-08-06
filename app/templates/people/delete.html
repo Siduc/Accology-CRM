@@ -79,7 +79,7 @@
       {% if s.sample_jobs %}
       <ul class="small muted" style="margin:0.4rem 0 0;padding-left:1.1rem">
         {% for j in s.sample_jobs %}
-        <li>{{ j.type or 'Job' }} · {{ j.status or '—' }} · £{{ '%.0f'|format(j.fee) }} · #{{ j.id }}</li>
+        <li>{{ j.type or 'Job' }} · {{ j.status or '—' }} · {{j.fee|money}} · #{{ j.id }}</li>
         {% endfor %}
       </ul>
       {% endif %}

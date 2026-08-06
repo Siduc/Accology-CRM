@@ -31,15 +31,15 @@
     </div>
     <div>
       <div class="small muted">Net total</div>
-      <div class="completion-kpi-val">£{{ '{:,.2f}'.format(total_net) }}</div>
+      <div class="completion-kpi-val">{{total_net|money2}}</div>
     </div>
     <div>
       <div class="small muted">Unbilled</div>
-      <div class="completion-kpi-val">{{ unbilled_count }} · £{{ '{:,.2f}'.format(unbilled_net) }}</div>
+      <div class="completion-kpi-val">{{ unbilled_count }} · {{unbilled_net|money2}}</div>
     </div>
     <div>
       <div class="small muted">Invoiced</div>
-      <div class="completion-kpi-val">{{ billed_count }} · £{{ '{:,.2f}'.format(billed_net) }}</div>
+      <div class="completion-kpi-val">{{ billed_count }} · {{billed_net|money2}}</div>
     </div>
   </div>
   <p class="small muted" style="margin:0.75rem 0 0">
@@ -145,7 +145,9 @@
             <a class="btn btn-sm btn-outline" href="/jobs/{{ j.id }}">Job</a>
             {% if not r.is_billed %}
             <button class="btn btn-sm" type="submit" form="completion-done-{{ j.id }}"
-              title="Raise invoice for this job">Done / Invoice</button>
+              title="Raise draft invoice for this job">Draft invoice</button>
+            <button class="btn btn-sm btn-outline" type="submit" form="completion-none-{{ j.id }}"
+              title="Leave as not billed (retainer, included, etc.)">No bill</button>
             <span class="badge">unbilled</span>
             {% else %}
             <span class="badge badge-active">invoiced</span>
@@ -157,7 +159,7 @@
       <tfoot>
         <tr>
           <td colspan="5" class="num"><strong>Total net</strong></td>
-          <td class="num"><strong>£{{ '{:,.2f}'.format(total_net) }}</strong></td>
+          <td class="num"><strong>{{total_net|money2}}</strong></td>
           <td></td>
         </tr>
       </tfoot>
@@ -185,6 +187,11 @@
 {% if not r.is_billed %}
 <form id="completion-done-{{ r.job.id }}" method="post" action="/jobs/{{ r.job.id }}/done" style="display:none">
   <input type="hidden" name="next" value="/jobs/completion?period={{ period }}{% if job_type %}&type={{ job_type }}{% endif %}">
+  <input type="hidden" name="billing" value="draft">
+</form>
+<form id="completion-none-{{ r.job.id }}" method="post" action="/jobs/{{ r.job.id }}/done" style="display:none">
+  <input type="hidden" name="next" value="/jobs/completion?period={{ period }}{% if job_type %}&type={{ job_type }}{% endif %}">
+  <input type="hidden" name="billing" value="none">
 </form>
 {% endif %}
 {% endfor %}

@@ -5,43 +5,148 @@
   <div>
     <p class="small muted"><a href="/dashboard">← Accologise</a> · <a href="/sales">Sales</a></p>
     <h1>Services Ledger</h1>
-    <p class="muted small">Catalogue of services we offer — pricing, descriptions, sellable packages</p>
+    <p class="muted small">Catalogue of services we offer — pricing, recurrence, sellable packages</p>
   </div>
   <div class="actions">
     <a class="btn btn-outline" href="/services/fees">Yearly fee schedule</a>
   </div>
 </div>
+
+{% if msg == "added" %}
+<div class="card" style="border-color:var(--ok,#2a7);margin-bottom:1rem"><p class="small" style="margin:0">Service added.</p></div>
+{% elif msg == "updated" %}
+<div class="card" style="border-color:var(--ok,#2a7);margin-bottom:1rem"><p class="small" style="margin:0">Service updated.</p></div>
+{% endif %}
+{% if error == "code" %}
+<div class="card" style="border-color:var(--danger,#c33);margin-bottom:1rem"><p class="small" style="margin:0">Code missing or already exists.</p></div>
+{% elif error == "missing" %}
+<div class="card" style="border-color:var(--danger,#c33);margin-bottom:1rem"><p class="small" style="margin:0">Service not found.</p></div>
+{% endif %}
+
 <div class="card">
   <h2>Catalogue</h2>
+  <p class="small muted" style="margin-top:0">
+    Recurrence drives how often the work typically falls due.
+    For <strong>quarterly</strong> or <strong>annually</strong> (e.g. VAT returns), pick one of the four quarterly patterns.
+  </p>
   <div class="table-wrap">
     <table class="data">
       <thead>
-        <tr><th>Code</th><th>Name</th><th>Category</th><th>Default fee</th><th>VAT</th><th>Sellable</th></tr>
+        <tr>
+          <th>Code</th>
+          <th>Name</th>
+          <th>Category</th>
+          <th>Recurrence</th>
+          <th>Default fee</th>
+          <th>VAT</th>
+          <th>Sellable</th>
+          <th></th>
+        </tr>
       </thead>
       <tbody>
         {% for s in services %}
-        <tr>
+        <tr{% if not s.is_active %} class="muted"{% endif %}>
           <td><code>{{ s.code }}</code></td>
           <td>
             <strong>{{ s.name }}</strong>
             {% if s.description %}<div class="small muted">{{ s.description[:120] }}{% if s.description|length > 120 %}…{% endif %}</div>{% endif %}
           </td>
           <td>{{ s.category }}</td>
-          <td>£{{ '%.2f'|format(s.default_fee or 0) }}</td>
+          <td>
+            <span class="badge">{{ schedule_by_id.get(s.id, '—') }}</span>
+          </td>
+          <td>{{(s.default_fee or 0)|money2}}</td>
           <td>{{ '%.0f'|format((s.default_vat_rate or 0)*100) }}%</td>
           <td>{% if s.is_sellable_to_clients %}Yes{% else %}No{% endif %}</td>
+          <td><a class="btn btn-sm wc-touch" href="/services?edit={{ s.id }}#edit-{{ s.id }}">Edit</a></td>
         </tr>
+        {% if edit_id and edit_id|string == s.id|string %}
+        <tr id="edit-{{ s.id }}">
+          <td colspan="8" style="background:var(--surface-2,#f6f7f9)">
+            <form class="stack" method="post" action="/services/catalogue/{{ s.id }}/update" style="padding:0.5rem 0">
+              <div class="form-grid">
+                <div>
+                  <label>Code</label>
+                  <input value="{{ s.code }}" disabled>
+                </div>
+                <div>
+                  <label>Name *</label>
+                  <input name="name" required value="{{ s.name or '' }}">
+                </div>
+                <div>
+                  <label>Default fee</label>
+                  <input name="default_fee" value="{{ '%.2f'|format(s.default_fee or 0) }}">
+                </div>
+                <div>
+                  <label>VAT rate (0.2 = 20%)</label>
+                  <input name="default_vat_rate" value="{{ s.default_vat_rate if s.default_vat_rate is not none else 0 }}">
+                </div>
+                <div>
+                  <label>Category</label>
+                  <select name="category">
+                    {% for c in ['compliance','advisory','credit_control','other'] %}
+                    <option value="{{ c }}" {% if s.category == c %}selected{% endif %}>{{ c.replace('_',' ')|title }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <label>Unit</label>
+                  <select name="unit">
+                    {% for u in ['job','hour','fixed'] %}
+                    <option value="{{ u }}" {% if s.unit == u %}selected{% endif %}>{{ u|title }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <label>Recurrence *</label>
+                  <select name="recurrence" class="js-recurrence" data-pattern-for="edit-pat-{{ s.id }}">
+                    <option value="none" {% if (s.recurrence or 'none') in ['none',''] %}selected{% endif %}>None (ad hoc)</option>
+                    <option value="monthly" {% if s.recurrence == 'monthly' %}selected{% endif %}>Monthly</option>
+                    <option value="quarterly" {% if s.recurrence == 'quarterly' %}selected{% endif %}>Quarterly</option>
+                    <option value="annually" {% if s.recurrence in ['annually','annual'] %}selected{% endif %}>Annually</option>
+                  </select>
+                </div>
+                <div class="js-pattern-wrap" id="edit-pat-{{ s.id }}" {% if (s.recurrence or 'none') not in ['quarterly','annually','annual'] %}style="display:none"{% endif %}>
+                  <label>Quarterly pattern</label>
+                  <select name="quarterly_pattern">
+                    <option value="">— Select pattern —</option>
+                    {% for key, label, months in quarterly_patterns %}
+                    <option value="{{ key }}" {% if s.quarterly_pattern == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                  </select>
+                  <p class="small muted" style="margin:0.25rem 0 0">
+                    For VAT returns: pick the client’s HMRC stagger (period-end months).
+                  </p>
+                </div>
+              </div>
+              <label>Description</label>
+              <textarea name="description" rows="2">{{ s.description or '' }}</textarea>
+              <div class="actions" style="flex-wrap:wrap;gap:1rem">
+                <label><input type="checkbox" name="is_sellable" value="yes" {% if s.is_sellable_to_clients %}checked{% endif %}> Sellable to clients</label>
+                <label><input type="checkbox" name="is_active" value="yes" {% if s.is_active %}checked{% endif %}> Active</label>
+              </div>
+              <div class="actions">
+                <button class="btn" type="submit">Save changes</button>
+                <a class="btn btn-outline" href="/services">Cancel</a>
+              </div>
+            </form>
+          </td>
+        </tr>
+        {% endif %}
+        {% else %}
+        <tr><td colspan="8" class="muted">No services yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+
 <div class="card" style="margin-top:1rem">
   <h2>Add service</h2>
-  <form class="stack" method="post" action="/services/catalogue/add">
+  <form class="stack" method="post" action="/services/catalogue/add" id="add-service-form">
     <div class="form-grid">
-      <div><label>Code *</label><input name="code" required placeholder="ACCOUNTS"></div>
-      <div><label>Name *</label><input name="name" required></div>
+      <div><label>Code *</label><input name="code" required placeholder="VAT"></div>
+      <div><label>Name *</label><input name="name" required placeholder="VAT Return"></div>
       <div><label>Default fee</label><input name="default_fee" value="0"></div>
       <div><label>VAT rate (0.2=20%)</label><input name="default_vat_rate" value="0"></div>
       <div>
@@ -61,11 +166,55 @@
           <option value="fixed">Fixed</option>
         </select>
       </div>
+      <div>
+        <label>Recurrence *</label>
+        <select name="recurrence" class="js-recurrence" data-pattern-for="add-pat" id="add-recurrence">
+          <option value="none">None (ad hoc)</option>
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+          <option value="annually">Annually</option>
+        </select>
+      </div>
+      <div class="js-pattern-wrap" id="add-pat" style="display:none">
+        <label>Quarterly pattern</label>
+        <select name="quarterly_pattern" id="add-quarterly-pattern">
+          <option value="">— Select pattern —</option>
+          {% for key, label, months in quarterly_patterns %}
+          <option value="{{ key }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="small muted" style="margin:0.25rem 0 0">
+          Shown for quarterly and annually (e.g. VAT returns). Four period-end patterns:
+          Mar/Jun/Sep/Dec · Apr/Jul/Oct/Jan · May/Aug/Nov/Feb · Jan/Apr/Jul/Oct.
+        </p>
+      </div>
     </div>
     <label>Description</label>
-    <textarea name="description"></textarea>
+    <textarea name="description" placeholder="What this service covers"></textarea>
     <label><input type="checkbox" name="is_sellable" value="yes" checked> Sellable to clients</label>
     <button class="btn" type="submit">Add service</button>
   </form>
 </div>
+
+<script>
+(function () {
+  function syncPattern(selectEl) {
+    var targetId = selectEl.getAttribute('data-pattern-for');
+    if (!targetId) return;
+    var wrap = document.getElementById(targetId);
+    if (!wrap) return;
+    var v = (selectEl.value || '').toLowerCase();
+    var show = (v === 'quarterly' || v === 'annually' || v === 'annual');
+    wrap.style.display = show ? '' : 'none';
+    if (!show) {
+      var pat = wrap.querySelector('select[name="quarterly_pattern"]');
+      if (pat) pat.value = '';
+    }
+  }
+  document.querySelectorAll('.js-recurrence').forEach(function (el) {
+    el.addEventListener('change', function () { syncPattern(el); });
+    syncPattern(el);
+  });
+})();
+</script>
 {% endblock %}

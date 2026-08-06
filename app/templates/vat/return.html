@@ -12,15 +12,15 @@
 <div class="sales-kpi-row bank-kpi-row">
   <div class="sales-kpi sales-kpi-warn">
     <div class="sales-kpi-lab">Box 1 Output VAT</div>
-    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.box1_output_vat) }}</div>
+    <div class="sales-kpi-val">{{summary.box1_output_vat|money2}}</div>
   </div>
   <div class="sales-kpi sales-kpi-ok">
     <div class="sales-kpi-lab">Box 4 Input VAT</div>
-    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.box4_input_vat) }}</div>
+    <div class="sales-kpi-val">{{summary.box4_input_vat|money2}}</div>
   </div>
   <div class="sales-kpi {% if summary.box5_net >= 0 %}sales-kpi-danger{% else %}sales-kpi-ok{% endif %}">
     <div class="sales-kpi-lab">Box 5 Net</div>
-    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.box5_net) }}</div>
+    <div class="sales-kpi-val">{{summary.box5_net|money2}}</div>
   </div>
 </div>
 
@@ -36,9 +36,9 @@
           <td>{{ ln.issue_date }}</td>
           <td><a href="{{ ln.href }}">{{ ln.number }}</a></td>
           <td>{{ ln.party }}</td>
-          <td>£{{ '%.2f'|format(ln.net) }}</td>
-          <td>£{{ '%.2f'|format(ln.vat) }}</td>
-          <td>£{{ '%.2f'|format(ln.gross) }}</td>
+          <td>{{ln.net|money2}}</td>
+          <td>{{ln.vat|money2}}</td>
+          <td>{{ln.gross|money2}}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -61,9 +61,9 @@
           <td>{{ ln.issue_date }}</td>
           <td><a href="{{ ln.href }}">{{ ln.number }}</a></td>
           <td>{{ ln.party }}</td>
-          <td>£{{ '%.2f'|format(ln.net) }}</td>
-          <td>£{{ '%.2f'|format(ln.vat) }}</td>
-          <td>£{{ '%.2f'|format(ln.gross) }}</td>
+          <td>{{ln.net|money2}}</td>
+          <td>{{ln.vat|money2}}</td>
+          <td>{{ln.gross|money2}}</td>
         </tr>
         {% endfor %}
       </tbody>

@@ -525,6 +525,32 @@ async def job_status_quick(
     return RedirectResponse(dest, status_code=303)
 
 
+@router.post("/{job_id:int}/fee-quick")
+async def job_fee_quick(
+    job_id: int,
+    request: Request,
+    fee: str = Form("0"),
+    next: str = Form(""),
+    return_to: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Inline fee edit from client Fees matrix (or any return_to)."""
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if job:
+        try:
+            raw = (fee or "0").replace("£", "").replace(",", "").strip()
+            job.fee = float(raw or 0)
+        except (TypeError, ValueError):
+            pass
+        job.updated_at = datetime.utcnow()
+        db.commit()
+    dest = _safe_return_to(
+        next or return_to or _return_to_from_request(request),
+        f"/jobs/{job_id}",
+    )
+    return RedirectResponse(dest, status_code=303)
+
+
 @router.post("/bulk-status")
 async def jobs_bulk_status(
     request: Request,
@@ -622,6 +648,17 @@ async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db
     except Exception:
         job_emails = []
     return_to = _return_to_from_request(request)
+    job_billing_pattern = None
+    job_done_default_billing = _default_job_done_billing(job, db)
+    try:
+        from app.services.client_billing import get_client_job_pattern
+
+        if job.client_id and job.type:
+            job_billing_pattern = get_client_job_pattern(
+                db, int(job.client_id), job.type or ""
+            )
+    except Exception:
+        job_billing_pattern = None
     return render(
         request,
         "jobs/detail.html",
@@ -639,6 +676,8 @@ async def job_detail(job_id: int, request: Request, db: Session = Depends(get_db
             "msg": request.query_params.get("msg", ""),
             "error": request.query_params.get("error", ""),
             "return_to": return_to,
+            "job_billing_pattern": job_billing_pattern,
+            "job_done_default_billing": job_done_default_billing,
         },
     )
 
@@ -699,6 +738,24 @@ async def update_job(
     except ValueError:
         fee_val = 0.0
 
+    form = await request.form()
+    apply_fee_forward = str(form.get("apply_fee_forward") or "").strip().lower() in (
+        "1",
+        "yes",
+        "on",
+        "true",
+    )
+    remember_fee_pattern = str(form.get("remember_fee_pattern") or "").strip().lower() in (
+        "1",
+        "yes",
+        "on",
+        "true",
+    )
+    # Default: when fee changes on an open job, push to later open jobs of same type
+    if "apply_fee_forward" not in form:
+        apply_fee_forward = True
+
+    old_fee = float(job.fee or 0)
     job.client_id = client_id
     job.title = title or job.title
     job.type = type
@@ -716,6 +773,44 @@ async def update_job(
             from app.services.notifications import clear_entity_alerts
 
             clear_entity_alerts(db, entity_type="job", entity_id=job.id)
+        except Exception:
+            pass
+
+    fee_changed = abs(old_fee - fee_val) > 0.001
+    if fee_changed and client_id and type and (apply_fee_forward or remember_fee_pattern):
+        try:
+            from app.services.client_billing import (
+                apply_pattern_fee_to_open_jobs,
+                get_client_job_pattern,
+                upsert_client_job_pattern,
+            )
+
+            pat = get_client_job_pattern(db, client_id, type, active_only=False)
+            if pat:
+                pat.fee = fee_val
+                pat.is_active = True
+                pat.updated_at = datetime.utcnow()
+            else:
+                upsert_client_job_pattern(
+                    db,
+                    client_id,
+                    type,
+                    fee=fee_val,
+                    fee_blank=False,
+                    on_done="none" if fee_val == 0 else "default",
+                    notes="Set from job fee edit",
+                    is_active=True,
+                    commit=False,
+                )
+            if apply_fee_forward:
+                apply_pattern_fee_to_open_jobs(
+                    db,
+                    client_id,
+                    type,
+                    fee_val,
+                    from_period_end=pe,
+                    include_current=True,
+                )
         except Exception:
             pass
 
@@ -740,35 +835,13 @@ async def update_job(
         status = "Completed"
         job.status = "Completed"
 
-    if status == "Completed" and (is_recurring or "").lower() in (
-        "yes",
-        "y",
-        "true",
-        "1",
-    ):
-        if pe:
-            next_pe = date(pe.year + 1, pe.month, pe.day)
-            statutory, ts, tc = calculate_dates(type, next_pe)
-            next_fee = get_suggested_fee(
-                db, type, next_pe, client_id=client_id
-            )
-            if next_fee is None:
-                # Fall back: this job's fee + 5%
-                next_fee = round((fee_val or 0) * 1.05, 2) if fee_val else 0.0
-            next_job = Job(
-                title=f"{type} — {next_pe.isoformat()}",
-                type=type,
-                client_id=client_id,
-                period_end=next_pe,
-                statutory_due_date=statutory,
-                target_start=ts,
-                target_completion=tc,
-                fee=next_fee,
-                status="Planned",
-                is_recurring=is_recurring,
-                notes=f"Auto-created from job #{job.id} (prior fee + 5%)",
-            )
-            db.add(next_job)
+    # On complete: open next period (VAT uses client stagger, not +1 year)
+    if (job.status or "") == "Completed":
+        try:
+            job.is_recurring = job.is_recurring or is_recurring or "Yes"
+            _spawn_next_recurring_job(db, job)
+        except Exception:
+            pass
 
     db.commit()
     # Push completion/due to Asana if linked
@@ -785,55 +858,195 @@ async def update_job(
 
 def _spawn_next_recurring_job(db: Session, job: Job) -> Optional[Job]:
     """
-    When a recurring job is completed, create next year's job if missing.
-    Returns the next job if created (or already present), else None.
+    When a recurring job is completed, create the next period job if missing.
+
+    Annual jobs → +1 year. VAT → next quarter/month from client scheme.
+    Reopens a Cancelled job for that period if one exists (common after VAT
+    bulk-prune left future rows cancelled).
     """
+    jtype = (job.type or "").strip()
+    is_vat = "VAT" in jtype.upper() or jtype.upper() == "VAT"
+
+    # VAT always recurs when the client has a VAT scheme, even if is_recurring blank
     is_rec = (job.is_recurring or "").strip().lower() in ("yes", "y", "true", "1")
+    client = job.client
+    if client is None and job.client_id:
+        client = db.query(Client).filter(Client.id == job.client_id).first()
+    if is_vat and client and (getattr(client, "vat_frequency", None) or "").strip():
+        is_rec = True
     if not is_rec:
         return None
     pe = job.period_end
     if not pe or not job.client_id:
         return None
-    try:
-        next_pe = date(pe.year + 1, pe.month, pe.day)
-    except ValueError:
-        # 29 Feb → 28 Feb next year
-        next_pe = date(pe.year + 1, pe.month, 28)
 
+    next_pe: Optional[date] = None
+    if is_vat:
+        freq = (getattr(client, "vat_frequency", None) if client else None) or "quarterly"
+        try:
+            from app.services.vat_jobs import next_vat_period_end
+
+            next_pe = next_vat_period_end(
+                pe,
+                freq,
+                pattern=getattr(client, "vat_quarterly_pattern", None) if client else None,
+                year_end_month=getattr(client, "vat_year_end_month", None)
+                if client
+                else None,
+            )
+        except Exception:
+            next_pe = None
+        if next_pe is None:
+            # Fallback: +3 months for quarterly-style VAT
+            y, m = pe.year, pe.month + 3
+            while m > 12:
+                m -= 12
+                y += 1
+            from calendar import monthrange
+
+            next_pe = date(y, m, monthrange(y, m)[1])
+    else:
+        try:
+            next_pe = date(pe.year + 1, pe.month, pe.day)
+        except ValueError:
+            # 29 Feb → 28 Feb next year
+            next_pe = date(pe.year + 1, pe.month, 28)
+
+    # Match VAT / VAT Return for the same period
+    type_filter = (
+        Job.type.in_(["VAT", "VAT Return"]) if is_vat else (Job.type == job.type)
+    )
     existing = (
         db.query(Job)
         .filter(
             Job.client_id == job.client_id,
-            Job.type == job.type,
+            type_filter,
             Job.period_end == next_pe,
         )
+        .order_by(Job.id.asc())
         .first()
     )
-    if existing:
-        return existing
-
-    statutory, ts, tc = calculate_dates(job.type or "", next_pe)
+    statutory, ts, tc = calculate_dates(job.type or "VAT Return", next_pe)
     next_fee = get_suggested_fee(
-        db, job.type or "", next_pe, client_id=job.client_id
+        db, job.type or "VAT Return", next_pe, client_id=job.client_id
     )
     if next_fee is None:
         fee_val = float(job.fee or 0)
         next_fee = round(fee_val * 1.05, 2) if fee_val else 0.0
+
+    if existing:
+        st = (existing.status or "").strip()
+        if st == "Cancelled":
+            # Reopen pruned/cancelled next period instead of leaving a gap
+            existing.status = "Planned"
+            existing.fee = float(next_fee)
+            existing.statutory_due_date = statutory
+            existing.target_start = ts
+            existing.target_completion = tc
+            existing.is_recurring = "Yes"
+            existing.billing_status = None
+            existing.invoice_reference = None
+            # Ensure a stable key for this period
+            existing.import_key = (
+                existing.import_key
+                or (f"vat:{job.client_id}:{next_pe.isoformat()}" if is_vat else None)
+            )
+            existing.notes = (
+                f"Reopened on completion of job #{job.id} "
+                f"(next VAT period {next_pe.isoformat()})."
+            )
+            existing.source = "recurrence"
+            existing.updated_at = datetime.utcnow()
+            return existing
+        # Already Planned / In Progress / Completed for that PE
+        return existing
+
+    ikey = f"vat:{job.client_id}:{next_pe.isoformat()}" if is_vat else None
+    # Avoid unique import_key clash with a cancelled row we didn't find
+    if ikey:
+        held = db.query(Job).filter(Job.import_key == ikey).first()
+        if held and (held.status or "") == "Cancelled":
+            held.import_key = None
+            db.flush()
+
     next_job = Job(
-        title=f"{job.type} — {next_pe.isoformat()}",
-        type=job.type,
+        title=f"{'VAT Return' if is_vat else (job.type or 'Job')} — {next_pe.isoformat()}",
+        type="VAT Return" if is_vat else job.type,
         client_id=job.client_id,
         period_end=next_pe,
         statutory_due_date=statutory,
         target_start=ts,
         target_completion=tc,
-        fee=next_fee,
+        fee=float(next_fee),
         status="Planned",
-        is_recurring=job.is_recurring or "Yes",
-        notes=f"Auto-created from job #{job.id} (prior fee + 5%)",
+        is_recurring="Yes",
+        notes=f"Auto-created from job #{job.id} (next period after {pe.isoformat()}).",
+        source="recurrence",
+        import_key=ikey,
     )
     db.add(next_job)
     return next_job
+
+
+# Billing choices when marking a job Done
+# draft  → raise invoice as draft (review before send) — default for per-job clients
+# sent   → raise invoice as sent (previous default)
+# none   → complete only, no invoice (retainer / included / do not bill)
+JOB_DONE_BILLING = ("draft", "sent", "none")
+# Treat as already handled for Done button / unbilled lists
+JOB_DONE_NO_BILL_STATUSES = frozenset(
+    {
+        "retainer",
+        "not_billable",
+        "not billed",
+        "included",
+        "waived",
+        "no_charge",
+        "no charge",
+        "do_not_bill",
+        "draft",  # draft invoice held — use invoice page to send or discard
+    }
+)
+
+
+def _default_job_done_billing(job: Job, db: Optional[Session] = None) -> str:
+    """
+    Prefer client job pattern on_done for this type.
+    Else retainer clients → no invoice; others → draft invoice.
+    """
+    if db is not None and job.client_id and job.type:
+        try:
+            from app.services.client_billing import pattern_on_done
+
+            od = pattern_on_done(db, job.client_id, job.type or "")
+            if od in ("draft", "sent", "none"):
+                return od
+        except Exception:
+            pass
+    client = getattr(job, "client", None)
+    if client is not None:
+        try:
+            if client.is_retainer():
+                return "none"
+        except Exception:
+            pass
+        model = (getattr(client, "billing_model", None) or "").strip().lower()
+        if model == "retainer":
+            return "none"
+    return "draft"
+
+
+def _normalise_job_done_billing(
+    raw: str, job: Job, db: Optional[Session] = None
+) -> str:
+    v = (raw or "").strip().lower()
+    if v in ("no", "skip", "no_bill", "nobill", "retainer", "included", "waive", "waived"):
+        return "none"
+    if v in ("invoice", "bill", "ready"):
+        return "sent"
+    if v in JOB_DONE_BILLING:
+        return v
+    return _default_job_done_billing(job, db)
 
 
 @router.post("/{job_id:int}/done")
@@ -841,12 +1054,17 @@ async def job_done(
     job_id: int,
     request: Request,
     next: str = Form(""),
+    billing: str = Form(""),
     db: Session = Depends(get_db),
 ):
     """
     Task-ledger style Done for jobs:
-    mark Completed, spawn next recurring job, raise invoice, open that invoice.
-    Safe if already completed — still opens / creates the invoice.
+    mark Completed, spawn next recurring job, optionally raise invoice.
+
+    billing=
+      draft — create/open draft invoice (default for per-job clients)
+      sent  — create/open sent invoice
+      none  — complete without invoicing (default for retainer clients)
     """
     from app.services.sales_ledger import invoice_from_job
 
@@ -859,24 +1077,71 @@ async def job_done(
     if not job:
         return RedirectResponse("/jobs", status_code=303)
 
+    dest_base = _safe_return_to(
+        next or _return_to_from_request(request), f"/jobs/{job_id}"
+    )
+    sep = "&" if "?" in dest_base else "?"
+
     if (job.status or "") == "Cancelled":
-        dest = _safe_return_to(next or _return_to_from_request(request), f"/jobs/{job_id}")
-        sep = "&" if "?" in dest else "?"
         return RedirectResponse(
-            f"{dest}{sep}msg={quote('Job is cancelled — not completed')}",
+            f"{dest_base}{sep}msg={quote('Job is cancelled — not completed')}",
             status_code=303,
         )
+
+    bill_mode = _normalise_job_done_billing(billing, job, db)
+
+    # Optional: remember this type's fee + Done rule for the client
+    form = await request.form()
+    remember = str(form.get("remember_pattern") or "").strip().lower() in (
+        "1",
+        "yes",
+        "on",
+        "true",
+    )
 
     job.status = "Completed"
     if not job.actual_completion:
         job.actual_completion = date.today()
     job.updated_at = datetime.utcnow()
 
-    # Ensure next year exists for recurring jobs (idempotent — skips if present)
+    # Ensure next period exists for recurring jobs (idempotent — skips if present)
+    next_spawned = None
+    spawn_err = ""
     try:
-        _spawn_next_recurring_job(db, job)
-    except Exception:
-        pass
+        next_spawned = _spawn_next_recurring_job(db, job)
+        if next_spawned is not None:
+            db.flush()
+    except Exception as exc:  # noqa: BLE001
+        spawn_err = str(exc)[:160]
+
+    if bill_mode == "none":
+        # Mark so completion/unbilled lists don't keep asking for an invoice
+        client = job.client
+        is_ret = False
+        if client is not None:
+            try:
+                is_ret = bool(client.is_retainer())
+            except Exception:
+                is_ret = (getattr(client, "billing_model", None) or "").strip().lower() == "retainer"
+        current = (job.billing_status or "").strip().lower()
+        if current not in ("invoiced", "paid"):
+            job.billing_status = "retainer" if is_ret else "not_billable"
+        # Leave invoice_reference alone if already set
+
+    if remember and job.client_id and job.type:
+        try:
+            from app.services.client_billing import remember_from_job
+
+            remember_from_job(
+                db,
+                client_id=int(job.client_id),
+                job_type=job.type or "",
+                fee=float(job.fee or 0),
+                on_done=bill_mode,
+                commit=False,
+            )
+        except Exception:
+            pass
 
     db.commit()
 
@@ -887,22 +1152,45 @@ async def job_done(
     except Exception:
         pass
 
+    spawn_note = ""
+    if next_spawned is not None and getattr(next_spawned, "period_end", None):
+        spawn_note = f" Next period {next_spawned.period_end.isoformat()} opened."
+    elif spawn_err:
+        spawn_note = f" (next period not opened: {spawn_err})"
+
+    if bill_mode == "none":
+        label = "retainer / not billed" if (job.billing_status or "") == "retainer" else "not billed"
+        return RedirectResponse(
+            f"{dest_base}{sep}msg={quote(f'Job completed — {label}.{spawn_note}')}",
+            status_code=303,
+        )
+
     if not job.client_id:
-        dest = _safe_return_to(next or _return_to_from_request(request), f"/jobs/{job_id}")
-        sep = "&" if "?" in dest else "?"
         return RedirectResponse(
-            f"{dest}{sep}msg={quote('Job completed but has no client — cannot invoice')}",
+            f"{dest_base}{sep}msg={quote('Job completed but has no client — cannot invoice')}",
             status_code=303,
         )
 
+    inv_status = "draft" if bill_mode == "draft" else "sent"
     try:
-        inv = invoice_from_job(db, job)
+        inv = invoice_from_job(db, job, status=inv_status)
+        # If an existing invoice was returned and user asked for draft, keep
+        # it draft when still unpaid/unsent; don't downgrade paid.
+        if inv_status == "draft" and (inv.status or "").lower() in ("sent", "draft"):
+            if float(inv.amount_paid or 0) <= 0 and (inv.status or "").lower() != "paid":
+                inv.status = "draft"
+                db.commit()
     except Exception as e:
-        dest = _safe_return_to(next or _return_to_from_request(request), f"/jobs/{job_id}")
-        sep = "&" if "?" in dest else "?"
         return RedirectResponse(
-            f"{dest}{sep}msg={quote(f'Job completed; invoice failed: {e}')}",
+            f"{dest_base}{sep}msg={quote(f'Job completed; invoice failed: {e}.{spawn_note}')}",
             status_code=303,
         )
 
+    # Still open the invoice (draft or sent) so staff can review / send
+    # Include spawn note in query so staff see next period was opened
+    if spawn_note:
+        return RedirectResponse(
+            f"/sales/invoices/{inv.id}?msg={quote(spawn_note.strip())}",
+            status_code=303,
+        )
     return RedirectResponse(f"/sales/invoices/{inv.id}", status_code=303)

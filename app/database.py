@@ -126,6 +126,9 @@ def _add_missing_columns():
             ("share_register_verified_by", "VARCHAR"),
             ("share_register_notes", "TEXT" if not IS_SQLITE else "TEXT"),
             ("ch_register_seeded_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+            ("vat_frequency", "VARCHAR"),
+            ("vat_quarterly_pattern", "VARCHAR"),
+            ("vat_year_end_month", "INTEGER"),
         ],
         "shareholdings": [
             ("is_director", "BOOLEAN DEFAULT FALSE" if not IS_SQLITE else "INTEGER DEFAULT 0"),
@@ -253,6 +256,10 @@ def _add_missing_columns():
         ],
         "documents": [
             ("prospect_id", "INTEGER"),
+        ],
+        "services": [
+            ("recurrence", "VARCHAR"),
+            ("quarterly_pattern", "VARCHAR"),
         ],
     }
 

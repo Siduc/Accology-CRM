@@ -96,7 +96,7 @@
             <div class="muted small">{{ p.company_number or '—' }}</div>
           </td>
           <td><span class="badge">{{ pipeline_labels.get(p.pipeline_status, p.pipeline_status) }}</span></td>
-          <td class="num"><strong>£{{ '{:,.0f}'.format(p.estimated_value or 0) }}</strong></td>
+          <td class="num"><strong>{{(p.estimated_value or 0)|money}}</strong></td>
           <td><strong>{{ p.score }}</strong></td>
           <td class="small">{{ p.town or '—' }} {{ p.postcode or '' }}</td>
           <td class="small">{{ p.source }}</td>

@@ -30,13 +30,13 @@ def period_bounds(
 
     if period in ("week", "this_week", "this-week"):
         start, end = week_bounds(today)
-        return start, end, f"This week ({start.strftime('%d-%m')} – {end.strftime('%d-%m-%Y')})"
+        return start, end, f"This week ({start.strftime('%d/%m')} – {end.strftime('%d/%m/%Y')})"
 
     if period in ("last_week", "last-week"):
         start, end = week_bounds(today)
         start = start - timedelta(days=7)
         end = end - timedelta(days=7)
-        return start, end, f"Last week ({start.strftime('%d-%m')} – {end.strftime('%d-%m-%Y')})"
+        return start, end, f"Last week ({start.strftime('%d/%m')} – {end.strftime('%d/%m/%Y')})"
 
     if period in ("month", "this_month", "this-month"):
         start = today.replace(day=1)
@@ -60,7 +60,7 @@ def period_bounds(
 
     # Fallback: treat as this week
     start, end = week_bounds(today)
-    return start, end, f"This week ({start.strftime('%d-%m')} – {end.strftime('%d-%m-%Y')})"
+    return start, end, f"This week ({start.strftime('%d/%m')} – {end.strftime('%d/%m/%Y')})"
 
 
 def completion_date(job: Job) -> Optional[date]:
@@ -153,6 +153,21 @@ def list_completed_jobs(
         if unbilled_only:
             if (j.invoice_reference or "").strip():
                 continue
+            # Explicitly marked not to bill (retainer / included / waived)
+            bill = (j.billing_status or "").strip().lower()
+            if bill in (
+                "retainer",
+                "not_billable",
+                "not billed",
+                "included",
+                "waived",
+                "no_charge",
+                "no charge",
+                "do_not_bill",
+                "invoiced",
+                "paid",
+            ):
+                continue
         elif from_d is not None or to_d is not None:
             if not cd:
                 continue
@@ -163,6 +178,19 @@ def list_completed_jobs(
 
         net = float(j.fee or 0)
         inv = (j.invoice_reference or "").strip()
+        bill = (j.billing_status or "").strip().lower()
+        settled_no_inv = bill in (
+            "retainer",
+            "not_billable",
+            "not billed",
+            "included",
+            "waived",
+            "no_charge",
+            "no charge",
+            "do_not_bill",
+            "invoiced",
+            "paid",
+        )
         rows.append(
             {
                 "job": j,
@@ -170,7 +198,7 @@ def list_completed_jobs(
                 "invoice_number": inv,
                 "net_value": net,
                 "gross_value": float(j.gross_amount) if j.gross_amount is not None else None,
-                "is_billed": bool(inv),
+                "is_billed": bool(inv) or settled_no_inv,
             }
         )
 

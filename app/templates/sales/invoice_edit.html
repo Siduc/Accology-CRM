@@ -148,9 +148,9 @@
         <textarea id="notes" name="notes" rows="3" class="invoice-notes-input">{{ inv.notes or '' }}</textarea>
       </div>
       <dl class="invoice-doc-sum">
-        <div><dt>Subtotal</dt><dd>£{{ '%.2f'|format(inv.subtotal or 0) }}</dd></div>
-        <div><dt>VAT</dt><dd>£{{ '%.2f'|format(inv.vat_total or 0) }}</dd></div>
-        <div class="invoice-doc-sum-total"><dt>Total</dt><dd>£{{ '%.2f'|format(inv.total or 0) }}</dd></div>
+        <div><dt>Subtotal</dt><dd>{{(inv.subtotal or 0)|money2}}</dd></div>
+        <div><dt>VAT</dt><dd>{{(inv.vat_total or 0)|money2}}</dd></div>
+        <div class="invoice-doc-sum-total"><dt>Total</dt><dd>{{(inv.total or 0)|money2}}</dd></div>
         <div class="muted small" style="grid-column:1/-1;margin-top:0.35rem">Totals recalculate on save.</div>
       </dl>
     </section>

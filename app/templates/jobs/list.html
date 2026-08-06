@@ -8,7 +8,7 @@
 <div class="page-header">
   <div>
     <h1>{{ page_title or 'Jobs' }}</h1>
-    <p class="muted small">{{ jobs|length }} matching · total fees £{{ '%.2f'|format(total_fees or 0) }}</p>
+    <p class="muted small">{{ jobs|length }} matching · total fees {{(total_fees or 0)|money2}}</p>
   </div>
   <div class="actions">
     <a class="btn btn-sm" href="/jobs/new">Add Job</a>
@@ -156,13 +156,17 @@
             <span class="badge">{{ j|job_status }}</span>
             {% endif %}
           </td>
-          <td class="num" data-sort="{{ j.fee or 0 }}">£{{ '%.2f'|format(j.fee or 0) }}</td>
+          <td class="num" data-sort="{{ j.fee or 0 }}">{{(j.fee or 0)|money2}}</td>
           <td class="actions-cell nowrap" onclick="event.stopPropagation()">
-            {% if (j.status or '') != 'Cancelled' and (j.billing_status or '')|lower not in ('invoiced', 'paid') %}
+            {% set bill_st = (j.billing_status or '')|lower %}
+            {% if (j.status or '') != 'Cancelled' and bill_st not in ('invoiced', 'paid', 'retainer', 'not_billable', 'included', 'waived') %}
             <button class="btn btn-sm btn-outline" type="submit"
-              form="job-done-{{ j.id }}" title="Complete, create next year if recurring, open invoice">Done</button>
-            {% elif (j.billing_status or '')|lower in ('invoiced', 'paid') and j.invoice_reference %}
+              form="job-done-{{ j.id }}"
+              title="{% if j.client and j.client.is_retainer() %}Complete without invoice (retainer). Open job to choose draft/sent invoice.{% else %}Complete and open draft invoice. Open job for sent or no-bill.{% endif %}">Done</button>
+            {% elif bill_st in ('invoiced', 'paid') and j.invoice_reference %}
             <a class="btn btn-sm btn-outline" href="/sales/invoices?q={{ j.invoice_reference|urlquote }}" title="Invoice {{ j.invoice_reference }}">Inv</a>
+            {% elif bill_st in ('retainer', 'not_billable', 'included', 'waived') %}
+            <span class="badge" title="No separate invoice">{{ j.billing_status }}</span>
             {% endif %}
           </td>
         </tr>
@@ -172,9 +176,12 @@
   </div>
   </form>
   {% for j in jobs %}
-  {% if (j.status or '') != 'Cancelled' and (j.billing_status or '')|lower not in ('invoiced', 'paid') %}
+  {% set bill_st = (j.billing_status or '')|lower %}
+  {% if (j.status or '') != 'Cancelled' and bill_st not in ('invoiced', 'paid', 'retainer', 'not_billable', 'included', 'waived') %}
   <form id="job-done-{{ j.id }}" method="post" action="/jobs/{{ j.id }}/done" style="display:none">
     <input type="hidden" name="next" value="{{ list_return }}">
+    {# Empty → server uses client job pattern, else retainer → none, else draft #}
+    <input type="hidden" name="billing" value="">
   </form>
   {% endif %}
   {% endfor %}

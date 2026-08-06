@@ -50,6 +50,7 @@ DEFAULT_SERVICES_SEED = [
         "default_fee": 2000.0,
         "category": "compliance",
         "unit": "job",
+        "recurrence": "annually",
     },
     {
         "code": "CS",
@@ -58,6 +59,7 @@ DEFAULT_SERVICES_SEED = [
         "default_fee": 50.0,
         "category": "compliance",
         "unit": "job",
+        "recurrence": "annually",
     },
     {
         "code": "CT",
@@ -66,6 +68,7 @@ DEFAULT_SERVICES_SEED = [
         "default_fee": 0.0,
         "category": "compliance",
         "unit": "job",
+        "recurrence": "annually",
     },
     {
         "code": "SA",
@@ -74,6 +77,39 @@ DEFAULT_SERVICES_SEED = [
         "default_fee": 250.0,
         "category": "compliance",
         "unit": "job",
+        "recurrence": "annually",
+    },
+    {
+        "code": "VAT",
+        "name": "VAT Return",
+        "description": (
+            "VAT return preparation and submission. "
+            "Usually quarterly on one of four HMRC-style period patterns "
+            "(or monthly / annual accounting)."
+        ),
+        "default_fee": 75.0,
+        "category": "compliance",
+        "unit": "job",
+        "recurrence": "quarterly",
+        "quarterly_pattern": "stagger_1",
+    },
+    {
+        "code": "PAYROLL",
+        "name": "Payroll",
+        "description": "Payroll processing and RTI submissions.",
+        "default_fee": 0.0,
+        "category": "compliance",
+        "unit": "job",
+        "recurrence": "monthly",
+    },
+    {
+        "code": "BOOKKEEPING",
+        "name": "Bookkeeping",
+        "description": "Bookkeeping and management accounts support.",
+        "default_fee": 0.0,
+        "category": "compliance",
+        "unit": "job",
+        "recurrence": "monthly",
     },
     {
         "code": "DEBT_CHASE",
@@ -86,15 +122,95 @@ DEFAULT_SERVICES_SEED = [
         "category": "credit_control",
         "unit": "fixed",
         "is_sellable_to_clients": True,
+        "recurrence": "none",
     },
 ]
 
 
+def normalise_service_recurrence(raw: Optional[str]) -> str:
+    v = (raw or "none").strip().lower().replace("-", "_")
+    if v in ("annual", "yearly", "year"):
+        return "annually"
+    if v in ("quarter", "qtr"):
+        return "quarterly"
+    if v in ("month", "mth"):
+        return "monthly"
+    if v in ("none", "one_off", "oneoff", "ad_hoc", "adhoc", ""):
+        return "none"
+    if v in ("monthly", "quarterly", "annually"):
+        return v
+    return "none"
+
+
+def normalise_quarterly_pattern(raw: Optional[str], *, recurrence: str = "") -> Optional[str]:
+    """Keep pattern only when recurrence is quarterly or annually."""
+    rec = normalise_service_recurrence(recurrence)
+    if rec not in ("quarterly", "annually"):
+        return None
+    code = (raw or "").strip().lower()
+    if not code:
+        return None
+    from app.models.sales import SERVICE_QUARTERLY_PATTERNS
+
+    valid = {p[0] for p in SERVICE_QUARTERLY_PATTERNS}
+    if code in valid:
+        return code
+    # Friendly aliases
+    aliases = {
+        "1": "stagger_1",
+        "hmrc_1": "stagger_1",
+        "mar": "stagger_1",
+        "2": "stagger_2",
+        "hmrc_2": "stagger_2",
+        "apr": "stagger_2",
+        "3": "stagger_3",
+        "hmrc_3": "stagger_3",
+        "may": "stagger_3",
+        "4": "stagger_4",
+        "hmrc_4": "stagger_4",
+        "jan": "stagger_4",
+    }
+    return aliases.get(code)
+
+
+def quarterly_period_end_months(pattern: Optional[str]) -> Tuple[int, int, int, int]:
+    """Return the four period-end months for a quarterly pattern (defaults stagger 1)."""
+    from app.models.sales import SERVICE_QUARTERLY_PATTERNS
+
+    code = (pattern or "stagger_1").strip().lower()
+    for key, _label, months in SERVICE_QUARTERLY_PATTERNS:
+        if key == code:
+            return months  # type: ignore[return-value]
+    return (3, 6, 9, 12)
+
+
 def seed_services(db: Session) -> int:
+    """Insert missing catalogue rows and backfill recurrence on known codes."""
     added = 0
+    updated = 0
     for row in DEFAULT_SERVICES_SEED:
         exists = db.query(Service).filter(Service.code == row["code"]).first()
+        rec = normalise_service_recurrence(row.get("recurrence"))
+        pat = normalise_quarterly_pattern(
+            row.get("quarterly_pattern"), recurrence=rec
+        )
         if exists:
+            # One-time backfill after column add: only when recurrence is unset (NULL/blank)
+            if exists.recurrence is None or str(exists.recurrence).strip() == "":
+                exists.recurrence = rec
+                if pat:
+                    exists.quarterly_pattern = pat
+                updated += 1
+            elif (
+                normalise_service_recurrence(exists.recurrence)
+                in ("quarterly", "annually")
+                and pat
+                and not (exists.quarterly_pattern or "").strip()
+                and row["code"] == "VAT"
+            ):
+                # Seed default stagger on VAT only if pattern still blank
+                exists.quarterly_pattern = pat
+                updated += 1
             continue
         db.add(
             Service(
@@ -105,12 +221,18 @@ def seed_services(db: Session) -> int:
                 default_vat_rate=row.get("default_vat_rate", 0.0),
                 unit=row.get("unit", "job"),
                 category=row.get("category", "compliance"),
+                recurrence=rec,
+                quarterly_pattern=pat,
                 is_active=True,
                 is_sellable_to_clients=row.get("is_sellable_to_clients", True),
             )
         )
         added += 1
-    if added:
+    # Normalise NULL recurrence on any catalogue row (column add / legacy)
+    for s in db.query(Service).filter(Service.recurrence.is_(None)).all():
+        s.recurrence = "none"
+        updated += 1
+    if added or updated:
         db.commit()
     return added
 
@@ -126,6 +248,12 @@ def service_for_job_type(db: Session, job_type: str) -> Optional[Service]:
         code = "CT"
     elif "self assessment" in t or t == "sa":
         code = "SA"
+    elif "vat" in t:
+        code = "VAT"
+    elif "payroll" in t:
+        code = "PAYROLL"
+    elif "bookkeep" in t:
+        code = "BOOKKEEPING"
     if code:
         return db.query(Service).filter(Service.code == code).first()
     # fuzzy name match
@@ -329,7 +457,11 @@ def create_invoice(
         job = db.query(Job).filter(Job.id == job_id).first()
         if job:
             job.invoice_reference = inv.number
-            job.billing_status = "invoiced"
+            # Draft = held for review (not yet in debtors as sent)
+            if (status or "").strip().lower() == "draft":
+                job.billing_status = "draft"
+            else:
+                job.billing_status = "invoiced"
             if inv.subtotal is not None:
                 job.fee = float(inv.subtotal)
             if inv.total is not None:
@@ -1400,27 +1532,88 @@ def import_opening_balances(
 
 
 def find_invoice_for_job(db: Session, job: Job) -> Optional[Invoice]:
-    """Return existing sales invoice linked to this job, if any."""
+    """Return existing non-void sales invoice linked to this job, if any."""
     if not job or not job.id:
         return None
     inv = (
         db.query(Invoice)
-        .filter(Invoice.job_id == job.id)
+        .filter(
+            Invoice.job_id == job.id,
+            Invoice.status.notin_(["void", "written_off"]),
+        )
         .order_by(Invoice.id.desc())
         .first()
     )
     if inv:
         return inv
     key = f"job-{job.id}"
-    inv = db.query(Invoice).filter(Invoice.import_key == key).first()
+    inv = (
+        db.query(Invoice)
+        .filter(
+            Invoice.import_key == key,
+            Invoice.status.notin_(["void", "written_off"]),
+        )
+        .first()
+    )
     if inv:
         return inv
     ref = (job.invoice_reference or "").strip()
     if ref:
-        inv = db.query(Invoice).filter(Invoice.number == ref).first()
+        inv = (
+            db.query(Invoice)
+            .filter(
+                Invoice.number == ref,
+                Invoice.status.notin_(["void", "written_off"]),
+            )
+            .first()
+        )
         if inv:
             return inv
     return None
+
+
+def discard_invoice_do_not_bill(
+    db: Session,
+    invoice: Invoice,
+    *,
+    reason: str = "Not billed",
+) -> Invoice:
+    """
+    Void a draft/sent invoice and mark the linked job as not billable.
+
+    Used after Done → draft when the work should not be invoiced (retainer, etc.).
+    """
+    invoice.status = "void"
+    invoice.balance = 0.0
+    note = (invoice.notes or "").strip()
+    tag = f"Discarded — {reason}."
+    invoice.notes = f"{note} {tag}".strip() if note else tag
+
+    if invoice.job_id:
+        from app.models.job import Job
+
+        job = db.query(Job).filter(Job.id == invoice.job_id).first()
+        if job:
+            job.invoice_reference = None
+            # Prefer retainer label when client is on retainer
+            is_ret = False
+            if job.client_id:
+                from app.models import Client
+
+                client = db.query(Client).filter(Client.id == job.client_id).first()
+                if client is not None:
+                    try:
+                        is_ret = bool(client.is_retainer())
+                    except Exception:
+                        is_ret = False
+            job.billing_status = "retainer" if is_ret else "not_billable"
+            jnote = (job.notes or "").strip()
+            jtag = f"Invoice {invoice.number} discarded — not billed."
+            job.notes = f"{jnote} {jtag}".strip() if jnote else jtag
+
+    db.commit()
+    db.refresh(invoice)
+    return invoice
 
 
 def invoice_from_job(
@@ -1433,6 +1626,8 @@ def invoice_from_job(
     """
     Create (or return existing) invoice for a completed job.
     Line description from job title/type; unit price from fee / gross.
+
+    status: 'draft' holds the invoice for review; 'sent' is ready for debtors.
     """
     seed_services(db)
     existing = find_invoice_for_job(db, job)
@@ -1441,6 +1636,10 @@ def invoice_from_job(
 
     if not job.client_id:
         raise ValueError("Job has no client — cannot raise invoice")
+
+    inv_status = (status or "sent").strip().lower()
+    if inv_status not in ("draft", "sent", "part_paid", "paid"):
+        inv_status = "sent"
 
     amount = float(job.gross_amount) if job.gross_amount else float(job.fee or 0)
     # Prefer net fee when gross not set (VAT 0 default for practice fees)
@@ -1460,6 +1659,9 @@ def invoice_from_job(
         desc = f"{desc} — {pe.isoformat()}"
 
     issue = date.today()
+    note = f"Raised from job #{job.id}"
+    if inv_status == "draft":
+        note += " (held as draft)"
     inv = create_invoice(
         db,
         client_id=int(job.client_id),
@@ -1467,9 +1669,9 @@ def invoice_from_job(
         issue_date=issue,
         due_date=issue,  # 0 days credit
         source=source,
-        status=status,
+        status=inv_status,
         import_key=f"job-{job.id}",
-        notes=f"Raised from job #{job.id}",
+        notes=note,
         lines=[
             {
                 "service_id": svc.id if svc else None,

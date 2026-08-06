@@ -20,7 +20,7 @@
           <td>{{ q.number }}</td>
           <td>{% if clients.get(q.client_id) %}{{ clients[q.client_id].display_name() }}{% else %}#{{ q.client_id }}{% endif %}</td>
           <td>{{ q.issue_date }}</td>
-          <td>£{{ '%.2f'|format(q.total or 0) }}</td>
+          <td>{{(q.total or 0)|money2}}</td>
           <td><span class="badge">{{ q.status }}</span></td>
           <td>
             {% if q.status != 'accepted' %}

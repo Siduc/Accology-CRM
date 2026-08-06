@@ -56,7 +56,7 @@
           <td>{{ p.txn_date }}</td>
           <td>{{ p.description }}{% if p.reference %}<div class="small muted">{{ p.reference }}</div>{% endif %}</td>
           <td class="{% if p.amount >= 0 %}text-success{% else %}text-danger{% endif %}">
-            {% if p.amount >= 0 %}+{% endif %}£{{ '%.2f'|format(p.amount) }}
+            {% if p.amount >= 0 %}+{% endif %}{{p.amount|money2}}
           </td>
           <td>{% if p.is_duplicate %}<span class="badge">Duplicate</span>{% else %}<span class="badge badge-active">New</span>{% endif %}</td>
         </tr>

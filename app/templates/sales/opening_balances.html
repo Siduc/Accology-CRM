@@ -34,7 +34,7 @@
 <div class="card" style="margin-bottom:1rem;border-left:4px solid #b91c1c">
   <h2 style="margin-top:0">1 · Clear current debtors ledger</h2>
   <p class="muted small">
-    Outstanding debtors now: <strong>£{{ '{:,.2f}'.format(debtors_total) }}</strong>
+    Outstanding debtors now: <strong>{{debtors_total|money2}}</strong>
     ({{ debtors_count }} invoices).
     This removes <strong>all</strong> sales invoices, payments, allocations and chase actions
     created from prior job imports. Clients and jobs are kept.

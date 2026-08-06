@@ -9,11 +9,38 @@ templates = Jinja2Templates(
 
 
 def _fmt_uk_date(value) -> str:
+    """Display dates as UK short form DD/MM/YYYY (never ISO YYYY-MM-DD)."""
     if value is None or value == "":
         return "—"
     if hasattr(value, "strftime"):
-        return value.strftime("%d-%m-%Y")
-    return str(value)
+        # date / datetime
+        try:
+            return value.strftime("%d/%m/%Y")
+        except Exception:
+            return str(value)
+    s = str(value).strip()
+    if not s:
+        return "—"
+    # ISO date or datetime strings → UK short
+    try:
+        from datetime import date as _date
+        from datetime import datetime as _dt
+
+        if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+            # 2026-08-06 or 2026-08-06T12:00:00
+            head = s[:10]
+            d = _date.fromisoformat(head)
+            return d.strftime("%d/%m/%Y")
+        if len(s) >= 10 and s[2] == "-" and s[5] == "-":
+            # already DD-MM-YYYY
+            d = _dt.strptime(s[:10], "%d-%m-%Y").date()
+            return d.strftime("%d/%m/%Y")
+        if len(s) >= 10 and s[2] == "/" and s[5] == "/":
+            # already DD/MM/YYYY (or D/M/Y variants longer)
+            return s[:10] if len(s) >= 10 and s[6:10].isdigit() else s
+    except Exception:
+        pass
+    return s
 
 
 from urllib.parse import quote as _url_quote
@@ -58,7 +85,9 @@ def _job_label(job, with_client: bool = False) -> str:
     title = (getattr(job, "title", None) or "").strip()
     jtype = (getattr(job, "type", None) or "").strip()
     pe = getattr(job, "period_end", None)
-    pe_s = pe.isoformat() if pe is not None and hasattr(pe, "isoformat") else ""
+    pe_s = _fmt_uk_date(pe) if pe is not None else ""
+    if pe_s == "—":
+        pe_s = ""
     if title:
         core = title
     elif jtype and pe_s:
@@ -79,13 +108,135 @@ def _job_label(job, with_client: bool = False) -> str:
     return core
 
 
+def _service_schedule_label(svc) -> str:
+    """Recurrence + quarterly pattern for Services catalogue (never raises)."""
+    if svc is None:
+        return "—"
+    try:
+        fn = getattr(type(svc), "schedule_label", None)
+        if callable(fn):
+            return fn(svc) or "—"
+    except Exception:
+        pass
+    try:
+        from app.models.sales import SERVICE_QUARTERLY_PATTERNS
+
+        rec = (getattr(svc, "recurrence", None) or "none").strip().lower()
+        if rec in ("", "none", "one_off", "one-off"):
+            return "—"
+        base = {
+            "monthly": "Monthly",
+            "quarterly": "Quarterly",
+            "annually": "Annually",
+            "annual": "Annually",
+        }.get(rec, rec.replace("_", " ").title() or "—")
+        if rec in ("quarterly", "annually", "annual"):
+            code = (getattr(svc, "quarterly_pattern", None) or "").strip().lower()
+            for key, label, _m in SERVICE_QUARTERLY_PATTERNS:
+                if key == code:
+                    return f"{base} · {label}"
+        return base
+    except Exception:
+        return "—"
+
+
+def _client_vat_scheme_label(client) -> str:
+    """Client VAT frequency + stagger for detail screens (never raises)."""
+    if client is None:
+        return "—"
+    try:
+        fn = getattr(type(client), "vat_scheme_label", None)
+        if callable(fn):
+            return fn(client) or "—"
+    except Exception:
+        pass
+    try:
+        freq = (getattr(client, "vat_frequency", None) or "none").strip().lower()
+        if freq in ("", "none", "n/a", "na"):
+            return "—"
+        base = {
+            "monthly": "Monthly",
+            "quarterly": "Quarterly",
+            "annually": "Annually",
+            "annual": "Annually",
+        }.get(freq, freq.replace("_", " ").title())
+        if freq in ("quarterly", "annually", "annual"):
+            from app.models.sales import SERVICE_QUARTERLY_PATTERNS
+
+            code = (getattr(client, "vat_quarterly_pattern", None) or "").strip().lower()
+            for key, label, _m in SERVICE_QUARTERLY_PATTERNS:
+                if key == code:
+                    return f"{base} · {label}"
+            ye = getattr(client, "vat_year_end_month", None)
+            if ye:
+                months = (
+                    "",
+                    "Jan",
+                    "Feb",
+                    "Mar",
+                    "Apr",
+                    "May",
+                    "Jun",
+                    "Jul",
+                    "Aug",
+                    "Sep",
+                    "Oct",
+                    "Nov",
+                    "Dec",
+                )
+                m = int(ye)
+                if 1 <= m <= 12:
+                    return f"{base} · YE {months[m]}"
+        return base
+    except Exception:
+        return "—"
+
+
+def _fmt_num(value, decimals: int = 0) -> str:
+    """Number with UK thousands separators (1,234 or 1,234.56)."""
+    if value is None or value == "":
+        return "—"
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    d = int(decimals) if decimals is not None else 0
+    if d <= 0:
+        return f"{v:,.0f}"
+    return f"{v:,.{d}f}"
+
+
+def _fmt_money(value, decimals: int = 0) -> str:
+    """Sterling with thousands separators: £1,234 or £1,234.56."""
+    if value is None or value == "":
+        return "—"
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    d = int(decimals) if decimals is not None else 0
+    if d <= 0:
+        return f"£{v:,.0f}"
+    return f"£{v:,.{d}f}"
+
+
+def _fmt_money2(value) -> str:
+    """Sterling with pence and thousands separators."""
+    return _fmt_money(value, 2)
+
+
 templates.env.filters["uk_date"] = _fmt_uk_date
 templates.env.filters["job_overdue"] = _job_is_overdue
 templates.env.filters["job_status"] = _job_display_status
 templates.env.filters["job_label"] = _job_label
+templates.env.filters["service_schedule"] = _service_schedule_label
+templates.env.filters["vat_scheme"] = _client_vat_scheme_label
 templates.env.filters["norm_caps"] = _normalize_caps
 templates.env.filters["norm_person"] = _normalize_person_name
 templates.env.filters["urlquote"] = _urlquote
+templates.env.filters["num"] = _fmt_num
+templates.env.filters["money"] = _fmt_money
+templates.env.filters["money2"] = _fmt_money2
 
 
 def render(request, name: str, context: dict | None = None, status_code: int = 200):
@@ -101,9 +252,20 @@ def render(request, name: str, context: dict | None = None, status_code: int = 2
     templates.env.filters.setdefault("job_overdue", _job_is_overdue)
     templates.env.filters.setdefault("job_status", _job_display_status)
     templates.env.filters.setdefault("job_label", _job_label)
+    templates.env.filters.setdefault("service_schedule", _service_schedule_label)
+    templates.env.filters.setdefault("num", _fmt_num)
+    templates.env.filters.setdefault("money", _fmt_money)
+    templates.env.filters.setdefault("money2", _fmt_money2)
+    templates.env.filters["num"] = _fmt_num
+    templates.env.filters["money"] = _fmt_money
+    templates.env.filters["money2"] = _fmt_money2
+    templates.env.filters.setdefault("vat_scheme", _client_vat_scheme_label)
     templates.env.filters.setdefault("norm_caps", _normalize_caps)
     templates.env.filters.setdefault("norm_person", _normalize_person_name)
     templates.env.filters.setdefault("urlquote", _urlquote)
+    # Always refresh these (methods/filters evolve with catalogue / VAT work)
+    templates.env.filters["service_schedule"] = _service_schedule_label
+    templates.env.filters["vat_scheme"] = _client_vat_scheme_label
 
     ctx = dict(context or {})
     ctx.setdefault("today", date.today())

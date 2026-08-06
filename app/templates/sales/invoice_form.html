@@ -38,7 +38,7 @@
         <select name="line_service_{{ n }}">
           <option value="">— free text —</option>
           {% for s in services %}
-          <option value="{{ s.id }}" data-fee="{{ s.default_fee }}">{{ s.name }} (£{{ '%.0f'|format(s.default_fee or 0) }})</option>
+          <option value="{{ s.id }}" data-fee="{{ s.default_fee }}">{{ s.name }} ({{(s.default_fee or 0)|money}})</option>
           {% endfor %}
         </select>
       </div>

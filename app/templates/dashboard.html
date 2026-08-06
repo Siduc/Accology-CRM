@@ -40,7 +40,7 @@
       <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-touch dash-aligned-banner" href="/prospecting">
         <div class="wc-net-main">
           <div class="wc-net-label">Prospects</div>
-          <div class="wc-net-value">£{{ '{:,.0f}'.format(prospecting_value|default(0)) }}</div>
+          <div class="wc-net-value">{{prospecting_value|default(0)|money}}</div>
           <div class="wc-net-formula small">
             {{ prospecting_open|default(0)|int }} open · pipeline value
           </div>
@@ -51,7 +51,7 @@
       <a class="wc-net-banner wc-net-result wc-total-banner wc-touch wip-tasks-banner dash-aligned-banner" href="/tasks">
         <div class="wc-net-main">
           <div class="wc-net-label">Tasks</div>
-          <div class="wc-net-value">£{{ '{:,.0f}'.format(tasks_value|default(wc_wip_tasks_value)|default(0)) }}</div>
+          <div class="wc-net-value">{{tasks_value|default(wc_wip_tasks_value)|default(0)|money}}</div>
           <div class="wc-net-formula small">
             {{ tasks_count|default(wc_wip_tasks_count)|default(0) }} open
             {% if (tasks_overdue|default(0)) > 0 %}
@@ -75,7 +75,7 @@
           <span class="wc-box-title">1 · Work in progress</span>
           <span class="wc-box-link">Open →</span>
         </div>
-        <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}</div>
+        <div class="wc-box-value">{{wc_wip_value|default(0)|money}}</div>
         <div class="wc-box-meta">
           {{ wc_wip_count|default(0) }} jobs
           {% if (wc_wip_tasks_count|default(0)) > 0 %}
@@ -84,14 +84,14 @@
           · jobs + retainers + tasks
         </div>
         <div class="wc-box-meta small" style="margin-top:0.25rem">
-          Jobs £{{ '{:,.0f}'.format(wc_wip_jobs_value|default(0)) }}
+          Jobs {{wc_wip_jobs_value|default(0)|money}}
           {% if (wc_retainer_count|default(0)) > 0 %}
           + <span class="badge badge-retainer">Retainers</span>
-          £{{ '{:,.0f}'.format(wc_retainer_annual|default(0)) }}/yr
-          ({{ wc_retainer_count }} · £{{ '{:,.0f}'.format(wc_retainer_monthly|default(0)) }}/mo)
+          {{wc_retainer_annual|default(0)|money}}/yr
+          ({{ wc_retainer_count }} · {{wc_retainer_monthly|default(0)|money}}/mo)
           {% endif %}
           {% if (wc_wip_tasks_value|default(0)) > 0 or (wc_wip_tasks_count|default(0)) > 0 %}
-          + tasks £{{ '{:,.0f}'.format(wc_wip_tasks_value|default(0)) }}
+          + tasks {{wc_wip_tasks_value|default(0)|money}}
           {% endif %}
         </div>
         <div class="wc-ageing">
@@ -99,7 +99,7 @@
           <div class="wc-age-row">
             <span class="wc-age-lab">{{ b.label }}</span>
             <span class="wc-age-bar-wrap"><span class="wc-age-bar" style="width:{{ ((b.amount / ((wc_wip_value if wc_wip_value else 1))) * 100)|int }}%"></span></span>
-            <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+            <span class="wc-age-amt">{{b.amount|money}} · {{ b.count }}</span>
           </div>
           {% endfor %}
         </div>
@@ -110,18 +110,18 @@
           <span class="wc-box-title">2 · Debtors</span>
           <span class="wc-box-link">Open →</span>
         </div>
-        <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}</div>
+        <div class="wc-box-value">{{wc_debtors_total|default(0)|money}}</div>
         <div class="wc-box-meta">
           {{ wc_debtors_count|default(0) }} outstanding
           · chase {{ chase_pipeline_count|default(0) }}
-          (£{{ '{:,.0f}'.format(chase_pipeline_amount|default(0)) }})
+          ({{chase_pipeline_amount|default(0)|money}})
         </div>
         <div class="wc-ageing">
           {% for b in wc_debtors_ageing|default([]) %}
           <div class="wc-age-row">
             <span class="wc-age-lab">{{ b.label }}</span>
             <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-amber" style="width:{{ ((b.amount / ((wc_debtors_total if wc_debtors_total else 1))) * 100)|int }}%"></span></span>
-            <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+            <span class="wc-age-amt">{{b.amount|money}} · {{ b.count }}</span>
           </div>
           {% endfor %}
         </div>
@@ -140,7 +140,7 @@
           <span class="wc-box-title">3 · Cash</span>
           <span class="wc-box-link">Bank Ledger →</span>
         </div>
-        <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}</div>
+        <div class="wc-box-value">{{wc_cash_balance|default(0)|money}}</div>
         <div class="wc-box-meta">{{ wc_cash_name|default('Practice account') }} · {{ wc_cash_txn_count|default(0) }} transactions</div>
         <ul class="wc-recent">
           {% if wc_cash_recent %}
@@ -149,7 +149,7 @@
               <span class="wc-recent-date">{{ t.txn_date }}</span>
               <span class="wc-recent-desc">{{ t.description or '—' }}</span>
               <span class="wc-recent-amt {% if t.amount >= 0 %}pos{% else %}neg{% endif %}">
-                {% if t.amount >= 0 %}+{% endif %}£{{ '%.0f'|format(t.amount) }}
+                {% if t.amount >= 0 %}+{% endif %}{{t.amount|money}}
               </span>
             </li>
             {% endfor %}
@@ -164,10 +164,10 @@
           <span class="wc-box-title">4 · Creditors</span>
           <span class="wc-box-link">Purchase Ledger →</span>
         </div>
-        <div class="wc-box-value">£{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}</div>
+        <div class="wc-box-value">{{wc_creditors_total|default(0)|money}}</div>
         <div class="wc-box-meta">
-          Suppliers £{{ '{:,.0f}'.format(wc_creditors_supplier|default(0)) }}
-          · VAT £{{ '{:,.0f}'.format(wc_creditors_vat|default(0)) }}
+          Suppliers {{wc_creditors_supplier|default(0)|money}}
+          · VAT {{wc_creditors_vat|default(0)|money}}
           · {{ wc_creditors_count|default(0) }} open
         </div>
         <div class="wc-ageing">
@@ -175,7 +175,7 @@
           <div class="wc-age-row">
             <span class="wc-age-lab">{{ b.label }}</span>
             <span class="wc-age-bar-wrap"><span class="wc-age-bar wc-age-bar-red" style="width:{{ ((b.amount / ((wc_creditors_total if wc_creditors_total else 1))) * 100)|int }}%"></span></span>
-            <span class="wc-age-amt">£{{ '{:,.0f}'.format(b.amount) }} · {{ b.count }}</span>
+            <span class="wc-age-amt">{{b.amount|money}} · {{ b.count }}</span>
           </div>
           {% endfor %}
         </div>
@@ -186,13 +186,13 @@
     <section class="wc-net-banner wc-net-result wc-total-banner {% if (wc_net|default(0)) < 0 %}wc-net-neg{% else %}wc-net-pos{% endif %}">
       <div class="wc-net-main">
         <div class="wc-net-label">Net assets</div>
-        <div class="wc-net-value">£{{ '{:,.0f}'.format(wc_net|default(0)) }}</div>
+        <div class="wc-net-value">{{wc_net|default(0)|money}}</div>
         <div class="wc-net-formula small">
-          WIP £{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}
-          (incl. tasks £{{ '{:,.0f}'.format(wc_wip_tasks_value|default(tasks_value)|default(0)) }})
-          + Debtors £{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}
-          + Cash £{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}
-          − Creditors £{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}
+          WIP {{wc_wip_value|default(0)|money}}
+          (incl. tasks {{wc_wip_tasks_value|default(tasks_value)|default(0)|money}})
+          + Debtors {{wc_debtors_total|default(0)|money}}
+          + Cash {{wc_cash_balance|default(0)|money}}
+          − Creditors {{wc_creditors_total|default(0)|money}}
         </div>
       </div>
       <p class="wc-net-hint small">WIP includes job fees, retainers and task £ · Prospects are pipeline only (not in net assets).</p>
@@ -300,12 +300,12 @@
     <div class="dash-top-pair dash-top-pair-mobile">
       <a class="live-tile live-tile-wide tile-prospects" href="/prospecting" aria-label="Prospects">
         <span class="live-kicker">Prospects</span>
-        <span class="live-value">£{{ '{:,.0f}'.format(prospecting_value|default(0)) }}</span>
+        <span class="live-value">{{prospecting_value|default(0)|money}}</span>
         <span class="live-sub">{{ prospecting_open|default(total_prospects)|default(0)|int }} open · pipeline</span>
       </a>
       <a class="live-tile live-tile-wide tile-debtors" href="/tasks" aria-label="Tasks">
         <span class="live-kicker">Tasks</span>
-        <span class="live-value">£{{ '{:,.0f}'.format(tasks_value|default(wc_wip_tasks_value)|default(0)) }}</span>
+        <span class="live-value">{{tasks_value|default(wc_wip_tasks_value)|default(0)|money}}</span>
         <span class="live-sub">
           {{ tasks_count|default(wc_wip_tasks_count)|default(0) }} open
           {% if (tasks_overdue|default(0)) > 0 %} · {{ tasks_overdue }} overdue{% endif %}
@@ -317,16 +317,16 @@
     <div class="live-grid" id="working-capital-mobile" aria-label="Working capital cycle">
       <a class="live-tile tile-wip" href="/working-capital/wip">
         <span class="live-kicker">1 · WIP</span>
-        <span class="live-value">£{{ '{:,.0f}'.format(wc_wip_value|default(0)) }}</span>
+        <span class="live-value">{{wc_wip_value|default(0)|money}}</span>
         <span class="live-sub">
           {{ wc_wip_count|default(0) }} jobs
           {% if (wc_wip_tasks_count|default(0)) > 0 %} · {{ wc_wip_tasks_count }} tasks{% endif %}
         </span>
         <span class="live-age">
           <span>
-            Jobs £{{ '{:,.0f}'.format(wc_wip_jobs_value|default(0)) }}
-            {% if (wc_retainer_count|default(0)) > 0 %}+ ret £{{ '{:,.0f}'.format(wc_retainer_annual|default(0)) }}{% endif %}
-            {% if (wc_wip_tasks_value|default(0)) > 0 %}+ tasks £{{ '{:,.0f}'.format(wc_wip_tasks_value|default(0)) }}{% endif %}
+            Jobs {{wc_wip_jobs_value|default(0)|money}}
+            {% if (wc_retainer_count|default(0)) > 0 %}+ ret {{wc_retainer_annual|default(0)|money}}{% endif %}
+            {% if (wc_wip_tasks_value|default(0)) > 0 %}+ tasks {{wc_wip_tasks_value|default(0)|money}}{% endif %}
           </span>
           {% for b in wc_wip_ageing|default([]) if b.count %}
           <span>{{ b.label }} {{ b.count }}</span>
@@ -335,7 +335,7 @@
       </a>
       <a class="live-tile tile-debtors" href="/sales/ageing">
         <span class="live-kicker">2 · Debtors</span>
-        <span class="live-value">£{{ '{:,.0f}'.format(wc_debtors_total|default(0)) }}</span>
+        <span class="live-value">{{wc_debtors_total|default(0)|money}}</span>
         <span class="live-sub">{{ chase_pipeline_count|default(0) }} in chase · {{ wc_debtors_count|default(0) }} inv</span>
         <span class="live-age">
           {% for b in wc_debtors_ageing|default([]) if b.count %}
@@ -345,12 +345,12 @@
       </a>
       <a class="live-tile tile-cash" href="/bank">
         <span class="live-kicker">3 · Cash</span>
-        <span class="live-value">£{{ '{:,.0f}'.format(wc_cash_balance|default(0)) }}</span>
+        <span class="live-value">{{wc_cash_balance|default(0)|money}}</span>
         <span class="live-sub">{{ wc_cash_name|default('Bank') }}</span>
         <span class="live-age">
           {% if wc_cash_recent and wc_cash_recent[0] %}
           <span>{{ wc_cash_recent[0].description or 'Latest' }}
-            {% if wc_cash_recent[0].amount >= 0 %}+{% endif %}£{{ '%.0f'|format(wc_cash_recent[0].amount) }}
+            {% if wc_cash_recent[0].amount >= 0 %}+{% endif %}{{wc_cash_recent[0].amount|money}}
           </span>
           {% else %}
           <span>Tap to update</span>
@@ -359,8 +359,8 @@
       </a>
       <a class="live-tile tile-creditors" href="/purchase">
         <span class="live-kicker">4 · Creditors</span>
-        <span class="live-value">£{{ '{:,.0f}'.format(wc_creditors_total|default(0)) }}</span>
-        <span class="live-sub">VAT £{{ '{:,.0f}'.format(wc_creditors_vat|default(0)) }}</span>
+        <span class="live-value">{{wc_creditors_total|default(0)|money}}</span>
+        <span class="live-sub">VAT {{wc_creditors_vat|default(0)|money}}</span>
         <span class="live-age"><span>{{ wc_creditors_count|default(0) }} open bills</span></span>
       </a>
       {% for n in live_notes|default([]) %}
@@ -375,7 +375,7 @@
     {# 1 · Net assets #}
     <section class="live-net {% if (wc_net|default(0)) < 0 %}live-net-neg{% endif %}" aria-label="Net assets">
       <div class="live-net-label">Net assets</div>
-      <div class="live-net-value">£{{ '{:,.0f}'.format(wc_net|default(0)) }}</div>
+      <div class="live-net-value">{{wc_net|default(0)|money}}</div>
       <div class="live-net-formula">WIP + Debtors + Cash − Creditors</div>
     </section>
 

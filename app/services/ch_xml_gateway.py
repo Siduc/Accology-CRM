@@ -177,7 +177,7 @@ def xml_export_readiness(
             from app.services.share_register import has_ch_auth_code
 
             auth_ok = has_ch_auth_code(client)
-            auth_detail = "On file (encrypted)" if auth_ok else "Add on Shares / CH tab"
+            auth_detail = "On file (encrypted)" if auth_ok else "Add on Statutory / CH tab"
         except Exception:
             auth_ok = bool((client.ch_authentication_code or "").strip())
             auth_detail = "On file" if auth_ok else "Missing"

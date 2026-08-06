@@ -148,7 +148,7 @@
           {% for d in preview.drafts %}
           <tr>
             <td>{{ d.type }}</td>
-            <td>{{ d.period_end or '—' }}</td>
+            <td>{{ d.period_end|uk_date }}</td>
             <td>{{ d.statutory_due_date or '—' }}</td>
             <td class="small">
               start {{ d.target_start or '—' }}<br>

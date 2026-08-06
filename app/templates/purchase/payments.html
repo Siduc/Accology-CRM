@@ -20,7 +20,7 @@
         <tr>
           <td>{{ p.payment_date }}</td>
           <td>{% if p.supplier_id and suppliers.get(p.supplier_id) %}{{ suppliers[p.supplier_id].name }}{% else %}—{% endif %}</td>
-          <td>£{{ '%.2f'|format(p.amount or 0) }}</td>
+          <td>{{(p.amount or 0)|money2}}</td>
           <td>{{ p.method or '—' }}</td>
           <td>{{ p.reference or '—' }}</td>
           <td>{% if p.bank_transaction_id %}<a href="/bank">#{{ p.bank_transaction_id }}</a>{% else %}—{% endif %}</td>

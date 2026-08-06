@@ -49,7 +49,16 @@
       <div>
         <label for="fee">Fee (£)</label>
         <input id="fee" name="fee" value="{{ job.fee if job else '0' }}">
-        <p class="small muted">Leave 0 for Accounts to use last year’s fee + 5% (or fee schedule).</p>
+        <p class="small muted">
+          Manual fee always wins on this job.
+          Changing fee updates the client pattern for this type and later open jobs of the same type (so VAT £0 flows forward).
+        </p>
+        {% if job %}
+        <label class="small" style="display:flex;align-items:center;gap:0.35rem;margin-top:0.35rem">
+          <input type="checkbox" name="apply_fee_forward" value="yes" checked>
+          Apply this fee to later open jobs of the same type (and save as client pattern)
+        </label>
+        {% endif %}
       </div>
       <div>
         <label for="status">Status</label>

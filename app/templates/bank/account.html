@@ -8,12 +8,12 @@
     <p class="muted small">
       {{ account.bank_name or '—' }}
       {% if account.is_primary %} · <span class="badge badge-active">Primary</span>{% endif %}
-      · Opening £{{ '%.2f'|format(account.opening_balance or 0) }}
+      · Opening {{(account.opening_balance or 0)|money2}}
     </p>
   </div>
   <div class="wc-cash-balance-pill">
     <div class="small muted">Balance</div>
-    <div class="wc-box-value" style="font-size:2rem">£{{ '{:,.2f}'.format(balance) }}</div>
+    <div class="wc-box-value" style="font-size:2rem">{{balance|money2}}</div>
   </div>
 </div>
 
@@ -120,9 +120,9 @@
           </td>
           <td class="small">{{ category_labels.get(t.category, t.category or '—') }}</td>
           <td class="{% if t.amount >= 0 %}text-success{% else %}text-danger{% endif %}">
-            {% if t.amount >= 0 %}+{% endif %}£{{ '%.2f'|format(t.amount) }}
+            {% if t.amount >= 0 %}+{% endif %}{{t.amount|money2}}
           </td>
-          <td>£{{ '%.2f'|format(r.running_balance) }}</td>
+          <td>{{r.running_balance|money2}}</td>
           <td>
             {% if t.reconciled %}<span class="badge badge-active">Cleared</span>{% else %}<span class="badge">Open</span>{% endif %}
             {% if t.matched_type %}<span class="badge">{{ t.matched_type }}</span>{% endif %}

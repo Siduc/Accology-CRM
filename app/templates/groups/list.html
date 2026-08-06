@@ -52,7 +52,7 @@
       {% for m in ungrouped %}
       <div class="group-chip" draggable="true" data-client-id="{{ m.client.id }}">
         <a class="group-chip-name" href="/clients/{{ m.client.id }}" onclick="event.stopPropagation()">{{ m.client.display_name() }}</a>
-        <span class="group-chip-meta">£{{ '{:,.0f}'.format(m.fees) }}</span>
+        <span class="group-chip-meta">{{m.fees|money}}</span>
         <form class="group-move-form" method="post" action="/groups/move" onclick="event.stopPropagation()">
           <label class="group-move-label" for="move-u-{{ m.client.id }}">Move to</label>
           <select id="move-u-{{ m.client.id }}" name="group_id" class="group-move-select" aria-label="Move company" onchange="this.form.submit()">
@@ -74,7 +74,7 @@
   <section class="group-column" data-group-id="{{ bg.group.id }}" data-drop-zone="group">
     <header class="group-column-head">
       <a href="/groups/{{ bg.group.id }}" class="group-column-title" title="{{ bg.group.name }}">{{ bg.group.name }}</a>
-      <span class="small muted">{{ bg.members|length }} · £{{ '{:,.0f}'.format(bg.total_fees) }}</span>
+      <span class="small muted">{{ bg.members|length }} · {{bg.total_fees|money}}</span>
     </header>
     <div class="group-conn-pills small">
       {% for code, label, _d in providers %}
@@ -87,7 +87,7 @@
       {% for m in bg.members %}
       <div class="group-chip" draggable="true" data-client-id="{{ m.client.id }}">
         <a class="group-chip-name" href="/clients/{{ m.client.id }}" onclick="event.stopPropagation()">{{ m.client.display_name() }}</a>
-        <span class="group-chip-meta">£{{ '{:,.0f}'.format(m.fees) }}</span>
+        <span class="group-chip-meta">{{m.fees|money}}</span>
         <form class="group-move-form" method="post" action="/groups/move" onclick="event.stopPropagation()">
           <label class="group-move-label" for="move-{{ bg.group.id }}-{{ m.client.id }}">Move to</label>
           <select id="move-{{ bg.group.id }}-{{ m.client.id }}" name="group_id" class="group-move-select" aria-label="Move company" onchange="this.form.submit()">

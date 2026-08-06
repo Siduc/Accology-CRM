@@ -268,21 +268,54 @@ def import_prior_job_analysis(
     return result
 
 
+def _billing_bucket(billing_status: Optional[str]) -> str:
+    """Return 'billed' | 'skip' | 'to_bill' for fee tiles."""
+    s = (billing_status or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if s in (
+        "invoiced",
+        "paid",
+        "billed",
+        "sent",
+        "part_paid",
+        "partially_paid",
+    ):
+        return "billed"
+    if s in (
+        "do_not_bill",
+        "not_billable",
+        "not_billed",
+        "none",
+        "n/a",
+        "na",
+        "waived",
+        "write_off",
+        "writeoff",
+    ):
+        return "skip"
+    return "to_bill"
+
+
 def client_fee_history(db: Session, client_id: int) -> dict:
-    """Build fee history stats for client detail."""
+    """Build fee history stats for client detail (tiles + job matrix).
+
+    Retainer clients: Billed = monthly retainer; To bill = months left × monthly.
+    """
     jobs = (
         db.query(Job)
         .filter(Job.client_id == client_id)
         .order_by(Job.period_end.desc(), Job.id.desc())
         .all()
     )
+    client = db.query(Client).filter(Client.id == client_id).first()
     by_year: Dict[int, float] = defaultdict(float)
     by_year_type: Dict[int, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
     rows = []
+    all_time = 0.0
     for j in jobs:
         year = j.period_end.year if j.period_end else None
-        fee = j.fee or 0.0
+        fee = float(j.fee or 0.0)
         jtype = j.type or "Other"
+        all_time += fee
         if year:
             by_year[year] += fee
             by_year_type[year][jtype] += fee
@@ -299,14 +332,18 @@ def client_fee_history(db: Session, client_id: int) -> dict:
                 "status": j.status,
                 "source": j.source,
                 "was_late": j.was_late,
+                "billing_bucket": _billing_bucket(j.billing_status),
             }
         )
 
     year_totals = sorted(by_year.items(), key=lambda x: x[0])
     totals_only = [t for _, t in year_totals]
     avg = sum(totals_only) / len(totals_only) if totals_only else 0.0
-    current_year = date.today().year
+    today = date.today()
+    current_year = today.year
+    prior_year = current_year - 1
     current = by_year.get(current_year, 0.0)
+    prior_year_fee = by_year.get(prior_year, 0.0)
     prior_totals = [t for y, t in year_totals if y < current_year]
     hist_avg = (
         sum(prior_totals) / len(prior_totals) if prior_totals else avg
@@ -314,33 +351,31 @@ def client_fee_history(db: Session, client_id: int) -> dict:
     variance = current - hist_avg if prior_totals or current else 0.0
     variance_pct = (variance / hist_avg * 100.0) if hist_avg else None
 
-    # Chart.js payload: stacked bars by service type per year + average line
-    chart_years = [y for y, _ in year_totals]
-    type_set = sorted(
-        {jt for ymap in by_year_type.values() for jt in ymap.keys()}
-    )
-    chart_datasets = []
-    palette = [
-        "#1d4ed8",
-        "#0d9488",
-        "#b45309",
-        "#7c3aed",
-        "#be123c",
-        "#475569",
-        "#15803d",
-        "#c2410c",
-    ]
-    for i, jt in enumerate(type_set):
-        chart_datasets.append(
-            {
-                "label": jt,
-                "data": [
-                    round(by_year_type[y].get(jt, 0.0), 2) for y in chart_years
-                ],
-                "backgroundColor": palette[i % len(palette)],
-                "stack": "fees",
-            }
-        )
+    billed_cy = 0.0
+    to_bill_cy = 0.0
+    for r in rows:
+        if r.get("year") != current_year:
+            continue
+        fee = float(r.get("fee") or 0)
+        bucket = r.get("billing_bucket") or "to_bill"
+        if bucket == "billed":
+            billed_cy += fee
+        elif bucket == "to_bill":
+            to_bill_cy += fee
+
+    is_retainer = bool(client and hasattr(client, "is_retainer") and client.is_retainer())
+    monthly_retainer = 0.0
+    months_left = max(0, 12 - today.month)  # full months after this one
+    if is_retainer:
+        try:
+            monthly_retainer = float(client.retainer_monthly_net() or 0)
+        except Exception:
+            monthly_retainer = float(getattr(client, "retainer_amount", 0) or 0)
+        # Billed = the monthly retainer; To bill = months left × monthly
+        billed_cy = monthly_retainer
+        to_bill_cy = monthly_retainer * months_left
+        # Prefer retainer annualised figure for the "total CY" tile
+        current = billed_cy + to_bill_cy
 
     return {
         "rows": rows,
@@ -348,11 +383,21 @@ def client_fee_history(db: Session, client_id: int) -> dict:
         "average_per_year": round(avg, 2),
         "historical_average": round(hist_avg, 2),
         "current_year": current_year,
+        "prior_year": prior_year,
         "current_year_fee": round(current, 2),
+        "prior_year_fee": round(prior_year_fee, 2),
+        "all_time_fee": round(all_time, 2),
+        "billed_current_year": round(billed_cy, 2),
+        "to_bill_current_year": round(to_bill_cy, 2),
+        "total_current_year": round(billed_cy + to_bill_cy, 2),
         "variance": round(variance, 2),
         "variance_pct": round(variance_pct, 1) if variance_pct is not None else None,
         "job_count": len(jobs),
-        "chart_years": chart_years,
-        "chart_datasets": chart_datasets,
-        "chart_average": round(hist_avg if prior_totals else avg, 2),
+        "is_retainer": is_retainer,
+        "monthly_retainer": round(monthly_retainer, 2),
+        "months_left": months_left,
+        # chart fields kept empty (graphs dropped from UI)
+        "chart_years": [],
+        "chart_datasets": [],
+        "chart_average": 0,
     }

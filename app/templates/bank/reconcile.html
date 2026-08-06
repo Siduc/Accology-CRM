@@ -34,17 +34,17 @@
 <div class="sales-kpi-row bank-kpi-row">
   <div class="sales-kpi">
     <div class="sales-kpi-lab">Book balance</div>
-    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.book_balance) }}</div>
+    <div class="sales-kpi-val">{{summary.book_balance|money2}}</div>
     <div class="sales-kpi-sub">As at {{ summary.as_of }}</div>
   </div>
   <div class="sales-kpi sales-kpi-ok">
     <div class="sales-kpi-lab">Statement</div>
-    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.statement_balance) }}</div>
+    <div class="sales-kpi-val">{{summary.statement_balance|money2}}</div>
     <div class="sales-kpi-sub">You entered</div>
   </div>
   <div class="sales-kpi {% if summary.difference == 0 %}sales-kpi-ok{% else %}sales-kpi-danger{% endif %}">
     <div class="sales-kpi-lab">Difference</div>
-    <div class="sales-kpi-val">£{{ '{:,.2f}'.format(summary.difference) }}</div>
+    <div class="sales-kpi-val">{{summary.difference|money2}}</div>
     <div class="sales-kpi-sub">{% if summary.difference == 0 %}Balanced{% else %}Statement − book{% endif %}</div>
   </div>
   <div class="sales-kpi sales-kpi-warn">
@@ -80,9 +80,9 @@
             <td>{{ t.txn_date }}</td>
             <td>{{ t.description or '—' }}</td>
             <td class="{% if t.amount >= 0 %}text-success{% else %}text-danger{% endif %}">
-              {% if t.amount >= 0 %}+{% endif %}£{{ '%.2f'|format(t.amount) }}
+              {% if t.amount >= 0 %}+{% endif %}{{t.amount|money2}}
             </td>
-            <td>£{{ '%.2f'|format(r.running_balance) }}</td>
+            <td>{{r.running_balance|money2}}</td>
           </tr>
           {% endfor %}
         </tbody>

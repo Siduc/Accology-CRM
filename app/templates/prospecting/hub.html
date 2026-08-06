@@ -20,11 +20,11 @@
   <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-net-centered wc-touch" href="/prospecting/prospects">
     <div class="wc-net-main">
       <div class="wc-net-label">Open pipeline</div>
-      <div class="wc-net-value">£{{ '{:,.0f}'.format(stats.open_value|default(0)) }}</div>
+      <div class="wc-net-value">{{stats.open_value|default(0)|money}}</div>
       <div class="wc-net-formula small">
         {{ stats.open_count }} leads · weighted at confidence (e.g. £10k @ 50% = £5k)
-        · individual £{{ '{:,.0f}'.format(stats.individual_value|default(0)) }}
-        + campaigns £{{ '{:,.0f}'.format(stats.campaign_pipeline_value|default(0)) }}
+        · individual {{stats.individual_value|default(0)|money}}
+        + campaigns {{stats.campaign_pipeline_value|default(0)|money}}
       </div>
     </div>
     <p class="wc-net-hint small">Prospect list →</p>
@@ -33,28 +33,28 @@
     <a class="wc-box wc-box-wip wc-touch" href="/prospecting/prospects?status=new&amp;individual=1">
       <div class="wc-box-head"><span class="wc-box-title">1 · Draft</span><span class="wc-box-link">List →</span></div>
       <div class="wc-box-value">{{ stats.by_status.new|default(0) }}</div>
-      <div class="wc-box-meta">£{{ '{:,.0f}'.format(stats.by_status_value.new|default(0)) }} · not yet contacted</div>
+      <div class="wc-box-meta">{{stats.by_status_value.new|default(0)|money}} · not yet contacted</div>
     </a>
     <a class="wc-box wc-box-debtors wc-touch" href="/prospecting/prospects?status=contacted&amp;individual=1">
       <div class="wc-box-head"><span class="wc-box-title">2 · Initial contact</span><span class="wc-box-link">List →</span></div>
       <div class="wc-box-value">{{ stats.by_status.contacted|default(0) }}</div>
-      <div class="wc-box-meta">£{{ '{:,.0f}'.format(stats.by_status_value.contacted|default(0)) }} · first touch</div>
+      <div class="wc-box-meta">{{stats.by_status_value.contacted|default(0)|money}} · first touch</div>
     </a>
     <a class="wc-box wc-box-cash wc-touch" href="/prospecting/prospects?status=interested&amp;individual=1">
       <div class="wc-box-head"><span class="wc-box-title">3 · Second contact</span><span class="wc-box-link">List →</span></div>
       <div class="wc-box-value">{{ stats.by_status.interested|default(0) }}</div>
-      <div class="wc-box-meta">£{{ '{:,.0f}'.format(stats.by_status_value.interested|default(0)) }} · follow-up</div>
+      <div class="wc-box-meta">{{stats.by_status_value.interested|default(0)|money}} · follow-up</div>
     </a>
     <a class="wc-box wc-box-creditors wc-touch" href="/prospecting/prospects?status=quote_sent&amp;individual=1">
       <div class="wc-box-head"><span class="wc-box-title">4 · Third contact</span><span class="wc-box-link">List →</span></div>
       <div class="wc-box-value">{{ stats.by_status.quote_sent|default(0) }}</div>
-      <div class="wc-box-meta">£{{ '{:,.0f}'.format(stats.by_status_value.quote_sent|default(0)) }} · next step</div>
+      <div class="wc-box-meta">{{stats.by_status_value.quote_sent|default(0)|money}} · next step</div>
     </a>
   </div>
   <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-net-centered wc-touch" href="/prospecting/campaigns" style="margin-top:0.65rem">
     <div class="wc-net-main">
       <div class="wc-net-label">Campaign pipeline</div>
-      <div class="wc-net-value">£{{ '{:,.0f}'.format(stats.campaign_pipeline_value|default(0)) }}</div>
+      <div class="wc-net-value">{{stats.campaign_pipeline_value|default(0)|money}}</div>
       <div class="wc-net-formula small">
         Included in open pipeline above ·
         {{ stats.campaign_lead_count|default(0) }} leads ·
@@ -81,35 +81,35 @@
 <div class="wip-mobile subdash-mobile">
   <a class="live-tile live-tile-wide tile-prospects" href="/prospecting/prospects">
     <span class="live-kicker">Open pipeline</span>
-    <span class="live-value">£{{ '{:,.0f}'.format(stats.open_value|default(0)) }}</span>
+    <span class="live-value">{{stats.open_value|default(0)|money}}</span>
     <span class="live-sub">{{ stats.open_count }} leads · incl. campaigns</span>
-    <span class="live-age"><span>Ind £{{ '{:,.0f}'.format(stats.individual_value|default(0)) }} + Camp £{{ '{:,.0f}'.format(stats.campaign_pipeline_value|default(0)) }}</span></span>
+    <span class="live-age"><span>Ind {{stats.individual_value|default(0)|money}} + Camp {{stats.campaign_pipeline_value|default(0)|money}}</span></span>
   </a>
   <div class="live-grid">
     <a class="live-tile tile-wip" href="/prospecting/prospects?status=new&amp;individual=1">
       <span class="live-kicker">Draft</span>
       <span class="live-value">{{ stats.by_status.new|default(0) }}</span>
-      <span class="live-sub">£{{ '{:,.0f}'.format(stats.by_status_value.new|default(0)) }}</span>
+      <span class="live-sub">{{stats.by_status_value.new|default(0)|money}}</span>
     </a>
     <a class="live-tile tile-debtors" href="/prospecting/prospects?status=contacted&amp;individual=1">
       <span class="live-kicker">Initial contact</span>
       <span class="live-value">{{ stats.by_status.contacted|default(0) }}</span>
-      <span class="live-sub">£{{ '{:,.0f}'.format(stats.by_status_value.contacted|default(0)) }}</span>
+      <span class="live-sub">{{stats.by_status_value.contacted|default(0)|money}}</span>
     </a>
     <a class="live-tile tile-cash" href="/prospecting/prospects?status=interested&amp;individual=1">
       <span class="live-kicker">Second contact</span>
       <span class="live-value">{{ stats.by_status.interested|default(0) }}</span>
-      <span class="live-sub">£{{ '{:,.0f}'.format(stats.by_status_value.interested|default(0)) }}</span>
+      <span class="live-sub">{{stats.by_status_value.interested|default(0)|money}}</span>
     </a>
     <a class="live-tile tile-creditors" href="/prospecting/prospects?status=quote_sent&amp;individual=1">
       <span class="live-kicker">Third contact</span>
       <span class="live-value">{{ stats.by_status.quote_sent|default(0) }}</span>
-      <span class="live-sub">£{{ '{:,.0f}'.format(stats.by_status_value.quote_sent|default(0)) }}</span>
+      <span class="live-sub">{{stats.by_status_value.quote_sent|default(0)|money}}</span>
     </a>
   </div>
   <a class="live-tile live-tile-wide tile-prospects" href="/prospecting/campaigns" style="margin-top:0.55rem">
     <span class="live-kicker">Campaign pipeline</span>
-    <span class="live-value">£{{ '{:,.0f}'.format(stats.campaign_pipeline_value|default(0)) }}</span>
+    <span class="live-value">{{stats.campaign_pipeline_value|default(0)|money}}</span>
     <span class="live-sub">{{ stats.campaign_lead_count|default(0) }} leads · {{ stats.campaigns_active|default(0) }} campaigns</span>
   </a>
   <section class="live-net">
@@ -133,7 +133,7 @@
       {% for p in recent %}
       <li>
         <a href="/prospecting/prospects/{{ p.id }}"><strong>{{ p.display_name() }}</strong></a>
-        · £{{ '{:,.0f}'.format(p.estimated_value or 0) }}
+        · {{(p.estimated_value or 0)|money}}
         · confidence {{ p.confidence_pct if p.confidence_pct is not none else 50 }}%
         · {{ pipeline_labels.get(p.pipeline_status, p.pipeline_status) }}
       </li>
@@ -149,7 +149,7 @@
       <a class="btn btn-sm btn-outline" href="/prospecting/campaigns">All</a>
     </div>
     <p class="muted small" style="margin:0 0 0.55rem">
-      Pipeline total £{{ '{:,.0f}'.format(stats.campaign_pipeline_value|default(0)) }}
+      Pipeline total {{stats.campaign_pipeline_value|default(0)|money}}
       · {{ stats.campaign_lead_count|default(0) }} leads
     </p>
     {% if campaign_rows %}
@@ -160,7 +160,7 @@
         <a href="/prospecting/campaigns/{{ c.id }}"><strong>{{ c.name }}</strong></a>
         · {{ c.channel }} · {{ c.status }}
         · {{ row.lead_count }} leads
-        · £{{ '{:,.0f}'.format(row.pipeline_value or 0) }}
+        · {{(row.pipeline_value or 0)|money}}
       </li>
       {% endfor %}
     </ul>

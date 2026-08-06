@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Post inbox · Accologise{% endblock %}
+{% block title %}Post inbox · Accology{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
@@ -71,7 +71,7 @@
       <tbody>
         {% for it in items %}
         <tr>
-          <td class="small">{{ it.created_at.strftime('%d-%m-%Y %H:%M') if it.created_at else '—' }}</td>
+          <td class="small">{{ it.created_at.strftime('%d/%m/%Y %H:%M') if it.created_at else '—' }}</td>
           <td>
             <strong>{{ it.title or 'Untitled' }}</strong>
             <div class="muted small">{{ it.batch.original_filename if it.batch else '' }}</div>
@@ -127,7 +127,7 @@
     <li><strong>Review</strong> confirms or corrects client, then File / File as HMRC / Email client / Dismiss. Tick <em>Learn this</em> to save keywords → action as a rule.</li>
     <li><strong>HMRC standard letters</strong> usually file to the client Tax / Correspondence folder without emailing.</li>
     <li><strong>Chasers / demands</strong> usually email the client (and optionally file a copy).</li>
-    <li><strong>Filing lives in OneDrive</strong> under Accologise Documents / Clients / … (Microsoft must be connected).</li>
+    <li><strong>Filing lives in OneDrive</strong> under Accology Documents / Clients / … (Microsoft must be connected).</li>
     <li><strong>Local-only folder</strong> — Render cloud cannot see <code>C:\accologise post</code>. Run Import on the PC that receives scans (this app local or a small agent later).</li>
     <li><strong>Other good practice:</strong> dual-control for bank detail changes; never email full ID docs without care; retain originals in <code>done/</code>; tag deadlines as tasks; link material post to the open job; separate personal practice post vs client post trays if the scanner allows two profiles.</li>
   </ol>

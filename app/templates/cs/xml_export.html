@@ -5,7 +5,7 @@
   <div>
     <p class="small muted">
       <a href="/cs/{{ pack.id }}">← CS review pack</a>
-      {% if client %} · <a href="/clients/{{ client.id }}?tab=shares">Shares / CH</a>{% endif %}
+      {% if client %} · <a href="/clients/{{ client.id }}?tab=statutory">Statutory / CH</a>{% endif %}
     </p>
     <h1>CS01 · XML Gateway export</h1>
     <p class="muted small">
@@ -112,7 +112,7 @@
     <span class="muted">Fix export blockers above, then download.</span>
     {% endif %}
     {% if client %}
-    <a class="btn btn-outline wc-touch" href="/clients/{{ client.id }}?tab=shares">Edit shares / auth code</a>
+    <a class="btn btn-outline wc-touch" href="/clients/{{ client.id }}?tab=statutory">Edit shares / auth code</a>
     {% endif %}
     <a class="btn btn-outline wc-touch" href="/cs/{{ pack.id }}/export">File note (.txt)</a>
   </div>

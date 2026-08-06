@@ -63,7 +63,7 @@
           <td><a href="/clients/{{ m.client.id }}">{{ m.client.display_name() }}</a></td>
           <td>{{ m.client.company_number or '—' }}</td>
           <td><span class="badge">{{ m.client.overall_status or '—' }}</span></td>
-          <td>£{{ '%.2f'|format(m.fees) }}</td>
+          <td>{{m.fees|money2}}</td>
           <td>
             <form method="post" action="/groups/move" class="actions">
               <input type="hidden" name="client_id" value="{{ m.client.id }}">

@@ -42,9 +42,11 @@ from app.models.email_message import EmailTemplate, EmailMessage
 from app.models.notification import Notification
 from app.models.share_register import ShareClass, Shareholding
 from app.models.post_inbox import PostBatch, PostItem, PostRule
+from app.models.client_billing import ClientJobPattern
 
 __all__ = [
     "Client",
+    "ClientJobPattern",
     "ClientConnection",
     "PracticeGroup",
     "PracticeGroupMember",
@@ -90,4 +92,5 @@ __all__ = [
     "PostBatch",
     "PostItem",
     "PostRule",
+    "ClientJobPattern",
 ]

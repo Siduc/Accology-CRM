@@ -163,7 +163,7 @@
       </div>
       <div>
         <label for="engagement_date">Date of engagement</label>
-        <input id="engagement_date" type="date" name="engagement_date"
+        <input id="engagement_date" type="date" name="engagement_date" min="2010-05-01"
           value="{{ client.engagement_date.isoformat() if client and client.engagement_date else (d.engagement_date or '') }}">
         <p class="small muted" style="margin:0.25rem 0 0">Overrides first invoice for practice book “New”.</p>
       </div>
@@ -178,6 +178,43 @@
         <input id="vat_number" name="vat_number"
                value="{{ client.vat_number if client else (d.vat_number or '') }}">
       </div>
+      <div>
+        <label for="vat_frequency">VAT return frequency</label>
+        {% set vf = (client.vat_frequency if client else (d.vat_frequency or 'none'))|lower %}
+        <select id="vat_frequency" name="vat_frequency" class="js-vat-frequency">
+          <option value="none" {% if vf in ['none',''] %}selected{% endif %}>Not on VAT / not set</option>
+          <option value="monthly" {% if vf == 'monthly' %}selected{% endif %}>Monthly</option>
+          <option value="quarterly" {% if vf == 'quarterly' %}selected{% endif %}>Quarterly</option>
+          <option value="annually" {% if vf in ['annually','annual'] %}selected{% endif %}>Annually</option>
+        </select>
+      </div>
+      <div class="js-vat-pattern-wrap" {% if vf not in ['quarterly','annually','annual'] %}style="display:none"{% endif %}>
+        <label for="vat_quarterly_pattern">Quarterly pattern (stagger)</label>
+        <select id="vat_quarterly_pattern" name="vat_quarterly_pattern">
+          <option value="">— Select pattern —</option>
+          {% for key, label, months in (vat_quarterly_patterns or []) %}
+          <option value="{{ key }}" {% if (client.vat_quarterly_pattern if client else d.vat_quarterly_pattern) == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="js-vat-ye-wrap" {% if vf not in ['annually','annual'] %}style="display:none"{% endif %}>
+        <label for="vat_year_end_month">Annual VAT year-end month</label>
+        <select id="vat_year_end_month" name="vat_year_end_month">
+          <option value="">—</option>
+          {% set ye = client.vat_year_end_month if client else d.get('vat_year_end_month') %}
+          {% for m, name in [(1,'January'),(2,'February'),(3,'March'),(4,'April'),(5,'May'),(6,'June'),(7,'July'),(8,'August'),(9,'September'),(10,'October'),(11,'November'),(12,'December')] %}
+          <option value="{{ m }}" {% if ye and ye|int == m %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% if not client %}
+      <div style="grid-column:1/-1">
+        <label>
+          <input type="checkbox" name="create_vat_jobs" value="yes" checked>
+          Create VAT return jobs for this scheme
+        </label>
+      </div>
+      {% endif %}
       <div>
         <label for="utr">UTR</label>
         <input id="utr" name="utr"
@@ -245,4 +282,26 @@
     </div>
   </form>
 </div>
+<script>
+(function () {
+  function syncVat() {
+    var freq = document.getElementById('vat_frequency');
+    if (!freq) return;
+    var v = (freq.value || '').toLowerCase();
+    var showPat = (v === 'quarterly' || v === 'annually' || v === 'annual');
+    var showYe = (v === 'annually' || v === 'annual');
+    document.querySelectorAll('.js-vat-pattern-wrap').forEach(function (el) {
+      el.style.display = showPat ? '' : 'none';
+    });
+    document.querySelectorAll('.js-vat-ye-wrap').forEach(function (el) {
+      el.style.display = showYe ? '' : 'none';
+    });
+  }
+  var el = document.getElementById('vat_frequency');
+  if (el) {
+    el.addEventListener('change', syncVat);
+    syncVat();
+  }
+})();
+</script>
 {% endblock %}

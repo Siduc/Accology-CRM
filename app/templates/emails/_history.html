@@ -28,8 +28,8 @@
         {% for m in emails %}
         <tr>
           <td class="small">
-            {% if m.sent_at %}{{ m.sent_at.strftime('%d-%m-%Y %H:%M') }}
-            {% else %}{{ m.created_at.strftime('%d-%m-%Y') if m.created_at else '—' }}{% endif %}
+            {% if m.sent_at %}{{ m.sent_at|uk_date }} {{ m.sent_at.strftime('%H:%M') }}
+            {% else %}{{ m.created_at|uk_date }}{% endif %}
           </td>
           <td>
             <strong>{{ m.subject or '(no subject)' }}</strong>

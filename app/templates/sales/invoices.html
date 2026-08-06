@@ -43,8 +43,8 @@
           <td>{% if r.client %}{{ r.client.display_name() }}{% else %}#{{ r.inv.client_id }}{% endif %}</td>
           <td>{{ r.inv.issue_date }}</td>
           <td>{% if r.age > 30 and r.inv.balance > 0 %}<span class="badge badge-overdue">{{ r.age }}d</span>{% else %}{{ r.age }}d{% endif %}</td>
-          <td>£{{ '%.2f'|format(r.inv.total or 0) }}</td>
-          <td>£{{ '%.2f'|format(r.inv.balance or 0) }}</td>
+          <td>{{(r.inv.total or 0)|money2}}</td>
+          <td>{{(r.inv.balance or 0)|money2}}</td>
           <td><span class="badge">{{ r.inv.status }}</span></td>
         </tr>
         {% endfor %}

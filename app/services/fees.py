@@ -18,12 +18,16 @@ SERVICE_ACCOUNTS = "Accounts"
 SERVICE_CS = "Confirmation Statement"
 SERVICE_CT = "Corporation Tax"
 SERVICE_SA = "Self Assessment"
+SERVICE_VAT = "VAT Return"
+SERVICE_PAYROLL = "Payroll"
 
 DEFAULT_SERVICES = [
     SERVICE_ACCOUNTS,
     SERVICE_CS,
     SERVICE_CT,
     SERVICE_SA,
+    SERVICE_VAT,
+    SERVICE_PAYROLL,
 ]
 
 # Uplift applied to prior-year fee when suggesting this year's fee
@@ -43,6 +47,10 @@ def service_code_for_job_type(job_type: str) -> str:
         return SERVICE_CT
     if "Self Assessment" in t or t == "SA":
         return SERVICE_SA
+    if "VAT" in t:
+        return SERVICE_VAT
+    if "Payroll" in t:
+        return SERVICE_PAYROLL
     return t or "Other"
 
 
@@ -124,14 +132,28 @@ def get_suggested_fee(
     """
     Suggested fee for a new/open job.
 
-    Accounts (and other types with history):
+    Order:
+      0. Client job pattern (fixed fee, including £0 for retainer-covered work)
       1. Client's previous-year job fee × 1.05
       2. Service fee schedule for the year
       3. Previous schedule year × 1.05
       4. Accounts only: baseline £2000 (then uplifted chain via seed)
+
+    Manual fee on a job always wins — this only supplies defaults.
     """
     code = service_code_for_job_type(job_type)
     y = year if year is not None else fee_year_from_period_end(period_end)
+
+    # 0) Explicit client pattern (Buzz VAT £0 / retainer, etc.)
+    if client_id:
+        try:
+            from app.services.client_billing import pattern_fixed_fee
+
+            fixed = pattern_fixed_fee(db, client_id, job_type)
+            if fixed is not None:
+                return _round_fee(fixed)
+        except Exception:
+            pass
 
     # 1) Client-specific prior fee + 5%
     if client_id:

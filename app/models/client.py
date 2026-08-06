@@ -10,6 +10,9 @@ from app.models.person import person_clients
 RETAINER_FREQUENCIES = ("Monthly", "Quarterly", "Annual")
 BILLING_MODELS = ("Per job", "Retainer")
 
+# Client VAT filing scheme (HMRC return frequency)
+VAT_FREQUENCIES = ("none", "monthly", "quarterly", "annually")
+
 
 class Client(Base):
     __tablename__ = "clients"
@@ -30,6 +33,12 @@ class Client(Base):
     engagement_date = Column(Date, nullable=True, index=True)
     disengagement_date = Column(Date, nullable=True, index=True)
     vat_number = Column(String, nullable=True)
+    # none | monthly | quarterly | annually — this client's HMRC filing scheme
+    vat_frequency = Column(String, nullable=True, index=True)
+    # stagger_1..4 when quarterly (or annually with quarter-aligned year end)
+    vat_quarterly_pattern = Column(String, nullable=True)
+    # 1–12: period-end month for annual accounting scheme
+    vat_year_end_month = Column(Integer, nullable=True)
     utr = Column(String, nullable=True)
     paye_reference = Column(String, nullable=True)
     accounts_office_reference = Column(String, nullable=True)
@@ -123,3 +132,42 @@ class Client(Base):
         if amt <= 0:
             return f"Retainer ({freq})"
         return f"£{amt:,.0f} {freq.lower()}"
+
+    def vat_scheme_label(self) -> str:
+        """Short label for VAT filing scheme + stagger."""
+        freq = (self.vat_frequency or "none").strip().lower()
+        if freq in ("", "none", "n/a", "na"):
+            return "—"
+        base = {
+            "monthly": "Monthly",
+            "quarterly": "Quarterly",
+            "annually": "Annually",
+            "annual": "Annually",
+        }.get(freq, freq.replace("_", " ").title())
+        if freq in ("quarterly", "annually", "annual"):
+            from app.models.sales import SERVICE_QUARTERLY_PATTERNS
+
+            code = (self.vat_quarterly_pattern or "").strip().lower()
+            for key, label, _m in SERVICE_QUARTERLY_PATTERNS:
+                if key == code:
+                    return f"{base} · {label}"
+            if freq in ("annually", "annual") and self.vat_year_end_month:
+                months = (
+                    "",
+                    "Jan",
+                    "Feb",
+                    "Mar",
+                    "Apr",
+                    "May",
+                    "Jun",
+                    "Jul",
+                    "Aug",
+                    "Sep",
+                    "Oct",
+                    "Nov",
+                    "Dec",
+                )
+                m = int(self.vat_year_end_month)
+                if 1 <= m <= 12:
+                    return f"{base} · YE {months[m]}"
+        return base

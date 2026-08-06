@@ -6,24 +6,99 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import ServiceFee
-from app.models.sales import Service, ServicePrice
+from app.models.sales import (
+    SERVICE_QUARTERLY_PATTERNS,
+    SERVICE_RECURRENCES,
+    Service,
+    ServicePrice,
+)
 from app.services.fees import DEFAULT_SERVICES, seed_default_fees
-from app.services.sales_ledger import seed_services
+from app.services.sales_ledger import (
+    normalise_quarterly_pattern,
+    normalise_service_recurrence,
+    seed_services,
+)
 from app.templating import render
 
 router = APIRouter(prefix="/services", tags=["services"])
 
 
+def _schedule_label(svc: Service) -> str:
+    """Recurrence badge text for catalogue rows (no Jinja filter dependency)."""
+    rec = (getattr(svc, "recurrence", None) or "none").strip().lower()
+    if rec in ("", "none", "one_off", "one-off"):
+        return "—"
+    base = {
+        "monthly": "Monthly",
+        "quarterly": "Quarterly",
+        "annually": "Annually",
+        "annual": "Annually",
+    }.get(rec, rec.replace("_", " ").title() or "—")
+    if rec in ("quarterly", "annually", "annual"):
+        code = (getattr(svc, "quarterly_pattern", None) or "").strip().lower()
+        for key, label, _months in SERVICE_QUARTERLY_PATTERNS:
+            if key == code:
+                return f"{base} · {label}"
+    return base
+
+
+def _catalogue_context(services, **extra):
+    schedule_by_id = {s.id: _schedule_label(s) for s in services}
+    return {
+        "services": services,
+        "schedule_by_id": schedule_by_id,
+        "recurrences": SERVICE_RECURRENCES,
+        "quarterly_patterns": SERVICE_QUARTERLY_PATTERNS,
+        **extra,
+    }
+
+
 @router.get("", response_class=HTMLResponse)
 async def services_catalogue(request: Request, db: Session = Depends(get_db)):
     """Services Ledger — master catalogue."""
-    seed_services(db)
-    services = db.query(Service).order_by(Service.category, Service.name).all()
+    try:
+        seed_services(db)
+    except Exception:
+        # Don't block the page if seed/migration is mid-flight
+        db.rollback()
+    try:
+        services = (
+            db.query(Service).order_by(Service.category, Service.name).all()
+        )
+    except Exception:
+        # Missing recurrence columns on a cold process — migrate and retry
+        db.rollback()
+        from app.database import init_db
+
+        init_db()
+        services = (
+            db.query(Service).order_by(Service.category, Service.name).all()
+        )
     return render(
         request,
         "services/catalogue.html",
-        {"services": services},
+        _catalogue_context(
+            services,
+            msg=request.query_params.get("msg", ""),
+            error=request.query_params.get("error", ""),
+            edit_id=request.query_params.get("edit", ""),
+        ),
     )
+
+
+def _parse_fee_vat(default_fee: str, default_vat_rate: str) -> tuple[float, float]:
+    try:
+        fee = float((default_fee or "0").replace("£", "").replace(",", ""))
+    except ValueError:
+        fee = 0.0
+    try:
+        vat = float(default_vat_rate or 0)
+    except ValueError:
+        vat = 0.0
+    # Allow 20 meaning 20% as well as 0.2
+    if vat > 1:
+        vat = vat / 100.0
+    return fee, vat
 
 
 @router.post("/catalogue/add", response_class=HTMLResponse)
@@ -36,20 +111,17 @@ async def services_add(
     default_vat_rate: str = Form("0"),
     category: str = Form("compliance"),
     unit: str = Form("job"),
+    recurrence: str = Form("none"),
+    quarterly_pattern: str = Form(""),
     is_sellable: str = Form("yes"),
     db: Session = Depends(get_db),
 ):
     code_c = (code or "").strip().upper().replace(" ", "_")
     if not code_c or db.query(Service).filter(Service.code == code_c).first():
         return RedirectResponse("/services?error=code", status_code=303)
-    try:
-        fee = float((default_fee or "0").replace("£", "").replace(",", ""))
-    except ValueError:
-        fee = 0.0
-    try:
-        vat = float(default_vat_rate or 0)
-    except ValueError:
-        vat = 0.0
+    fee, vat = _parse_fee_vat(default_fee, default_vat_rate)
+    rec = normalise_service_recurrence(recurrence)
+    pat = normalise_quarterly_pattern(quarterly_pattern, recurrence=rec)
     db.add(
         Service(
             code=code_c,
@@ -59,12 +131,51 @@ async def services_add(
             default_vat_rate=vat,
             category=category or "compliance",
             unit=unit or "job",
+            recurrence=rec,
+            quarterly_pattern=pat,
             is_active=True,
             is_sellable_to_clients=is_sellable == "yes",
         )
     )
     db.commit()
-    return RedirectResponse("/services", status_code=303)
+    return RedirectResponse("/services?msg=added", status_code=303)
+
+
+@router.post("/catalogue/{service_id:int}/update", response_class=HTMLResponse)
+async def services_update(
+    service_id: int,
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(""),
+    default_fee: str = Form("0"),
+    default_vat_rate: str = Form("0"),
+    category: str = Form("compliance"),
+    unit: str = Form("job"),
+    recurrence: str = Form("none"),
+    quarterly_pattern: str = Form(""),
+    is_sellable: str = Form(""),
+    is_active: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    svc = db.query(Service).filter(Service.id == service_id).first()
+    if not svc:
+        return RedirectResponse("/services?error=missing", status_code=303)
+    fee, vat = _parse_fee_vat(default_fee, default_vat_rate)
+    rec = normalise_service_recurrence(recurrence)
+    pat = normalise_quarterly_pattern(quarterly_pattern, recurrence=rec)
+    svc.name = (name or svc.name or svc.code).strip()
+    svc.description = description or None
+    svc.default_fee = fee
+    svc.default_vat_rate = vat
+    svc.category = category or "compliance"
+    svc.unit = unit or "job"
+    svc.recurrence = rec
+    svc.quarterly_pattern = pat
+    svc.is_sellable_to_clients = is_sellable == "yes"
+    svc.is_active = is_active == "yes"
+    svc.updated_at = datetime.utcnow()
+    db.commit()
+    return RedirectResponse("/services?msg=updated", status_code=303)
 
 
 @router.get("/fees", response_class=HTMLResponse)

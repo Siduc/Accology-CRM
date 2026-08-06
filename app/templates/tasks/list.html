@@ -154,7 +154,7 @@
             <span class="badge">{{ t.display_status() }}</span>
             {% endif %}
           </td>
-          <td class="num">£{{ '%.0f'|format(t.fee or 0) }}</td>
+          <td class="num">{{(t.fee or 0)|money}}</td>
           <td class="actions-cell nowrap">
             {% if not t.is_closed() %}
             <form method="post" action="/tasks/{{ t.id }}/complete" style="display:inline">

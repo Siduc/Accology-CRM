@@ -26,13 +26,13 @@
 <div class="card" style="margin-bottom:1rem">
   <h2>Fees &amp; pipeline value</h2>
   <p class="muted small">
-    Internal campaign template: setup £{{ '%.2f'|format(c.fee_initial or 0) }}
-    + 1yr ongoing £{{ '%.2f'|format(c.ongoing_annual_value()) }}
-    (from £{{ '%.2f'|format(c.fee_ongoing or 0) }} {{ c.fee_ongoing_frequency or 'annual' }})
-    = gross £{{ '%.2f'|format(c.pipeline_gross_per_prospect()) }}.
+    Internal campaign template: setup {{(c.fee_initial or 0)|money2}}
+    + 1yr ongoing {{c.ongoing_annual_value()|money2}}
+    (from {{(c.fee_ongoing or 0)|money2}} {{ c.fee_ongoing_frequency or 'annual' }})
+    = gross {{c.pipeline_gross_per_prospect()|money2}}.
     Default confidence <strong>50%</strong> → pipeline
-    <strong>£{{ '%.2f'|format(pipeline_value or 0) }}</strong> per prospect.
-    Renewal £{{ '%.2f'|format(c.fee_renewal or 0) }} is reference only.
+    <strong>{{(pipeline_value or 0)|money2}}</strong> per prospect.
+    Renewal {{(c.fee_renewal or 0)|money2}} is reference only.
     Individual prospects can override fees without changing the campaign.
   </p>
   <form class="stack" method="post" action="/prospecting/campaigns/{{ c.id }}/fees">

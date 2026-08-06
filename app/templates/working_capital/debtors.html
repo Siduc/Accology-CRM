@@ -5,7 +5,7 @@
   <div>
     <p class="small muted"><a href="/dashboard">← Accologise</a> · <a href="/sales">Sales Ledger</a></p>
     <h1>Debtors</h1>
-    <p class="muted small">{{ count }} outstanding · £{{ '{:,.2f}'.format(total) }} — full tools on <a href="/sales">Sales Ledger</a></p>
+    <p class="muted small">{{ count }} outstanding · {{total|money2}} — full tools on <a href="/sales">Sales Ledger</a></p>
   </div>
   <div class="actions">
     <a class="btn" href="/sales/invoices/new">Raise invoice</a>
@@ -40,7 +40,7 @@
           <td>{{ r.inv_date or '—' }}</td>
           <td>{% if r.age_days > 30 %}<span class="badge badge-overdue">{{ r.age_days }}d</span>{% else %}{{ r.age_days }}d{% endif %}</td>
           <td class="small">{{ j.billing_status or '—' }}</td>
-          <td>£{{ '%.2f'|format(r.amount) }}</td>
+          <td>{{r.amount|money2}}</td>
         </tr>
         {% endfor %}
       </tbody>

@@ -36,7 +36,7 @@
         <div class="notify-list-body muted small">{{ n.body }}</div>
         {% endif %}
         <div class="notify-list-meta small muted">
-          {{ n.created_at.strftime('%d-%m-%Y %H:%M') if n.created_at else '—' }}
+          {{ n.created_at.strftime('%d/%m/%Y %H:%M') if n.created_at else '—' }}
           · {{ n.type }}
           {% if not n.read_at %}<span class="badge badge-active">New</span>{% endif %}
         </div>

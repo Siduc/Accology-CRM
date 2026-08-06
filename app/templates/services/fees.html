@@ -52,7 +52,7 @@
             <div class="small muted">{{ f.service_code }}</div>
           </td>
           <td>{{ f.year }}</td>
-          <td>£{{ '%.2f'|format(f.fee or 0) }}</td>
+          <td>{{(f.fee or 0)|money2}}</td>
           <td class="small">{{ f.notes or '—' }}</td>
           <td>
             <form method="post" action="/services/fees/{{ f.id }}/delete" style="display:inline"

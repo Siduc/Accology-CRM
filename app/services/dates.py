@@ -56,6 +56,22 @@ def calculate_dates(
         # Planning windows for SAR (practice defaults — not CT +90/+120)
         target_start = date(statutory.year - 1, 10, 1)  # from Oct before due
         target_completion = date(statutory.year, 1, 15)  # aim mid-January
+    elif "VAT" in job_type:
+        # UK VAT: submit and pay 1 calendar month and 7 days after period end
+        # (MTD online). Approximate with +37 days then normalise via timedelta.
+        from calendar import monthrange
+
+        y, m = period_end.year, period_end.month
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+        last = monthrange(y, m)[1]
+        day = min(period_end.day, last)
+        month_later = date(y, m, day)
+        statutory = month_later + timedelta(days=7)
+        target_start = period_end + timedelta(days=1)
+        target_completion = statutory - timedelta(days=7)
     else:
         statutory = period_end + timedelta(days=30)
         target_start = period_end

@@ -21,6 +21,19 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+# Recurrence for catalogue services (how often the work typically falls due)
+SERVICE_RECURRENCES = ("none", "monthly", "quarterly", "annually")
+
+# UK quarterly patterns — three HMRC VAT staggers plus Jan-start labelling
+# (Jan/Apr/Jul/Oct is the same filing months as Apr/Jul/Oct/Jan, ordered from Jan).
+SERVICE_QUARTERLY_PATTERNS = (
+    ("stagger_1", "Mar / Jun / Sep / Dec", (3, 6, 9, 12)),
+    ("stagger_2", "Apr / Jul / Oct / Jan", (4, 7, 10, 1)),
+    ("stagger_3", "May / Aug / Nov / Feb", (5, 8, 11, 2)),
+    ("stagger_4", "Jan / Apr / Jul / Oct", (1, 4, 7, 10)),
+)
+
+
 class Service(Base):
     """Services Ledger catalogue entry."""
 
@@ -34,12 +47,47 @@ class Service(Base):
     default_vat_rate = Column(Float, default=0.0)  # 0.20 = 20%
     unit = Column(String, default="job")  # job | hour | fixed
     category = Column(String, default="compliance")
+    # none | monthly | quarterly | annually
+    recurrence = Column(String, default="none", index=True)
+    # stagger_1..4 when recurrence is quarterly or annually (e.g. VAT returns)
+    quarterly_pattern = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     is_sellable_to_clients = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     prices = relationship("ServicePrice", back_populates="service", cascade="all, delete-orphan")
+
+    def recurrence_label(self) -> str:
+        raw = (self.recurrence or "none").strip().lower()
+        return {
+            "none": "—",
+            "monthly": "Monthly",
+            "quarterly": "Quarterly",
+            "annually": "Annually",
+            "annual": "Annually",
+        }.get(raw, raw.replace("_", " ").title() or "—")
+
+    def quarterly_pattern_label(self) -> str:
+        code = (self.quarterly_pattern or "").strip().lower()
+        if not code:
+            return ""
+        for key, label, _months in SERVICE_QUARTERLY_PATTERNS:
+            if key == code:
+                return label
+        return code
+
+    def schedule_label(self) -> str:
+        """Short label for lists: e.g. 'Quarterly · Mar/Jun/Sep/Dec'."""
+        rec = (self.recurrence or "none").strip().lower()
+        if rec in ("", "none", "one_off", "one-off"):
+            return "—"
+        base = self.recurrence_label()
+        if rec in ("quarterly", "annually", "annual"):
+            pat = self.quarterly_pattern_label()
+            if pat:
+                return f"{base} · {pat}"
+        return base
 
 
 class ServicePrice(Base):

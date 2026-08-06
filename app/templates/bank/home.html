@@ -21,7 +21,7 @@
 <div class="sales-kpi-row bank-kpi-row">
   <div class="sales-kpi sales-kpi-ok">
     <div class="sales-kpi-lab">Total cash</div>
-    <div class="sales-kpi-val">£{{ '{:,.0f}'.format(total_cash) }}</div>
+    <div class="sales-kpi-val">{{total_cash|money}}</div>
     <div class="sales-kpi-sub">All active accounts</div>
   </div>
   <div class="sales-kpi">
@@ -39,7 +39,7 @@
       {% if r.account.is_primary %}<span class="badge badge-active">Primary</span>{% endif %}
       {% if not r.account.is_active %}<span class="badge">Inactive</span>{% endif %}
     </div>
-    <div class="bank-account-bal">£{{ '{:,.2f}'.format(r.balance) }}</div>
+    <div class="bank-account-bal">{{r.balance|money2}}</div>
     <div class="small muted">
       {{ r.account.bank_name or 'Bank' }}
       {% if r.account.sort_code %} · {{ r.account.sort_code }}{% endif %}

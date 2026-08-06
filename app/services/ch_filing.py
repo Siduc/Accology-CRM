@@ -184,9 +184,9 @@ def filing_readiness(
         auth_on_file,
         "Company authentication code (encrypted)",
         (
-            "On file — Shares / CH tab"
+            "On file — Statutory / CH tab"
             if auth_on_file
-            else "Add on client → Shares / CH (required for WebFiling / XML later)"
+            else "Add on client → Statutory / CH (required for WebFiling / XML later)"
         ),
     )
 

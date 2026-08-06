@@ -282,7 +282,7 @@ async def wc_wip(
         if not d:
             return "—"
         if hasattr(d, "strftime"):
-            return d.strftime("%d-%m-%Y")
+            return d.strftime("%d/%m/%Y")
         return str(d)
 
     _book = retainer_book(db)

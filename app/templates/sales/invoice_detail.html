@@ -13,7 +13,22 @@
   </div>
   <div class="actions">
     <a class="btn" href="/sales/invoices/{{ inv.id }}/edit">Edit invoice</a>
-    {% if inv.balance > 0 %}
+    {% if (inv.status or '')|lower == 'draft' %}
+    <form method="post" action="/sales/invoices/{{ inv.id }}/status" style="display:inline">
+      <input type="hidden" name="status" value="sent">
+      <button class="btn btn-outline" type="submit">Mark sent</button>
+    </form>
+    {% endif %}
+    {% if (inv.status or '')|lower in ('draft', 'sent') and (inv.amount_paid or 0) <= 0 %}
+    {# Uses /status with do_not_bill so it works even if /discard is not loaded yet #}
+    <form method="post" action="/sales/invoices/{{ inv.id }}/status" style="display:inline"
+          onsubmit="return confirm('Discard invoice and mark job not billed?');">
+      <input type="hidden" name="status" value="do_not_bill">
+      <input type="hidden" name="reason" value="Not billed">
+      <button class="btn btn-outline" type="submit">Discard — do not bill</button>
+    </form>
+    {% endif %}
+    {% if inv.balance > 0 and (inv.status or '')|lower not in ('draft', 'void', 'written_off') %}
     <a class="btn btn-outline" href="/sales/payments/new?client_id={{ inv.client_id }}&invoice_id={{ inv.id }}">Record payment</a>
     {% if overdue >= 7 %}
     <a class="btn btn-secondary wc-touch" href="/sales/chase/preview/{{ inv.id }}?stage={{ suggest }}">Preview chase email</a>
@@ -28,6 +43,61 @@
 {% endif %}
 {% if error %}
 <div class="alert alert-error no-print">{{ error }}</div>
+{% endif %}
+
+{% set inv_st = (inv.status or '')|lower %}
+{% set can_discard = inv_st in ('draft', 'sent') and (inv.amount_paid or 0) <= 0 and inv_st not in ('paid', 'part_paid') %}
+{% if inv_st == 'draft' %}
+<div class="card no-print" style="margin-bottom:1rem;border-left:4px solid #0f766e">
+  <h2 style="margin-top:0">Draft invoice — not sent</h2>
+  <p class="small muted" style="margin-top:0">
+    Raised from {% if job %}job completion{% else %}sales{% endif %}.
+    Hold here to review. It is <strong>not</strong> chased as a debtor until you mark it <strong>Sent</strong>.
+  </p>
+  <div class="actions" style="flex-wrap:wrap;gap:0.5rem;align-items:center">
+    <form method="post" action="/sales/invoices/{{ inv.id }}/status" style="display:inline">
+      <input type="hidden" name="status" value="sent">
+      <button class="btn wc-touch" type="submit">Mark sent (bill client)</button>
+    </form>
+    <form method="post" action="/sales/invoices/{{ inv.id }}/status" class="actions" style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.35rem"
+          onsubmit="return confirm('Discard this draft and mark the job as not billed? The invoice will be voided and will not be sent.');">
+      <input type="hidden" name="status" value="do_not_bill">
+      <input type="hidden" name="reason" value="Not billed">
+      <label class="small muted" style="display:inline-flex;align-items:center;gap:0.25rem">
+        <input type="checkbox" name="remember" value="yes">
+        Remember for this client/type (no invoice next time)
+      </label>
+      <button class="btn btn-outline wc-touch" type="submit">Discard — do not bill</button>
+    </form>
+    <a class="btn btn-outline" href="/sales/invoices/{{ inv.id }}/edit">Edit draft</a>
+    {% if job %}
+    <a class="btn btn-outline" href="/jobs/{{ job.id }}">Back to job</a>
+    {% endif %}
+  </div>
+</div>
+{% elif can_discard and job %}
+<div class="card no-print" style="margin-bottom:1rem;border-left:4px solid #b45309">
+  <h2 style="margin-top:0">Job invoice — change of mind?</h2>
+  <p class="small muted" style="margin-top:0">
+    If this should not be billed (e.g. covered by retainer), discard it.
+    That voids the invoice and marks the job <strong>not billed</strong> — nothing is sent to the client.
+  </p>
+  <form method="post" action="/sales/invoices/{{ inv.id }}/status" class="actions" style="flex-wrap:wrap;align-items:center;gap:0.35rem"
+        onsubmit="return confirm('Void this invoice and mark the job as not billed?');">
+    <input type="hidden" name="status" value="do_not_bill">
+    <input type="hidden" name="reason" value="Not billed">
+    <label class="small muted" style="display:inline-flex;align-items:center;gap:0.25rem">
+      <input type="checkbox" name="remember" value="yes">
+      Remember for this client/type
+    </label>
+    <button class="btn btn-outline wc-touch" type="submit">Discard — do not bill</button>
+  </form>
+</div>
+{% elif inv_st == 'void' %}
+<div class="chase-banner chase-banner-info no-print">
+  This invoice is <strong>void</strong> (not billed / discarded).
+  {% if job %} · <a href="/jobs/{{ job.id }}">Open job</a>{% endif %}
+</div>
 {% endif %}
 
 {# ========== Invoice document ========== #}
@@ -112,9 +182,9 @@
         <tr>
           <td>{{ ln.description }}</td>
           <td class="num">{{ '%.2f'|format(ln.qty or 0) }}</td>
-          <td class="num">£{{ '%.2f'|format(ln.unit_price or 0) }}</td>
+          <td class="num">{{(ln.unit_price or 0)|money2}}</td>
           <td class="num">{% if ln.vat_rate %}{{ '%.0f'|format((ln.vat_rate or 0) * 100) }}%{% else %}—{% endif %}</td>
-          <td class="num">£{{ '%.2f'|format(ln.line_total or 0) }}</td>
+          <td class="num">{{(ln.line_total or 0)|money2}}</td>
         </tr>
         {% else %}
         <tr><td colspan="5" class="muted">No lines</td></tr>
@@ -131,11 +201,11 @@
       {% endif %}
     </div>
     <dl class="invoice-doc-sum">
-      <div><dt>Subtotal</dt><dd>£{{ '%.2f'|format(inv.subtotal or 0) }}</dd></div>
-      <div><dt>VAT</dt><dd>£{{ '%.2f'|format(inv.vat_total or 0) }}</dd></div>
-      <div class="invoice-doc-sum-total"><dt>Total</dt><dd>£{{ '%.2f'|format(inv.total or 0) }}</dd></div>
-      <div><dt>Paid</dt><dd>£{{ '%.2f'|format(inv.amount_paid or 0) }}</dd></div>
-      <div class="invoice-doc-sum-balance"><dt>Balance due</dt><dd>£{{ '%.2f'|format(inv.balance or 0) }}</dd></div>
+      <div><dt>Subtotal</dt><dd>{{(inv.subtotal or 0)|money2}}</dd></div>
+      <div><dt>VAT</dt><dd>{{(inv.vat_total or 0)|money2}}</dd></div>
+      <div class="invoice-doc-sum-total"><dt>Total</dt><dd>{{(inv.total or 0)|money2}}</dd></div>
+      <div><dt>Paid</dt><dd>{{(inv.amount_paid or 0)|money2}}</dd></div>
+      <div class="invoice-doc-sum-balance"><dt>Balance due</dt><dd>{{(inv.balance or 0)|money2}}</dd></div>
     </dl>
   </section>
 
@@ -159,11 +229,15 @@
       <select name="status">
         <option value="sent" {% if inv.status == 'sent' %}selected{% endif %}>Sent</option>
         <option value="draft" {% if inv.status == 'draft' %}selected{% endif %}>Draft</option>
+        <option value="do_not_bill">Discard — do not bill</option>
         <option value="void" {% if inv.status == 'void' %}selected{% endif %}>Void</option>
         <option value="written_off" {% if inv.status == 'written_off' %}selected{% endif %}>Written off</option>
       </select>
       <button class="btn btn-sm btn-outline" type="submit">Update status</button>
     </form>
+    <p class="small muted" style="margin:0.5rem 0 0">
+      <strong>Discard — do not bill</strong> voids the invoice and marks the linked job as not billed (e.g. retainer).
+    </p>
   </div>
   <div class="card" id="debt-chase">
     <h2 style="margin-top:0">Debt chase</h2>

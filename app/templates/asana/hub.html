@@ -62,7 +62,7 @@
               {{ t.name }}
               {% endif %}
             </td>
-            <td>{{ t.due_on or '—' }}</td>
+            <td>{{ t.due_on|uk_date }}</td>
           </tr>
           {% endfor %}
         </tbody>

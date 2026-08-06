@@ -65,6 +65,10 @@ def _client_search(query, q: str):
     )
 
 
+# Practice started 1 May 2010 — engagement dates cannot be earlier.
+PRACTICE_START = date(2010, 5, 1)
+
+
 def _parse_date(value: str):
     """Parse YYYY-MM-DD form date; empty → None."""
     raw = (value or "").strip()
@@ -74,6 +78,38 @@ def _parse_date(value: str):
         return datetime.strptime(raw, "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def _clamp_engagement(d: Optional[date]) -> Optional[date]:
+    """Floor engagement date at practice start (1 May 2010)."""
+    if d is None:
+        return None
+    if d < PRACTICE_START:
+        return PRACTICE_START
+    return d
+
+
+def _heal_engagement_dates(db: Session) -> int:
+    """One-shot: lift any engagement_date before practice start."""
+    try:
+        rows = (
+            db.query(Client)
+            .filter(
+                Client.engagement_date.isnot(None),
+                Client.engagement_date < PRACTICE_START,
+            )
+            .all()
+        )
+        n = 0
+        for c in rows:
+            c.engagement_date = PRACTICE_START
+            n += 1
+        if n:
+            db.commit()
+        return n
+    except Exception:
+        db.rollback()
+        return 0
 
 
 @router.get("", response_class=HTMLResponse)
@@ -94,6 +130,7 @@ async def list_clients(
     book=on&as_of= — on the book at a date (engagement/invoice stock).
     cohort=all|YYYY — New tile (ever joined, or joined in year).
     """
+    _heal_engagement_dates(db)
     query = db.query(Client)
     query = filter_company_clients(query)
     query = _client_search(query, q)
@@ -125,9 +162,9 @@ async def list_clients(
             query = query.filter(Client.id.in_(ids))
         else:
             query = query.filter(Client.id == -1)
-        page_title = f"Companies on books · {as_of_d.strftime('%d-%m-%Y')}"
+        page_title = f"Companies on books · {as_of_d.strftime('%d/%m/%Y')}"
         book_note = (
-            f"Practice book at {as_of_d.strftime('%d-%m-%Y')} — "
+            f"Practice book at {as_of_d.strftime('%d/%m/%Y')} — "
             f"engagement/first invoice through before leave/disengagement. "
             "Companies only (no individual shells)."
         )
@@ -208,6 +245,7 @@ def _new_client_form_ctx(
     create_jobs_from_ch: bool = True,
 ):
     from app.services.companies_house import has_api_key
+    from app.models.sales import SERVICE_QUARTERLY_PATTERNS
 
     return {
         "client": None,
@@ -222,6 +260,7 @@ def _new_client_form_ctx(
         "ch_search_q": ch_search_q,
         "ch_search_items": ch_search_items or [],
         "create_jobs_from_ch": create_jobs_from_ch,
+        "vat_quarterly_patterns": SERVICE_QUARTERLY_PATTERNS,
     }
 
 
@@ -455,6 +494,10 @@ async def create_client(
     engagement_date: str = Form(""),
     disengagement_date: str = Form(""),
     vat_number: str = Form(""),
+    vat_frequency: str = Form("none"),
+    vat_quarterly_pattern: str = Form(""),
+    vat_year_end_month: str = Form(""),
+    create_vat_jobs: str = Form("yes"),
     utr: str = Form(""),
     notes: str = Form(""),
     create_jobs_from_ch: str = Form(""),
@@ -514,7 +557,7 @@ async def create_client(
             status_code=400,
         )
 
-    eng = _parse_date(engagement_date)
+    eng = _clamp_engagement(_parse_date(engagement_date))
     dis = _parse_date(disengagement_date)
     status = overall_status or "Active"
     # Completing disengagement marks the client lost unless already a prospect
@@ -549,11 +592,32 @@ async def create_client(
         created_at=datetime.utcnow(),
     )
     db.add(client)
+    db.flush()
+
+    from app.services.vat_jobs import apply_vat_scheme_and_jobs
+
+    do_vat = (create_vat_jobs or "yes").strip().lower() in (
+        "1",
+        "yes",
+        "on",
+        "true",
+    )
+    vat_result = apply_vat_scheme_and_jobs(
+        db,
+        client,
+        frequency=vat_frequency,
+        pattern=vat_quarterly_pattern,
+        year_end_month=vat_year_end_month,
+        create_jobs=do_vat,
+        commit=False,
+    )
+
     db.commit()
     db.refresh(client)
 
     # Optional: create Accounts + CS jobs from CH dates (same as Jobs → CH)
     jobs_q = ""
+    params = []
     if (create_jobs_from_ch or "").strip().lower() in ("1", "yes", "on", "true"):
         try:
             from app.services.ch_jobs import create_jobs_for_client_from_ch
@@ -561,16 +625,31 @@ async def create_client(
             result = create_jobs_for_client_from_ch(db, client)
             db.commit()
             if result.errors:
-                jobs_q = f"?jobs_msg={url_quote('; '.join(result.errors)[:200])}"
+                params.append(f"jobs_msg={url_quote('; '.join(result.errors)[:200])}")
             elif result.created:
-                jobs_q = f"?jobs_created={result.created}"
+                params.append(f"jobs_created={result.created}")
             elif result.skipped:
-                jobs_q = f"?jobs_msg={url_quote(f'{result.skipped} job(s) already existed')}"
+                params.append(
+                    f"jobs_msg={url_quote(f'{result.skipped} job(s) already existed')}"
+                )
             else:
-                jobs_q = f"?jobs_msg={url_quote('No CH job dates found to create')}"
+                params.append(
+                    f"jobs_msg={url_quote('No CH job dates found to create')}"
+                )
         except Exception as exc:  # noqa: BLE001
             db.rollback()
-            jobs_q = f"?jobs_msg={url_quote(f'Jobs not created: {exc}')[:220]}"
+            params.append(f"jobs_msg={url_quote(f'Jobs not created: {exc}')[:220]}")
+
+    if vat_result.created:
+        params.append(f"vat_jobs={vat_result.created}")
+    if vat_result.errors and not vat_result.created:
+        from app.services.vat_jobs import normalise_client_vat_frequency
+
+        if normalise_client_vat_frequency(vat_frequency) not in ("none", ""):
+            params.append(f"vat_msg={url_quote(vat_result.errors[0][:180])}")
+
+    if params:
+        jobs_q = "?" + "&".join(params)
 
     return RedirectResponse(f"/clients/{client.id}{jobs_q}", status_code=303)
 
@@ -585,6 +664,8 @@ async def client_detail(
     tab: str = Query(""),
     jobs_created: str = Query(""),
     jobs_msg: str = Query(""),
+    vat_jobs: str = Query(""),
+    vat_msg: str = Query(""),
     db: Session = Depends(get_db),
 ):
     client = db.query(Client).filter(Client.id == client_id).first()
@@ -607,20 +688,33 @@ async def client_detail(
     try:
         fee_history = client_fee_history(db, client_id)
     except Exception:
-        fee_history = {
-            "rows": [],
-            "year_totals": [],
-            "average_per_year": 0,
-            "historical_average": 0,
-            "current_year": date.today().year,
-            "current_year_fee": 0,
-            "variance": 0,
-            "variance_pct": None,
-            "job_count": 0,
-            "chart_years": [],
-            "chart_datasets": [],
-            "chart_average": 0,
-        }
+        fee_history = {}
+    # Ensure Fees tab keys always exist (tiles + matrix)
+    _cy = date.today().year
+    fee_history = {
+        "rows": [],
+        "year_totals": [],
+        "average_per_year": 0,
+        "historical_average": 0,
+        "current_year": _cy,
+        "prior_year": _cy - 1,
+        "current_year_fee": 0,
+        "prior_year_fee": 0,
+        "all_time_fee": 0,
+        "billed_current_year": 0,
+        "to_bill_current_year": 0,
+        "total_current_year": 0,
+        "variance": 0,
+        "variance_pct": None,
+        "job_count": 0,
+        "is_retainer": False,
+        "monthly_retainer": 0,
+        "months_left": 0,
+        "chart_years": [],
+        "chart_datasets": [],
+        "chart_average": 0,
+        **(fee_history or {}),
+    }
     linked_ids = {p.id for p in people}
     try:
         other_people = [
@@ -633,6 +727,11 @@ async def client_detail(
     message = None
     if saved == "connections":
         message = "Connections saved."
+    elif saved == "pattern":
+        n = request.query_params.get("pattern_jobs", "")
+        message = "Billing pattern saved. New jobs of that type will use it (you can still override the fee on each job)."
+        if n and str(n).isdigit() and int(n) > 0:
+            message += f" Updated fee on {int(n)} open job(s)."
     elif saved:
         message = "Details saved."
     elif contact_added:
@@ -647,6 +746,13 @@ async def client_detail(
         )
     elif jobs_msg:
         message = f"Client created. Jobs: {jobs_msg}"
+    if vat_jobs and str(vat_jobs).isdigit() and int(vat_jobs) > 0:
+        bit = f"Created {int(vat_jobs)} VAT return job(s)."
+        message = f"{message} {bit}".strip() if message else bit
+    if vat_msg:
+        bit = f"VAT: {vat_msg}."
+        message = f"{message} {bit}".strip() if message else bit
+    # vat_self_heal is set later in this handler when multi-open VAT is collapsed
 
     from app.services.client_connections import list_connections_for_client
     from app.services.cs_automation import latest_pack_for_client
@@ -738,6 +844,89 @@ async def client_detail(
             "average": fee_history.get("chart_average") or 0,
         }
     )
+    from app.models.sales import SERVICE_QUARTERLY_PATTERNS
+    from app.templating import _client_vat_scheme_label
+
+    # Plain strings for the template (no Jinja filter dependency)
+    vat_freq_raw = (getattr(client, "vat_frequency", None) or "").strip().lower()
+    vat_freq_label = {
+        "monthly": "Monthly",
+        "quarterly": "Quarterly",
+        "annually": "Annually",
+        "annual": "Annually",
+    }.get(vat_freq_raw, "")
+    vat_pat_raw = (getattr(client, "vat_quarterly_pattern", None) or "").strip().lower()
+    vat_pat_label = ""
+    for key, label, _months in SERVICE_QUARTERLY_PATTERNS:
+        if key == vat_pat_raw:
+            vat_pat_label = label
+            break
+    vat_scheme_label = _client_vat_scheme_label(client)
+    vat_needs_setup = bool(
+        (client.vat_number or "").strip()
+        and vat_freq_raw in ("", "none")
+    )
+
+    # Self-heal: if this client has multiple open VAT jobs, collapse to current only
+    # (protects against any stale bulk-create still left in the DB)
+    vat_self_heal = ""
+    if vat_freq_raw and vat_freq_raw not in ("none", ""):
+        try:
+            from app.models import Job as _Job
+            from app.services.vat_jobs import (
+                VAT_CREATE_VERSION,
+                _force_single_open_vat,
+                current_open_vat_period_end,
+            )
+
+            open_vat_n = (
+                db.query(_Job)
+                .filter(
+                    _Job.client_id == client_id,
+                    _Job.type.in_(["VAT", "VAT Return"]),
+                    _Job.status.notin_(["Completed", "Cancelled"]),
+                )
+                .count()
+            )
+            if open_vat_n > 1:
+                keep_pe = current_open_vat_period_end(client, db)
+                msgs = _force_single_open_vat(
+                    db, client, keep_period_end=keep_pe
+                )
+                db.commit()
+                vat_self_heal = (
+                    f"Collapsed {len(msgs)} surplus open VAT job(s) "
+                    f"to current period only ({VAT_CREATE_VERSION})."
+                )
+                if message:
+                    message = f"{message} {vat_self_heal}"
+                else:
+                    message = vat_self_heal
+        except Exception:
+            db.rollback()
+
+    job_patterns = []
+    pattern_job_types = []
+    try:
+        from app.services.client_billing import (
+            list_client_job_patterns,
+            pattern_types_for_ui,
+        )
+
+        job_patterns = list_client_job_patterns(db, client_id)
+        pattern_job_types = pattern_types_for_ui()
+        # Precompute labels (avoid Jinja calling ORM methods)
+        for p in job_patterns:
+            try:
+                p.ui_fee_label = p.fee_label()
+                p.ui_on_done_label = p.on_done_label()
+            except Exception:
+                p.ui_fee_label = "—"
+                p.ui_on_done_label = "—"
+    except Exception:
+        job_patterns = []
+        pattern_job_types = []
+
     return render(
         request,
         "clients/detail.html",
@@ -767,6 +956,13 @@ async def client_detail(
             "contact_roles": contact_roles,
             "ch_auth_masked": ch_auth_masked,
             "ch_auth_on_file": ch_auth_on_file,
+            "vat_quarterly_patterns": SERVICE_QUARTERLY_PATTERNS,
+            "vat_scheme_label": vat_scheme_label,
+            "vat_freq_label": vat_freq_label,
+            "vat_pat_label": vat_pat_label,
+            "vat_needs_setup": vat_needs_setup,
+            "job_patterns": job_patterns,
+            "pattern_job_types": pattern_job_types,
             "msg": request.query_params.get("msg", ""),
             "over_warn": request.query_params.get("over_warn", ""),
             "over_holding_id": request.query_params.get("holding_id", ""),
@@ -789,8 +985,8 @@ async def client_ch_refresh(
     db: Session = Depends(get_db),
 ):
     """
-    One CH pull for the company: seed share register (directors + PSCs)
-    and refresh CS review pack.
+    One CH Refresh: seed officers/shares from CH, refresh CS pack,
+    and create Accounts / Confirmation Statement jobs from CH dates.
     """
     from app.services import share_register as share_svc
     from app.services.cs_automation import create_or_refresh_pack
@@ -801,7 +997,7 @@ async def client_ch_refresh(
 
     if not share_svc.client_is_ch_entity(client):
         return RedirectResponse(
-            f"/clients/{client_id}?msg="
+            f"/clients/{client_id}?tab=statutory&msg="
             + url_quote(
                 "Not a Companies House entity (e.g. sole trader / partnership) — CH pull skipped."
             ),
@@ -822,27 +1018,38 @@ async def client_ch_refresh(
     except Exception:
         user = ""
     pack_msg = ""
-    pack_id = None
     try:
         result = create_or_refresh_pack(
             db, client_id, prepared_by=user or "practice", force_new=False
         )
         if result.ok and result.pack:
-            pack_id = result.pack.id
             pack_msg = "CS pack updated."
         else:
             pack_msg = result.error or "CS pack not updated."
     except Exception as exc:
         pack_msg = f"CS pack: {exc}"
 
-    combined = f"{share_msg} {pack_msg}".strip()
-    if pack_id:
-        return RedirectResponse(
-            f"/clients/{client_id}?tab=shares&msg={url_quote(combined[:240])}",
-            status_code=303,
-        )
+    jobs_msg = ""
+    try:
+        from app.services.ch_jobs import create_jobs_for_client_from_ch
+
+        jres = create_jobs_for_client_from_ch(db, client)
+        db.commit()
+        if jres.errors:
+            jobs_msg = "; ".join(jres.errors)[:120]
+        elif jres.created:
+            jobs_msg = f"{jres.created} job(s) created from CH dates."
+        elif jres.skipped:
+            jobs_msg = f"{jres.skipped} job(s) already existed."
+        else:
+            jobs_msg = "No new CH job dates."
+    except Exception as exc:
+        db.rollback()
+        jobs_msg = f"Jobs: {exc}"
+
+    combined = " · ".join(p for p in (share_msg, pack_msg, jobs_msg) if p).strip()
     return RedirectResponse(
-        f"/clients/{client_id}?tab=shares&msg={url_quote(combined[:240])}",
+        f"/clients/{client_id}?tab=statutory&msg={url_quote(combined[:280])}",
         status_code=303,
     )
 
@@ -910,6 +1117,10 @@ async def update_client_details(
     postcode: str = Form(""),
     client_type: str = Form(""),
     vat_number: str = Form(""),
+    vat_frequency: str = Form("none"),
+    vat_quarterly_pattern: str = Form(""),
+    vat_year_end_month: str = Form(""),
+    create_vat_jobs: str = Form("yes"),
     utr: str = Form(""),
     paye_reference: str = Form(""),
     accounts_office_reference: str = Form(""),
@@ -945,7 +1156,7 @@ async def update_client_details(
         if not dup:
             client.company_number = cn
 
-    eng = _parse_date(engagement_date)
+    eng = _clamp_engagement(_parse_date(engagement_date))
     dis = _parse_date(disengagement_date)
 
     client.company_name = company_name or client.company_name
@@ -1030,8 +1241,174 @@ async def update_client_details(
                 if person.phone:
                     client.phone = person.phone
 
+    # VAT scheme + at most ONE current open VAT job
+    from app.services.vat_jobs import (
+        VAT_CREATE_VERSION,
+        apply_vat_scheme_and_jobs,
+        _force_single_open_vat,
+        current_open_vat_period_end,
+        normalise_client_vat_frequency,
+    )
+
+    do_jobs = (create_vat_jobs or "yes").strip().lower() in (
+        "1",
+        "yes",
+        "on",
+        "true",
+    )
+    vat_result = apply_vat_scheme_and_jobs(
+        db,
+        client,
+        frequency=vat_frequency,
+        pattern=vat_quarterly_pattern,
+        year_end_month=vat_year_end_month,
+        create_jobs=do_jobs,
+        commit=False,
+    )
+    # Nuclear: after any VAT scheme save, keep only the current open period
+    keep_pe = None
+    if vat_result.period_ends:
+        keep_pe = vat_result.period_ends[0]
+    else:
+        try:
+            keep_pe = current_open_vat_period_end(client, db)
+        except Exception:
+            keep_pe = None
+    try:
+        extra = _force_single_open_vat(
+            db, client, keep_period_end=keep_pe
+        )
+        if extra:
+            vat_result.skipped_jobs.extend(extra)
+    except Exception:
+        pass
+    db.flush()
+
     db.commit()
-    return RedirectResponse(f"/clients/{client_id}?saved=1", status_code=303)
+    q = "saved=1"
+    # Report how many open VAT jobs remain (must be 0 or 1)
+    try:
+        from app.models import Job as _Job
+
+        open_vat_n = (
+            db.query(_Job)
+            .filter(
+                _Job.client_id == client_id,
+                _Job.type.in_(["VAT", "VAT Return"]),
+                _Job.status.notin_(["Completed", "Cancelled"]),
+            )
+            .count()
+        )
+    except Exception:
+        open_vat_n = -1
+
+    if vat_result.created:
+        q += f"&vat_jobs={min(int(vat_result.created), 1)}"
+    pruned = len(
+        [
+            s
+            for s in (vat_result.skipped_jobs or [])
+            if "surplus" in (s or "").lower()
+            or "force-cancelled" in (s or "").lower()
+            or "Cancelled surplus" in (s or "")
+        ]
+    )
+    if pruned:
+        q += f"&vat_pruned={pruned}"
+    if open_vat_n >= 0:
+        q += f"&vat_open={open_vat_n}"
+    q += f"&vat_v={url_quote(VAT_CREATE_VERSION)}"
+
+    if vat_result.errors and not vat_result.created:
+        if normalise_client_vat_frequency(vat_frequency) not in ("none", ""):
+            q += f"&vat_msg={url_quote(vat_result.errors[0][:180])}"
+    elif open_vat_n == 1 and do_jobs:
+        pe_s = ""
+        if keep_pe:
+            pe_s = " · " + keep_pe.isoformat()
+        q += f"&vat_msg={url_quote('Current VAT only' + pe_s)}"
+    elif open_vat_n == 0 and do_jobs:
+        if normalise_client_vat_frequency(vat_frequency) not in ("none", ""):
+            q += f"&vat_msg={url_quote('VAT scheme saved (no open period to create)')}"
+    elif open_vat_n > 1:
+        q += f"&vat_msg={url_quote('WARNING: multiple open VAT jobs - refresh and save again')}"
+    return RedirectResponse(f"/clients/{client_id}?{q}", status_code=303)
+
+
+@router.post("/{client_id:int}/billing-patterns")
+async def save_client_billing_pattern(
+    client_id: int,
+    job_type: str = Form(...),
+    fee: str = Form(""),
+    on_done: str = Form("default"),
+    notes: str = Form(""),
+    is_active: str = Form("yes"),
+    db: Session = Depends(get_db),
+):
+    """Save or update a client job billing pattern (fee + Done default)."""
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    from app.services.client_billing import parse_fee_form, upsert_client_job_pattern
+
+    fee_val, fee_blank = parse_fee_form(fee)
+    try:
+        from app.services.client_billing import apply_saved_pattern_to_open_jobs
+
+        pat = upsert_client_job_pattern(
+            db,
+            client_id,
+            job_type,
+            fee=fee_val,
+            fee_blank=fee_blank,
+            on_done=on_done,
+            notes=notes or None,
+            is_active=(is_active or "yes").strip().lower() in ("1", "yes", "on", "true"),
+            commit=False,
+        )
+        n = apply_saved_pattern_to_open_jobs(db, pat)
+        db.commit()
+        msg = "pattern"
+        if n:
+            return RedirectResponse(
+                f"/clients/{client_id}?tab=details&saved=pattern&pattern_jobs={n}#client-billing-patterns",
+                status_code=303,
+            )
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        return RedirectResponse(
+            f"/clients/{client_id}?tab=details&error={url_quote(str(exc)[:160])}#client-billing-patterns",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=details&saved={msg}#client-billing-patterns",
+        status_code=303,
+    )
+
+
+@router.post("/{client_id:int}/billing-patterns/{pattern_id:int}/delete")
+async def delete_client_billing_pattern(
+    client_id: int,
+    pattern_id: int,
+    db: Session = Depends(get_db),
+):
+    from app.models.client_billing import ClientJobPattern
+
+    row = (
+        db.query(ClientJobPattern)
+        .filter(
+            ClientJobPattern.id == pattern_id,
+            ClientJobPattern.client_id == client_id,
+        )
+        .first()
+    )
+    if row:
+        db.delete(row)
+        db.commit()
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=details&saved=pattern#client-billing-patterns",
+        status_code=303,
+    )
 
 
 @router.post("/{client_id:int}/contacts/add")
@@ -1157,6 +1534,8 @@ async def edit_client_form(
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         return RedirectResponse("/clients", status_code=303)
+    from app.models.sales import SERVICE_QUARTERLY_PATTERNS
+
     return render(
         request,
         "clients/form.html",
@@ -1165,6 +1544,8 @@ async def edit_client_form(
             "statuses": STATUSES,
             "client_types": CLIENT_TYPES,
             "error": None,
+            "vat_quarterly_patterns": SERVICE_QUARTERLY_PATTERNS,
+            "draft": {},
         },
     )
 
@@ -1187,6 +1568,10 @@ async def update_client(
     engagement_date: str = Form(""),
     disengagement_date: str = Form(""),
     vat_number: str = Form(""),
+    vat_frequency: str = Form("none"),
+    vat_quarterly_pattern: str = Form(""),
+    vat_year_end_month: str = Form(""),
+    create_vat_jobs: str = Form("yes"),
     utr: str = Form(""),
     paye_reference: str = Form(""),
     accounts_office_reference: str = Form(""),
@@ -1216,7 +1601,7 @@ async def update_client(
             status_code=400,
         )
 
-    eng = _parse_date(engagement_date)
+    eng = _clamp_engagement(_parse_date(engagement_date))
     dis = _parse_date(disengagement_date)
     status = overall_status or "Active"
     if dis and status not in ("Prospect", "Inactive"):
@@ -1252,6 +1637,28 @@ async def update_client(
         )
         client.ch_personal_code = form.get("ch_personal_code") or None
     client.updated_at = datetime.utcnow()
+
+    from app.services.vat_jobs import apply_vat_scheme_and_jobs
+
+    do_vat = (create_vat_jobs or "yes").strip().lower() in (
+        "1",
+        "yes",
+        "on",
+        "true",
+    )
+    # Edit form may not post create_vat_jobs if field absent — still apply scheme
+    if "create_vat_jobs" not in form and "vat_frequency" in form:
+        do_vat = True
+    vat_result = apply_vat_scheme_and_jobs(
+        db,
+        client,
+        frequency=vat_frequency,
+        pattern=vat_quarterly_pattern,
+        year_end_month=vat_year_end_month,
+        create_jobs=do_vat,
+        commit=False,
+    )
+
     db.commit()
     if status == "Inactive" or dis:
         try:
@@ -1260,7 +1667,10 @@ async def update_client(
             remove_client_from_groups(db, client_id)
         except Exception:
             pass
-    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+    q = "saved=1"
+    if vat_result.created:
+        q += f"&vat_jobs={vat_result.created}"
+    return RedirectResponse(f"/clients/{client_id}?{q}", status_code=303)
 
 
 # ---------- Share register / CH auth (CS01 prep) ----------
@@ -1283,7 +1693,7 @@ async def client_shares_seed_ch(
         replace_draft=(replace_draft or "").lower() in ("1", "yes", "on", "true"),
     )
     return RedirectResponse(
-        f"/clients/{client_id}?tab=shares&msg={url_quote(msg[:200])}",
+        f"/clients/{client_id}?tab=statutory&msg={url_quote(msg[:200])}",
         status_code=303,
     )
 
@@ -1323,7 +1733,7 @@ async def client_share_class_add(
         source="manual",
     )
     return RedirectResponse(
-        f"/clients/{client_id}?tab=shares&msg=Share+class+added", status_code=303
+        f"/clients/{client_id}?tab=statutory&msg=Share+class+added", status_code=303
     )
 
 
@@ -1362,7 +1772,7 @@ async def client_shareholding_add(
         status="draft",
     )
     return RedirectResponse(
-        f"/clients/{client_id}?tab=shares&msg=Member+added", status_code=303
+        f"/clients/{client_id}?tab=statutory&msg=Member+added", status_code=303
     )
 
 
@@ -1392,7 +1802,7 @@ async def client_shareholding_set_shares(
         .filter(Shareholding.id == holding_id, Shareholding.client_id == client_id)
         .first()
     )
-    dest = (return_to or "").strip() or f"/clients/{client_id}?tab=shares"
+    dest = (return_to or "").strip() or f"/clients/{client_id}?tab=statutory"
     if not h:
         return RedirectResponse(
             f"{dest}&msg=Member+not+found" if "?" in dest else f"{dest}?msg=Member+not+found",
@@ -1405,12 +1815,12 @@ async def client_shareholding_set_shares(
             new_shares = float(raw)
         except ValueError:
             return RedirectResponse(
-                f"/clients/{client_id}?tab=shares&msg=Invalid+share+number",
+                f"/clients/{client_id}?tab=statutory&msg=Invalid+share+number",
                 status_code=303,
             )
         if new_shares < 0:
             return RedirectResponse(
-                f"/clients/{client_id}?tab=shares&msg=Shares+cannot+be+negative",
+                f"/clients/{client_id}?tab=statutory&msg=Shares+cannot+be+negative",
                 status_code=303,
             )
 
@@ -1434,7 +1844,7 @@ async def client_shareholding_set_shares(
             f"&reason=unknown_issued"
         )
         return RedirectResponse(
-            f"/clients/{client_id}?tab=shares&{q}",
+            f"/clients/{client_id}?tab=statutory&{q}",
             status_code=303,
         )
 
@@ -1485,7 +1895,7 @@ async def client_shareholding_set_shares(
                 f"&reason=over"
             )
             return RedirectResponse(
-                f"/clients/{client_id}?tab=shares&{q}",
+                f"/clients/{client_id}?tab=statutory&{q}",
                 status_code=303,
             )
 
@@ -1520,22 +1930,22 @@ async def client_share_class_set_aggregate(
             val = float(raw)
         except ValueError:
             return RedirectResponse(
-                f"/clients/{client_id}?tab=shares&msg=Invalid+issued+number",
+                f"/clients/{client_id}?tab=statutory&msg=Invalid+issued+number",
                 status_code=303,
             )
         if val < 0:
             return RedirectResponse(
-                f"/clients/{client_id}?tab=shares&msg=Issued+cannot+be+negative",
+                f"/clients/{client_id}?tab=statutory&msg=Issued+cannot+be+negative",
                 status_code=303,
             )
     sc = share_svc.update_share_class_aggregate(db, class_id, client_id, val)
     if not sc:
         return RedirectResponse(
-            f"/clients/{client_id}?tab=shares&msg=Share+class+not+found",
+            f"/clients/{client_id}?tab=statutory&msg=Share+class+not+found",
             status_code=303,
         )
     return RedirectResponse(
-        f"/clients/{client_id}?tab=shares&msg="
+        f"/clients/{client_id}?tab=statutory&msg="
         + url_quote(
             f"Issued capital set to {val:g}" if val is not None else "Issued capital cleared"
         ),
@@ -1597,7 +2007,7 @@ async def client_shareholding_delete(
 
     share_svc.delete_holding(db, holding_id, client_id)
     return RedirectResponse(
-        f"/clients/{client_id}?tab=shares&msg=Member+removed", status_code=303
+        f"/clients/{client_id}?tab=statutory&msg=Member+removed", status_code=303
     )
 
 
@@ -1609,7 +2019,7 @@ async def client_share_class_delete(
 
     share_svc.delete_share_class(db, class_id, client_id)
     return RedirectResponse(
-        f"/clients/{client_id}?tab=shares&msg=Share+class+removed", status_code=303
+        f"/clients/{client_id}?tab=statutory&msg=Share+class+removed", status_code=303
     )
 
 
@@ -1633,7 +2043,7 @@ async def client_shares_verify(
             h.status = "verified"
     db.commit()
     return RedirectResponse(
-        f"/clients/{client_id}?tab=shares&msg=Register+marked+verified",
+        f"/clients/{client_id}?tab=statutory&msg=Register+marked+verified",
         status_code=303,
     )
 
@@ -1651,7 +2061,7 @@ async def client_ch_auth_code_save(
         return RedirectResponse("/clients", status_code=303)
     share_svc.set_ch_auth_code(db, client, ch_authentication_code)
     return RedirectResponse(
-        f"/clients/{client_id}?tab=shares&msg=CH+auth+code+saved+(encrypted)",
+        f"/clients/{client_id}?tab=statutory&msg=CH+auth+code+saved+(encrypted)",
         status_code=303,
     )
 

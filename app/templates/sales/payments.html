@@ -18,7 +18,7 @@
         <tr>
           <td>{{ p.payment_date }}</td>
           <td>{% if clients.get(p.client_id) %}{{ clients[p.client_id].display_name() }}{% else %}#{{ p.client_id }}{% endif %}</td>
-          <td>£{{ '%.2f'|format(p.amount or 0) }}</td>
+          <td>{{(p.amount or 0)|money2}}</td>
           <td>{{ p.method }}</td>
           <td>{{ p.reference or '—' }}</td>
         </tr>

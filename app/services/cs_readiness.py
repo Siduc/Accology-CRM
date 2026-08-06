@@ -58,7 +58,7 @@ def assess_client(
         "auth_code",
         auth_ok,
         "CH company auth code",
-        "Encrypted on file" if auth_ok else "Add on Shares / CH",
+        "Encrypted on file" if auth_ok else "Add on Statutory / CH",
     )
 
     holdings = list_holdings(db, client.id)

@@ -6,9 +6,9 @@
     <p class="small muted"><a href="/dashboard#working-capital">← Working capital</a></p>
     <h1>Creditors</h1>
     <p class="muted small">
-      Outstanding £{{ '{:,.2f}'.format(total) }}
-      · Suppliers £{{ '{:,.2f}'.format(supplier_total) }}
-      · VAT £{{ '{:,.2f}'.format(vat_total) }}
+      Outstanding {{total|money2}}
+      · Suppliers {{supplier_total|money2}}
+      · VAT {{vat_total|money2}}
     </p>
   </div>
 </div>
@@ -80,7 +80,7 @@
             {{ b.due_date or '—' }}
             {% endif %}
           </td>
-          <td>£{{ '%.2f'|format(b.amount or 0) }}</td>
+          <td>{{(b.amount or 0)|money2}}</td>
           <td><span class="badge">{{ b.status }}</span></td>
           <td>
             {% if b.status == 'outstanding' %}
