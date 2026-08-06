@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Review post · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/post">← Post inbox</a></p>
+    <h1 class="desk-page-title" style="font-size:clamp(1.3rem,3vw,1.7rem)">{{ item.title or 'Post item' }}</h1>
+    <p class="desk-page-sub muted small">
+      {{ item.batch.original_filename if item.batch else '' }}
+      {% if item.page_start and item.page_end %} · pages {{ item.page_start }}–{{ item.page_end }}{% endif %}
+      · <span class="badge">{{ item.status }}</span>
+    </p>
+  </div>
+  <div class="actions">
+    {% if item.local_path %}
+    <a class="btn btn-outline wc-touch" href="/post/items/{{ item.id }}/file" target="_blank" rel="noopener">Open PDF</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<div style="display:grid;grid-template-columns:1.1fr 1fr;gap:1rem;align-items:start">
+  <div class="card" style="margin:0">
+    <h2 style="margin-top:0">Preview</h2>
+    {% if item.local_path and (item.content_type or '').startswith('image') %}
+    <img src="/post/items/{{ item.id }}/file" alt="scan" style="max-width:100%;border:1px solid var(--border,#ddd);border-radius:8px">
+    {% elif item.local_path %}
+    <iframe src="/post/items/{{ item.id }}/file" title="Post PDF" style="width:100%;min-height:28rem;border:1px solid var(--border,#ddd);border-radius:8px"></iframe>
+    {% else %}
+    <p class="muted">No preview file.</p>
+    {% endif %}
+    {% if item.text_excerpt %}
+    <details style="margin-top:0.75rem">
+      <summary class="small">Extracted text (for matching)</summary>
+      <pre class="small" style="white-space:pre-wrap;max-height:12rem;overflow:auto">{{ item.text_excerpt[:4000] }}</pre>
+    </details>
+    {% endif %}
+  </div>
+
+  <div class="stack" style="gap:1rem">
+    <div class="card" style="margin:0">
+      <h2 style="margin-top:0">Suggestion</h2>
+      <dl class="dl-grid small">
+        <dt>Action</dt><dd><strong>{{ item.suggested_action or 'review' }}</strong></dd>
+        <dt>Category</dt><dd>{{ item.category or '—' }}</dd>
+        <dt>Client</dt>
+        <dd>
+          {% if item.suggested_client %}
+          {{ item.suggested_client.display_name() }}
+          {% else %}—{% endif %}
+          {% if item.match_reason %}<div class="muted">{{ item.match_reason }}</div>{% endif %}
+        </dd>
+        <dt>Confidence</dt>
+        <dd>{% if item.confidence %}{{ '%.0f'|format(item.confidence * 100) }}%{% else %}—{% endif %}</dd>
+      </dl>
+    </div>
+
+    <div class="card" style="margin:0">
+      <h2 style="margin-top:0">Action</h2>
+      <form class="stack" method="post" action="/post/items/{{ item.id }}/action">
+        <label>Client *</label>
+        <select name="client_id" required>
+          <option value="">— Select —</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}"
+            {% if (item.client_id or item.suggested_client_id) == c.id %}selected{% endif %}>
+            {{ c.display_name() }}
+          </option>
+          {% endfor %}
+        </select>
+
+        <label>Job (optional)</label>
+        <select name="job_id">
+          <option value="">—</option>
+          {% for j in jobs %}
+          <option value="{{ j.id }}" {% if item.job_id == j.id or item.suggested_job_id == j.id %}selected{% endif %}>
+            {{ j|job_label }}
+          </option>
+          {% endfor %}
+        </select>
+
+        <label>Category</label>
+        <select name="category">
+          {% for cat in categories %}
+          <option value="{{ cat }}" {% if item.category == cat %}selected{% endif %}>{{ cat }}</option>
+          {% endfor %}
+        </select>
+
+        <label>Notes (optional)</label>
+        <textarea name="notes" rows="2" placeholder="Shown on file note / email">{{ item.review_notes or '' }}</textarea>
+
+        <label class="small">
+          <input type="checkbox" name="learn" value="yes">
+          Learn this decision (save keywords → action as a rule)
+        </label>
+        <input name="learn_keywords" placeholder="Optional keywords (else taken from text)" style="width:100%">
+
+        <div class="actions" style="flex-wrap:wrap;margin-top:0.5rem">
+          <button class="btn wc-touch" type="submit" name="action" value="file_hmrc">File as HMRC</button>
+          <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_client">File to client</button>
+          <button class="btn btn-secondary wc-touch" type="submit" name="action" value="email_client">Email client</button>
+          <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_and_email">File + email</button>
+          <button class="btn btn-outline wc-touch" type="submit" name="action" value="dismiss"
+                  onclick="return confirm('Dismiss without filing?');">Dismiss</button>
+        </div>
+      </form>
+    </div>
+
+    {% if item.page_end and item.page_start and (item.page_end - item.page_start) >= 1 %}
+    <div class="card" style="margin:0">
+      <h2 style="margin-top:0;font-size:1rem">Split multi-document PDF</h2>
+      <p class="small muted">Enter page numbers <em>after</em> which a new document starts (e.g. <code>3,7</code>).</p>
+      <form method="post" action="/post/items/{{ item.id }}/split" class="actions" style="flex-wrap:wrap">
+        <input name="breaks" placeholder="e.g. 3,7,12" style="min-width:10rem">
+        <button class="btn btn-sm btn-outline" type="submit">Split</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

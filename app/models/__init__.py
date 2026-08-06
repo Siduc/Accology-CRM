@@ -41,6 +41,7 @@ from app.models.document import Document, DocumentVersion
 from app.models.email_message import EmailTemplate, EmailMessage
 from app.models.notification import Notification
 from app.models.share_register import ShareClass, Shareholding
+from app.models.post_inbox import PostBatch, PostItem, PostRule
 
 __all__ = [
     "Client",
@@ -86,4 +87,7 @@ __all__ = [
     "Notification",
     "ShareClass",
     "Shareholding",
+    "PostBatch",
+    "PostItem",
+    "PostRule",
 ]

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Post rules · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/post">← Post inbox</a></p>
+    <h1>Post routing rules</h1>
+    <p class="muted small">Keywords in extracted text → suggested action. Learned rules appear after you tick “Learn this” on review.</p>
+  </div>
+</div>
+
+{% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">Add rule</h2>
+  <form class="stack" method="post" action="/post/rules/new" style="max-width:36rem">
+    <label>Name</label>
+    <input name="name" required placeholder="e.g. VAT penalty notice">
+    <label>Keywords (comma or new line — any match by default)</label>
+    <textarea name="keywords" rows="3" required placeholder="HMRC, Self Assessment"></textarea>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div>
+        <label>Match</label>
+        <select name="match_mode" style="width:100%">
+          <option value="any">Any keyword</option>
+          <option value="all">All keywords</option>
+        </select>
+      </div>
+      <div>
+        <label>Priority (higher first)</label>
+        <input name="priority" value="100" inputmode="numeric">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div>
+        <label>Action</label>
+        <select name="action" style="width:100%">
+          {% for a in actions %}
+          <option value="{{ a }}">{{ a }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Category</label>
+        <select name="category" style="width:100%">
+          <option value="">—</option>
+          {% for c in categories %}
+          <option value="{{ c }}">{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <label>Fixed client (optional)</label>
+    <select name="client_id">
+      <option value="">— Match per document —</option>
+      {% for c in clients %}
+      <option value="{{ c.id }}">{{ c.display_name() }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn wc-touch" type="submit">Save rule</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Rules</h2>
+  {% if rules %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Pri</th>
+          <th>Name</th>
+          <th>Keywords</th>
+          <th>Action</th>
+          <th>Hits</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rules %}
+        <tr>
+          <td class="num">{{ r.priority }}</td>
+          <td>
+            <strong>{{ r.name }}</strong>
+            {% if r.learned %}<span class="badge">learned</span>{% endif %}
+          </td>
+          <td class="small">{{ (r.keywords or '')[:80] }}{% if (r.keywords or '')|length > 80 %}…{% endif %}</td>
+          <td class="small">{{ r.action }}{% if r.category %} · {{ r.category }}{% endif %}</td>
+          <td class="num">{{ r.hit_count or 0 }}</td>
+          <td>{% if r.is_active %}<span class="badge badge-active">on</span>{% else %}<span class="badge">off</span>{% endif %}</td>
+          <td>
+            <form method="post" action="/post/rules/{{ r.id }}/toggle" style="display:inline">
+              <button class="btn btn-sm btn-outline" type="submit">{% if r.is_active %}Disable{% else %}Enable{% endif %}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No rules yet — import post once to seed defaults.</p>
+  {% endif %}
+</div>
+{% endblock %}

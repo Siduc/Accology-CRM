@@ -64,6 +64,7 @@ from app.routers import (
     prospecting,
     notifications,
     api_prospecting,
+    post_inbox,
 )
 
 app = FastAPI(
@@ -311,6 +312,7 @@ app.include_router(cs.router)
 app.include_router(ch_oauth.router)
 app.include_router(ms_graph_oauth.router)
 app.include_router(documents.router)
+app.include_router(post_inbox.router)
 app.include_router(notifications.router)
 app.include_router(emails.router)
 app.include_router(tasks.router)

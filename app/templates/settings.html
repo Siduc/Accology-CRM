@@ -24,6 +24,28 @@
 </nav>
 
 {# ========== ALERTS ========== #}
+<section class="settings-section" id="settings-post">
+  <h2 class="settings-section-title">Post / scanner</h2>
+  <div class="card settings-card">
+    <h3>Scanned post inbox</h3>
+    <p class="muted small">
+      Dedicated scanner drops PDFs into a local folder. Accologise imports them into a review queue,
+      suggests HMRC file / client email / client file, and can learn routing rules.
+    </p>
+    <p class="small">
+      Default path: <code>C:\accologise post\inbox</code>
+      (override with env <code>POST_INBOX_PATH</code>).
+    </p>
+    <div class="actions" style="flex-wrap:wrap">
+      <a class="btn wc-touch" href="/post">Open post inbox</a>
+      <a class="btn btn-outline wc-touch" href="/post/rules">Routing rules</a>
+    </div>
+    <p class="small muted" style="margin-top:0.75rem">
+      Cloud Render cannot see your C: drive — run Import on the machine that receives scans.
+    </p>
+  </div>
+</section>
+
 <section class="settings-section" id="settings-alerts">
   <h2 class="settings-section-title">Alerts</h2>
   <div class="card settings-card">

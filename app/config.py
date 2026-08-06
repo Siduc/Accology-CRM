@@ -300,6 +300,10 @@ def ch_oauth_configured() -> bool:
     )
 
 
+# Scanned post inbox (local folder the dedicated scanner writes to)
+# Subfolders inbox / processing / done / failed / splits are created automatically.
+POST_INBOX_PATH = _env("POST_INBOX_PATH", r"C:\accologise post") or r"C:\accologise post"
+
 # Companies House XML Gateway (Software Filing / presenter account)
 # Apply: https://www.gov.uk/guidance/apply-to-file-with-companies-house-using-software
 CH_XML_PRESENTER_ID = _env("CH_XML_PRESENTER_ID") or ""

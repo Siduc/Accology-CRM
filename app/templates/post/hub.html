@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Post inbox · Accologise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/documents">← Documents</a></p>
+    <h1 class="desk-page-title" style="font-size:clamp(1.45rem,3vw,1.9rem)">Post inbox</h1>
+    <p class="desk-page-sub muted small">
+      Scanner → review → file / email · learned rules for HMRC &amp; chasers
+    </p>
+  </div>
+  <div class="actions" style="flex-wrap:wrap">
+    <form method="post" action="/post/import" style="display:inline">
+      <button class="btn wc-touch" type="submit">Import from scanner folder</button>
+    </form>
+    <a class="btn btn-outline wc-touch" href="/post/rules">Routing rules</a>
+    <a class="btn btn-outline wc-touch" href="/documents">Documents</a>
+  </div>
+</div>
+
+{% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<div class="wip-desk subdash-desk" style="margin-bottom:1rem">
+  <div class="wc-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+    <div class="wc-box wc-box-wip">
+      <div class="wc-box-head"><span class="wc-box-title">Awaiting review</span></div>
+      <div class="wc-box-value">{{ counts.open|default(0) }}</div>
+    </div>
+    <div class="wc-box wc-box-debtors">
+      <div class="wc-box-head"><span class="wc-box-title">Active rules</span></div>
+      <div class="wc-box-value">{{ counts.rules|default(0) }}</div>
+    </div>
+    <div class="wc-box wc-box-cash">
+      <div class="wc-box-head"><span class="wc-box-title">Batches imported</span></div>
+      <div class="wc-box-value">{{ counts.batches|default(0) }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem;border-left:4px solid #0944F4">
+  <h2 style="margin-top:0;font-size:1.05rem">Scanner folder</h2>
+  <p class="small" style="margin:0 0 0.5rem">
+    Point the dedicated scanner at:
+  </p>
+  <p style="margin:0"><code>{{ inbox_path }}</code></p>
+  <p class="small muted" style="margin:0.5rem 0 0">
+    Root: <code>{{ root_path }}</code>
+    · subfolders <code>inbox</code>, <code>processing</code>, <code>done</code>, <code>failed</code>, <code>splits</code>
+    are created automatically. Click <strong>Import</strong> after a scan batch lands
+    (or when the scanner finishes a multi-page PDF).
+  </p>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">Needs review</h2>
+  {% if items %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Title / source</th>
+          <th>Pages</th>
+          <th>Category</th>
+          <th>Suggested client</th>
+          <th>Suggested action</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td class="small">{{ it.created_at.strftime('%d-%m-%Y %H:%M') if it.created_at else '—' }}</td>
+          <td>
+            <strong>{{ it.title or 'Untitled' }}</strong>
+            <div class="muted small">{{ it.batch.original_filename if it.batch else '' }}</div>
+          </td>
+          <td class="small num">
+            {% if it.page_start and it.page_end %}{{ it.page_start }}–{{ it.page_end }}{% else %}—{% endif %}
+          </td>
+          <td class="small">{{ it.category or '—' }}</td>
+          <td class="small">
+            {% if it.suggested_client %}
+            <a href="/clients/{{ it.suggested_client.id }}">{{ it.suggested_client.display_name() }}</a>
+            {% if it.match_reason %}<div class="muted">{{ it.match_reason }}</div>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <span class="badge">{{ it.suggested_action or 'review' }}</span>
+            {% if it.confidence %}<span class="muted small">{{ '%.0f'|format(it.confidence * 100) }}%</span>{% endif %}
+          </td>
+          <td><a class="btn btn-sm wc-touch" href="/post/items/{{ it.id }}">Review</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">Nothing waiting. Drop scans into the inbox folder, then Import.</p>
+  {% endif %}
+</div>
+
+{% if recent %}
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">Recently handled</h2>
+  <ul class="stack" style="list-style:none;padding:0;margin:0">
+    {% for it in recent if it.status not in ('inbox','suggested') %}
+    <li class="small" style="padding:0.35rem 0;border-bottom:1px solid var(--border,#e5e5e5)">
+      <span class="badge">{{ it.status }}</span>
+      {{ it.title or '—' }}
+      {% if it.client %} · {{ it.client.display_name() }}{% endif %}
+      {% if it.document_id %} · <a href="/documents/{{ it.document_id }}">Doc #{{ it.document_id }}</a>{% endif %}
+    </li>
+    {% else %}
+    <li class="muted small">No completed items yet.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">How it works &amp; best practice</h2>
+  <ol class="small" style="margin:0;padding-left:1.2rem;line-height:1.55">
+    <li><strong>Scan multi-doc batches</strong> as one PDF; insert a blank sheet between documents if you can — later we can auto-split on blanks. Until then use <em>Split after pages</em> on review.</li>
+    <li><strong>Import</strong> pulls new files, extracts text (where the PDF has a text layer), suggests client (company number / name) and action (HMRC file · chaser email · review).</li>
+    <li><strong>Review</strong> confirms or corrects client, then File / File as HMRC / Email client / Dismiss. Tick <em>Learn this</em> to save keywords → action as a rule.</li>
+    <li><strong>HMRC standard letters</strong> usually file to the client Tax / Correspondence folder without emailing.</li>
+    <li><strong>Chasers / demands</strong> usually email the client (and optionally file a copy).</li>
+    <li><strong>Filing lives in OneDrive</strong> under Accologise Documents / Clients / … (Microsoft must be connected).</li>
+    <li><strong>Local-only folder</strong> — Render cloud cannot see <code>C:\accologise post</code>. Run Import on the PC that receives scans (this app local or a small agent later).</li>
+    <li><strong>Other good practice:</strong> dual-control for bank detail changes; never email full ID docs without care; retain originals in <code>done/</code>; tag deadlines as tasks; link material post to the open job; separate personal practice post vs client post trays if the scanner allows two profiles.</li>
+  </ol>
+</div>
+{% endblock %}
