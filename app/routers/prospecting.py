@@ -196,6 +196,15 @@ async def prospect_create(
     return RedirectResponse(f"/prospecting/prospects/{p.id}", status_code=303)
 
 
+@router.get("/{prospect_id:int}", response_class=HTMLResponse)
+async def prospect_detail_legacy_redirect(prospect_id: int):
+    """
+    Legacy alert links used /prospecting/123 — real page is /prospecting/prospects/123.
+    Keep this redirect so old notifications still open.
+    """
+    return RedirectResponse(f"/prospecting/prospects/{prospect_id}", status_code=303)
+
+
 @router.get("/prospects/{prospect_id:int}", response_class=HTMLResponse)
 async def prospect_detail(
     request: Request,

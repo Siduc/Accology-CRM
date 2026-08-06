@@ -80,7 +80,9 @@ class ProspectEmailResult:
         return {
             "ok": self.ok,
             "prospect_id": self.prospect_id,
-            "prospect_url": f"/prospecting/{self.prospect_id}" if self.prospect_id else None,
+            "prospect_url": (
+                f"/prospecting/prospects/{self.prospect_id}" if self.prospect_id else None
+            ),
             "activity_id": self.activity_id,
             "task_id": self.task_id,
             "task_url": f"/tasks/{self.task_id}/edit" if self.task_id else None,
@@ -349,7 +351,7 @@ def process_prospect_email(
             f"Email subject: {payload.subject}",
             f"Contact: {prospect.contact_name or '—'} · {prospect.email or '—'}",
             payload.body_preview or "",
-            f"Open prospect: /prospecting/{prospect.id}",
+            f"Open prospect: /prospecting/prospects/{prospect.id}",
             f"Outlook: {payload.web_link}" if payload.web_link else "",
         ]
         task = create_task(

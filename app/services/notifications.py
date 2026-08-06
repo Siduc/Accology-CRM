@@ -257,7 +257,7 @@ def notify_website_prospect(
         f"Message: {preview}" if preview else None,
     ]
     body = "\n".join(x for x in lines if x)
-    link = f"/prospecting/{prospect_id}"
+    link = f"/prospecting/prospects/{prospect_id}"
 
     email_on = _notify_email_enabled()
     return create_notification(
