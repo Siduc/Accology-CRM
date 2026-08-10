@@ -379,4 +379,27 @@ def health():
 
 @app.on_event("startup")
 def on_startup():
-    init_db()
+    # Schema ensure / light seeds. Over remote Render Postgres this can take
+    # several seconds on a cold connection — that is expected for local+cloud DB.
+    import time
+
+    t0 = time.perf_counter()
+    try:
+        init_db()
+        logger.info(
+            "init_db completed in %.1fs (host=%s)",
+            time.perf_counter() - t0,
+            DB_HOST or "?",
+        )
+    except Exception:
+        logger.exception("init_db failed after %.1fs", time.perf_counter() - t0)
+        raise
+    # Warm one connection so the first browser hit is less cold
+    try:
+        t1 = time.perf_counter()
+        if ping_database(timeout_sec=8.0):
+            logger.info("DB pool warm in %.1fs", time.perf_counter() - t1)
+        else:
+            logger.warning("DB pool warm ping failed/slow (host=%s)", DB_HOST or "?")
+    except Exception:
+        logger.exception("DB warm-up failed")

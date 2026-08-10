@@ -15,11 +15,20 @@ _engine_kwargs: dict = {"pool_pre_ping": True}
 if IS_SQLITE:
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
 else:
-    # Render Postgres: modest pool, recycle idle connections, fail fast
+    # Render Postgres (often Ohio): keep a warm pool; fail fast on connect.
+    # Local CRM over the public internet will still feel slower than SQLite —
+    # each page is a round-trip to the cloud DB.
     _engine_kwargs["pool_size"] = 5
     _engine_kwargs["max_overflow"] = 10
-    _engine_kwargs["pool_recycle"] = 300
-    _engine_kwargs["connect_args"] = {"connect_timeout": 10}
+    _engine_kwargs["pool_recycle"] = 280
+    _engine_kwargs["pool_timeout"] = 15
+    _engine_kwargs["connect_args"] = {
+        "connect_timeout": 8,
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 3,
+    }
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -40,12 +49,22 @@ def get_db():
         db.close()
 
 
-def ping_database() -> bool:
-    """Return True if a simple query succeeds."""
-    try:
+def ping_database(timeout_sec: float = 3.0) -> bool:
+    """Return True if a simple query succeeds within *timeout_sec*.
+
+    Short timeout so /health and UI shells don't hang when the cloud DB is slow.
+    """
+    import concurrent.futures
+
+    def _ping() -> bool:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return True
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_ping)
+            return bool(fut.result(timeout=timeout_sec))
     except Exception:  # noqa: BLE001
         return False
 
