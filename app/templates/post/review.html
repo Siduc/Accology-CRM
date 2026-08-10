@@ -108,14 +108,25 @@
       </form>
     </div>
 
-    {% if item.page_end and item.page_start and (item.page_end - item.page_start) >= 1 %}
+    {% set multi = item.page_end and item.page_start and (item.page_end - item.page_start) >= 1 %}
+    {% if multi or (item.batch and item.batch.page_count and item.batch.page_count > 1) %}
     <div class="card" style="margin:0">
       <h2 style="margin-top:0;font-size:1rem">Split multi-document PDF</h2>
-      <p class="small muted">Enter page numbers <em>after</em> which a new document starts (e.g. <code>3,7</code>).</p>
+      <p class="small muted">
+        Image-only scans auto-split on blank pages; refine here if needed.
+        Enter the last page of each document <em>before</em> the next one starts
+        (e.g. <code>3,7,12</code> = docs end on pages 3, 7 and 12).
+      </p>
       <form method="post" action="/post/items/{{ item.id }}/split" class="actions" style="flex-wrap:wrap">
         <input name="breaks" placeholder="e.g. 3,7,12" style="min-width:10rem">
         <button class="btn btn-sm btn-outline" type="submit">Split</button>
       </form>
+      {% if item.batch_id %}
+      <form method="post" action="/post/batches/{{ item.batch_id }}/reprocess" style="margin-top:0.65rem"
+            onsubmit="return confirm('Re-run auto-split on the whole scan (open items only)?');">
+        <button class="btn btn-sm btn-outline" type="submit">Re-run auto-split on whole batch</button>
+      </form>
+      {% endif %}
     </div>
     {% endif %}
   </div>

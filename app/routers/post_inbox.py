@@ -34,6 +34,7 @@ async def post_hub(request: Request, db: Session = Depends(get_db)):
     items = post_svc.list_open_items(db, limit=80)
     recent = post_svc.list_recent_items(db, limit=30)
     dirs = post_svc.ensure_inbox_dirs()
+    pending_files = post_svc.count_pending_scan_files()
     return render(
         request,
         "post/hub.html",
@@ -43,6 +44,7 @@ async def post_hub(request: Request, db: Session = Depends(get_db)):
             "recent": recent,
             "inbox_path": str(dirs["inbox"]),
             "root_path": str(dirs["root"]),
+            "pending_files": pending_files,
             "msg": request.query_params.get("msg", ""),
             "error": request.query_params.get("error", ""),
             "categories": POST_CATEGORIES,
@@ -114,21 +116,41 @@ async def post_item_detail(
 
 @router.get("/post/items/{item_id:int}/file")
 async def post_item_file(item_id: int, db: Session = Depends(get_db)):
+    """Serve the item PDF for iframe preview / open. Never redirect to HTML pages
+    (that made preview show the CRM shell inside the iframe)."""
     item = post_svc.get_item(db, item_id)
-    if not item or not item.local_path:
-        return RedirectResponse("/post", status_code=303)
-    path = Path(item.local_path)
-    if not path.is_file():
-        return RedirectResponse(
-            f"/post/items/{item_id}?error={url_quote('File missing on disk')}",
-            status_code=303,
+    if not item:
+        return HTMLResponse(
+            "<!doctype html><html><body style='font-family:system-ui;padding:1.5rem'>"
+            "<h2>Not found</h2><p>That post item does not exist.</p></body></html>",
+            status_code=404,
+        )
+    path = Path(item.local_path) if item.local_path else None
+    if not path or not path.is_file():
+        # Rebuild split from archived multi-page scan when possible
+        if post_svc.ensure_item_file(db, item):
+            path = Path(item.local_path) if item.local_path else None
+    if not path or not path.is_file():
+        return HTMLResponse(
+            "<!doctype html><html><body style='font-family:system-ui;padding:1.5rem;"
+            "background:#111827;color:#e2e8f0'>"
+            "<h2 style='margin-top:0'>Preview unavailable</h2>"
+            "<p>The PDF for this item is missing on disk "
+            f"(expected <code>{item.local_path or '—'}</code>).</p>"
+            "<p>Re-import the original scan from the Post hub, or re-split this item "
+            "from the archived multi-page file.</p>"
+            "</body></html>",
+            status_code=404,
         )
     media = item.content_type or "application/pdf"
+    if path.suffix.lower() == ".pdf":
+        media = "application/pdf"
     return FileResponse(
         path,
         media_type=media,
         filename=path.name,
         content_disposition_type="inline",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=60"},
     )
 
 
@@ -186,6 +208,21 @@ async def post_item_split(
     if not ok:
         return RedirectResponse(
             f"/post/items/{item_id}?error={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/post?msg={url_quote(msg[:300])}",
+        status_code=303,
+    )
+
+
+@router.post("/post/batches/{batch_id:int}/reprocess")
+async def post_batch_reprocess(batch_id: int, db: Session = Depends(get_db)):
+    """Re-run auto-split on a multi-page scan (image blank detection, markers)."""
+    ok, msg = post_svc.reprocess_batch(db, batch_id)
+    if not ok:
+        return RedirectResponse(
+            f"/post?error={url_quote(msg[:300])}",
             status_code=303,
         )
     return RedirectResponse(

@@ -80,8 +80,81 @@ def post_inbox_root() -> Path:
 
     raw = (getattr(config, "POST_INBOX_PATH", None) or "").strip()
     if not raw:
-        raw = r"C:\accologise post"
+        from app.config import _default_post_inbox_path
+
+        raw = _default_post_inbox_path()
     return Path(raw)
+
+
+def count_pending_scan_files() -> int:
+    """How many scan files are waiting to be imported (inbox + root)."""
+    dirs = ensure_inbox_dirs()
+    n = 0
+    for folder in (dirs["inbox"], dirs["root"]):
+        if not folder.is_dir():
+            continue
+        for p in folder.iterdir():
+            if not p.is_file():
+                continue
+            if p.parent == dirs["root"] and p.name.lower() in {
+                "desktop.ini",
+                "thumbs.db",
+            }:
+                continue
+            if p.suffix.lower() in {
+                ".pdf",
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".tif",
+                ".tiff",
+                ".webp",
+            }:
+                n += 1
+    return n
+
+
+def ensure_item_file(db: Session, item: PostItem) -> bool:
+    """
+    Ensure the per-item PDF exists on disk for preview.
+    Regenerates from the batch archive when splits/ was cleared.
+    """
+    if item.local_path and Path(item.local_path).is_file():
+        return True
+    batch = item.batch or (
+        db.query(PostBatch).filter(PostBatch.id == item.batch_id).first()
+    )
+    if not batch:
+        return False
+    src = None
+    for cand in (batch.archived_path, batch.source_path):
+        if cand and Path(cand).is_file():
+            src = Path(cand)
+            break
+    if not src:
+        return False
+    dirs = ensure_inbox_dirs()
+    ps = int(item.page_start or 1)
+    pe = int(item.page_end or ps)
+    out = dirs["splits"] / f"batch{batch.id}_p{ps}-{pe}.pdf"
+    ok, err = _split_pdf_pages(src, out, ps, pe)
+    if not ok:
+        # whole-file fallback for non-PDF or bad range
+        if src.suffix.lower() == ".pdf":
+            logger.warning("Regenerate split failed for item %s: %s", item.id, err)
+            return False
+        out = dirs["splits"] / f"batch{batch.id}_full{src.suffix.lower()}"
+        try:
+            shutil.copy2(str(src), str(out))
+        except Exception:
+            return False
+    item.local_path = str(out)
+    item.size_bytes = int(out.stat().st_size) if out.is_file() else 0
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+    return out.is_file()
 
 
 def ensure_inbox_dirs() -> Dict[str, Path]:
@@ -207,9 +280,77 @@ _NEW_DOC_MARKERS = (
 )
 
 
-def _page_is_blank(text: str) -> bool:
+def extract_page_ink_ratios(path: Path) -> List[float]:
+    """
+    Fraction of non-white pixels per page (0–1), via PyMuPDF when available.
+    Used to detect blank separator sheets on image-only scanner PDFs (no OCR text).
+    """
+    path = Path(path)
+    if not path.is_file() or path.suffix.lower() != ".pdf":
+        return []
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        return []
+    try:
+        doc = fitz.open(str(path))
+        ratios: List[float] = []
+        # small render — enough to tell blank vs letter
+        mat = fitz.Matrix(0.18, 0.18)
+        for i in range(doc.page_count):
+            try:
+                pix = doc[i].get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
+                samples = pix.samples or b""
+                if not samples:
+                    ratios.append(0.0)
+                    continue
+                nonwhite = sum(1 for b in samples if b < 245)
+                ratios.append(nonwhite / max(len(samples), 1))
+            except Exception:
+                ratios.append(0.5)  # assume content if probe fails
+        doc.close()
+        return ratios
+    except Exception as exc:
+        logger.warning("ink ratios failed for %s: %s", path, exc)
+        return []
+
+
+def _page_is_blank(text: str, ink: Optional[float] = None) -> bool:
+    """
+    Blank page = almost no text, and either no ink data or very little ink
+    (white separator sheet between letters on multi-doc scanner jobs).
+    """
     s = re.sub(r"\s+", "", text or "")
-    return len(s) < 8
+    text_empty = len(s) < 8
+    if ink is not None:
+        # Image-only letter pages have ink but no OCR text
+        if ink < 0.12:
+            return True
+        if text_empty and ink >= 0.12:
+            return False
+    return text_empty
+
+
+def _normalize_page_texts_with_ink(
+    page_texts: List[str], ink_ratios: List[float]
+) -> List[str]:
+    """
+    For image-only scans, inject a placeholder on pages that have ink so
+    detect_document_page_ranges does not treat the whole file as blank.
+    """
+    if not page_texts:
+        return page_texts
+    out: List[str] = []
+    for i, t in enumerate(page_texts):
+        ink = ink_ratios[i] if i < len(ink_ratios) else None
+        if _page_is_blank(t, ink):
+            out.append("")
+        elif (t or "").strip():
+            out.append(t)
+        else:
+            # Scanned content without OCR — keep a marker for split logic
+            out.append(f"[scanned page {i + 1}]")
+    return out
 
 
 def _page_looks_like_new_document(text: str, *, is_first: bool) -> bool:
@@ -229,13 +370,16 @@ def _page_looks_like_new_document(text: str, *, is_first: bool) -> bool:
     return False
 
 
-def detect_document_page_ranges(page_texts: List[str]) -> List[Tuple[int, int, str]]:
+def detect_document_page_ranges(
+    page_texts: List[str],
+    ink_ratios: Optional[List[float]] = None,
+) -> List[Tuple[int, int, str]]:
     """
     Split a multi-page PDF into documents (Ahmed-style content boundaries).
 
     Returns list of (page_start, page_end, reason) 1-based inclusive.
     Uses:
-      - blank separator pages (dropped from content)
+      - blank separator pages (text and/or low ink on image scans)
       - letter/form start markers on a page (new document)
     """
     n = len(page_texts)
@@ -243,6 +387,13 @@ def detect_document_page_ranges(page_texts: List[str]) -> List[Tuple[int, int, s
         return []
     if n == 1:
         return [(1, 1, "single page")]
+
+    ink = ink_ratios or []
+
+    def blank(i: int) -> bool:
+        t = page_texts[i] if i < len(page_texts) else ""
+        ik = ink[i] if i < len(ink) else None
+        return _page_is_blank(t, ik)
 
     # Build starts: page indices (0-based) that begin a document
     starts: List[int] = [0]
@@ -253,10 +404,10 @@ def detect_document_page_ranges(page_texts: List[str]) -> List[Tuple[int, int, s
         prev = page_texts[i - 1] or ""
 
         # Blank page after content → next non-blank starts new doc
-        if _page_is_blank(t):
+        if blank(i):
             continue
 
-        if _page_is_blank(prev) and not _page_is_blank(t):
+        if blank(i - 1) and not blank(i):
             if i not in starts:
                 starts.append(i)
                 reasons[i] = "after blank separator"
@@ -283,7 +434,7 @@ def detect_document_page_ranges(page_texts: List[str]) -> List[Tuple[int, int, s
             )
             if prev_cont and not page1 and not strong_new:
                 continue
-            if page1 or strong_new or _page_is_blank(prev):
+            if page1 or strong_new or blank(i - 1):
                 if i not in starts:
                     starts.append(i)
                     reasons[i] = "letter/form marker" if not page1 else "page 1 of N"
@@ -299,7 +450,7 @@ def detect_document_page_ranges(page_texts: List[str]) -> List[Tuple[int, int, s
     ranges: List[Tuple[int, int, str]] = []
     for idx, st in enumerate(starts):
         # Skip pure blank start pages
-        while st < n and _page_is_blank(page_texts[st]):
+        while st < n and blank(st):
             st += 1
         if st >= n:
             continue
@@ -308,7 +459,7 @@ def detect_document_page_ranges(page_texts: List[str]) -> List[Tuple[int, int, s
         else:
             en = n - 1
         # Trim trailing blanks
-        while en > st and _page_is_blank(page_texts[en]):
+        while en > st and blank(en):
             en -= 1
         if en < st:
             continue
@@ -369,11 +520,21 @@ def _build_items_for_batch(
     dirs: Dict[str, Path],
     *,
     ranges: Optional[List[Tuple[int, int, str]]] = None,
+    ink_ratios: Optional[List[float]] = None,
 ) -> int:
     """Create PostItem rows for ranges; returns count created."""
     n_pages = len(page_texts) or batch.page_count or 1
+    if ink_ratios is None and source_pdf and Path(source_pdf).is_file():
+        ink_ratios = extract_page_ink_ratios(Path(source_pdf))
+    # Image-only scans: empty OCR text but ink on letter pages
+    if page_texts and ink_ratios:
+        page_texts = _normalize_page_texts_with_ink(page_texts, ink_ratios)
     if ranges is None:
-        ranges = detect_document_page_ranges(page_texts) if page_texts else [(1, n_pages, "whole")]
+        ranges = (
+            detect_document_page_ranges(page_texts, ink_ratios)
+            if page_texts
+            else [(1, n_pages, "whole")]
+        )
     if not ranges:
         ranges = [(1, n_pages, "whole")]
 
@@ -645,9 +806,14 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
 
             page_texts: List[str] = []
             page_count = 1
+            ink_ratios: List[float] = []
             if proc.suffix.lower() == ".pdf":
                 page_texts, _terr = extract_pdf_page_texts(proc)
                 page_count = len(page_texts) or 1
+                ink_ratios = extract_page_ink_ratios(proc)
+                if page_count < 1 and ink_ratios:
+                    page_count = len(ink_ratios)
+                    page_texts = [""] * page_count
             if page_count < 1:
                 page_count = 1
 
@@ -679,6 +845,7 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
                 source_for_split,
                 page_texts,
                 dirs,
+                ink_ratios=ink_ratios,
             )
             items_created += n_items
 
@@ -729,6 +896,62 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
         "errors": errors,
         "inbox_path": str(dirs["inbox"]),
     }
+
+
+def reprocess_batch(db: Session, batch_id: int) -> Tuple[bool, str]:
+    """
+    Re-run auto-split on an already-imported batch (e.g. after improving
+    blank-page detection for image-only scanner PDFs).
+    Replaces open inbox/suggested items only — keeps filed/emailed items.
+    """
+    batch = db.query(PostBatch).filter(PostBatch.id == batch_id).first()
+    if not batch:
+        return False, "Batch not found"
+    src = None
+    for cand in (batch.archived_path, batch.source_path):
+        if cand and Path(cand).is_file():
+            src = Path(cand)
+            break
+    if not src:
+        return False, "Original scan file missing on disk"
+
+    dirs = ensure_inbox_dirs()
+    page_texts, _err = extract_pdf_page_texts(src)
+    ink = extract_page_ink_ratios(src)
+    if not page_texts and ink:
+        page_texts = [""] * len(ink)
+    if not page_texts:
+        return False, "Could not read PDF pages"
+
+    # Drop open items only (so re-run is safe after partial filing)
+    open_items = (
+        db.query(PostItem)
+        .filter(
+            PostItem.batch_id == batch_id,
+            PostItem.status.in_(["inbox", "suggested"]),
+        )
+        .all()
+    )
+    for it in open_items:
+        try:
+            if it.local_path and Path(it.local_path).is_file():
+                # only delete split files under splits/
+                lp = Path(it.local_path)
+                if "splits" in lp.parts:
+                    lp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        db.delete(it)
+    db.flush()
+
+    n = _build_items_for_batch(
+        db, batch, src, page_texts, dirs, ink_ratios=ink
+    )
+    batch.page_count = len(page_texts)
+    batch.status = "ready"
+    batch.processed_at = datetime.utcnow()
+    db.commit()
+    return True, f"Re-split into {n} document(s) from {len(page_texts)} page(s)"
 
 
 def split_item(

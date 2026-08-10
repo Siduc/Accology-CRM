@@ -41,15 +41,20 @@
 <div class="card" style="margin-bottom:1rem;border-left:4px solid #0944F4">
   <h2 style="margin-top:0;font-size:1.05rem">Scanner folder</h2>
   <p class="small" style="margin:0 0 0.5rem">
-    Point the dedicated scanner at:
+    Point the dedicated scanner <strong>save folder</strong> at this path (PDFs can land in the root or in <code>inbox</code>):
   </p>
-  <p style="margin:0"><code>{{ inbox_path }}</code></p>
+  <p style="margin:0"><code>{{ root_path }}</code></p>
   <p class="small muted" style="margin:0.5rem 0 0">
-    Root: <code>{{ root_path }}</code>
-    · subfolders <code>inbox</code>, <code>processing</code>, <code>done</code>, <code>failed</code>, <code>splits</code>
-    are created automatically. Click <strong>Import</strong> after a scan batch lands
-    (or when the scanner finishes a multi-page PDF).
+    Also watched: <code>{{ inbox_path }}</code>
+    · auto-created: <code>inbox</code>, <code>processing</code>, <code>done</code>, <code>failed</code>, <code>splits</code>.
+    After a multi-page scan finishes, click <strong>Import from scanner folder</strong>.
   </p>
+  {% if pending_files|default(0) %}
+  <div class="chase-banner chase-banner-info" style="margin-top:0.75rem">
+    <strong>{{ pending_files }}</strong> scan file(s) waiting — press <strong>Import from scanner folder</strong> to pull them into the ledger
+    (multi-page PDFs are auto-split into separate documents when letter markers are found).
+  </div>
+  {% endif %}
 </div>
 
 <div class="card" style="margin-bottom:1rem">

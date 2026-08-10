@@ -300,9 +300,20 @@ def ch_oauth_configured() -> bool:
     )
 
 
-# Scanned post inbox (local folder the dedicated scanner writes to)
+# Scanned post inbox (local folder the dedicated scanner writes to).
+# Override with POST_INBOX_PATH. On Render/Linux set this env var if post import is used.
 # Subfolders inbox / processing / done / failed / splits are created automatically.
-POST_INBOX_PATH = _env("POST_INBOX_PATH", r"C:\accologise post") or r"C:\accologise post"
+def _default_post_inbox_path() -> str:
+    import os
+    from pathlib import Path
+
+    if os.name == "nt":
+        # Local Windows practice machine — Documents\Accologies Post
+        return str(Path.home() / "Documents" / "Accologies Post")
+    return "/var/data/post-inbox"
+
+
+POST_INBOX_PATH = _env("POST_INBOX_PATH", _default_post_inbox_path()) or _default_post_inbox_path()
 
 # Companies House XML Gateway (Software Filing / presenter account)
 # Apply: https://www.gov.uk/guidance/apply-to-file-with-companies-house-using-software
