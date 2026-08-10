@@ -284,13 +284,17 @@ def send_practice_email(
     template_id: Optional[int] = None,
     sent_by: str = "",
     force_log_only: bool = False,
+    attachments: Optional[list] = None,
 ) -> Tuple[EmailMessage, str]:
     """
     Send (or dry-run log) a practice email. Returns (message_row, flash_message).
+
+    attachments: optional list of {name, content (bytes), content_type}.
     """
     to = (to_address or "").strip()
     subj = (subject or "").strip() or "(no subject)"
     body_text = body or ""
+    atts = list(attachments or [])
 
     row = EmailMessage(
         client_id=client_id,
@@ -326,11 +330,16 @@ def send_practice_email(
             to=to,
             subject=subj,
             body=body_text,
+            attachments=atts,
         )
         row.provider = "graph"
         if ok:
             row.status = "sent"
-            flash = "Email sent via Microsoft Graph."
+            n_att = len(atts)
+            flash = (
+                f"Email sent via Microsoft Graph"
+                + (f" with {n_att} attachment(s)." if n_att else ".")
+            )
         else:
             row.status = "failed"
             row.error_detail = err
@@ -340,12 +349,14 @@ def send_practice_email(
         return row, flash
 
     if cap["can_send_smtp"]:
-        # smtp_send_email enforces CHASE_LIVE_MODE internally — temporarily align
-        ok, status = smtp_send_email(to, subj, body_text)
+        # smtp path: attach when possible
+        ok, status = smtp_send_email(to, subj, body_text, attachments=atts)
         row.provider = "smtp"
         if ok:
             row.status = "sent"
-            flash = "Email sent via SMTP."
+            flash = "Email sent via SMTP" + (
+                f" with {len(atts)} attachment(s)." if atts else "."
+            )
         else:
             row.status = status if status in (
                 "blocked_not_live",

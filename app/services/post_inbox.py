@@ -1324,6 +1324,45 @@ def _category_for_action(action: str, category: str | None) -> str:
     return "Correspondence" if "Correspondence" in DOCUMENT_CATEGORIES else "Other"
 
 
+def _pdf_bytes_for_email_attach(
+    path: Path, *, max_bytes: int = 2_800_000
+) -> Optional[bytes]:
+    """
+    Load PDF bytes for email. Graph simple attachments max ~3MB — if larger,
+    re-save with PyMuPDF compression / downscale pages.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    raw = path.read_bytes()
+    if len(raw) <= max_bytes:
+        return raw
+    try:
+        import fitz
+
+        src = fitz.open(str(path))
+        data = raw
+        # try progressively smaller scales until under limit
+        for scale in (1.0, 0.85, 0.7, 0.55, 0.4):
+            out = fitz.open()
+            for i in range(src.page_count):
+                page = src[i]
+                pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+                rect = fitz.Rect(0, 0, pix.width, pix.height)
+                npage = out.new_page(width=pix.width, height=pix.height)
+                npage.insert_image(rect, pixmap=pix)
+            data = out.tobytes(deflate=True, garbage=3)
+            out.close()
+            if len(data) <= max_bytes:
+                break
+        src.close()
+        return data
+    except Exception as exc:
+        logger.warning("PDF shrink for email failed: %s", exc)
+        # Fall back to original (Graph may reject if >3MB)
+        return raw
+
+
 def apply_item_action(
     db: Session,
     item_id: int,
@@ -1437,12 +1476,43 @@ def apply_item_action(
             f"Dear {client.contact_name or client.display_name()},\n\n"
             f"We have received correspondence which appears to relate to your affairs"
             f"{' (' + (item.category or '') + ')' if item.category else ''}.\n\n"
-            f"{(notes or '').strip() or 'Please see the attached / linked document and let us know if you need us to act.'}\n\n"
+            f"{(notes or '').strip() or 'Please see the attached PDF and let us know if you need us to act.'}\n\n"
             f"Kind regards,\n"
         )
-        # Practice email may not attach local files easily — send with link if filed
         if doc and doc.onedrive_web_url:
-            body += f"\nDocument: {doc.onedrive_web_url}\n"
+            body += f"\nAlso filed on our system: {doc.onedrive_web_url}\n"
+
+        # Always try to attach the scan PDF (split item file preferred)
+        ensure_item_file(db, item)
+        attach_path = Path(item.local_path) if item.local_path else Path()
+        if not attach_path.is_file():
+            attach_path = path if path.is_file() else Path()
+        attachments = []
+        if attach_path.is_file():
+            try:
+                raw = _pdf_bytes_for_email_attach(attach_path)
+                safe_name = (
+                    f"post_{(item.title or attach_path.stem)[:60]}"
+                    .replace("/", "-")
+                    .replace("\\", "-")
+                    + ".pdf"
+                )
+                if raw:
+                    attachments.append(
+                        {
+                            "name": safe_name,
+                            "content": raw,
+                            "content_type": "application/pdf",
+                        }
+                    )
+            except Exception as exc:
+                logger.warning("Could not read post PDF for email: %s", exc)
+        if not attachments:
+            body += (
+                "\n(Note: the scanned PDF could not be attached from the server. "
+                "Please contact us if you need a copy.)\n"
+            )
+
         try:
             cap = mail_svc.send_capability(db)
             if not cap.get("can_send"):
@@ -1458,9 +1528,14 @@ def apply_item_action(
                     subject=subject,
                     body=body,
                     sent_by=reviewed_by or "post-inbox",
+                    attachments=attachments,
                 )
                 if row and (row.status or "") == "sent":
-                    email_msg = " and emailed client"
+                    email_msg = (
+                        " and emailed client with PDF attached"
+                        if attachments
+                        else " and emailed client"
+                    )
                 else:
                     email_msg = f" (email: {flash or row.status if row else 'failed'})"
         except Exception as exc:

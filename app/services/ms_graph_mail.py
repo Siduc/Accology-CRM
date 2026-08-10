@@ -62,22 +62,53 @@ def send_mail(
     subject: str,
     body: str,
     save_to_sent: bool = True,
+    attachments: Optional[list] = None,
 ) -> Tuple[bool, str]:
     """
     Send mail via Graph. Returns (ok, error_or_empty).
     Note: /me/sendMail does not return the created message id.
+
+    attachments: optional list of dicts with keys:
+      name (str), content (bytes), content_type (str, default application/pdf)
     """
+    import base64
+
     to = (to or "").strip()
     if not to:
         return False, "no_recipient_email"
+    message: Dict[str, Any] = {
+        "subject": subject or "(no subject)",
+        "body": {"contentType": "Text", "content": body or ""},
+        "toRecipients": [
+            {"emailAddress": {"address": to}},
+        ],
+    }
+    atts_out = []
+    for att in attachments or []:
+        if not isinstance(att, dict):
+            continue
+        raw = att.get("content")
+        name = (att.get("name") or "attachment.bin").strip() or "attachment.bin"
+        if raw is None:
+            continue
+        if isinstance(raw, str):
+            raw_b = raw.encode("utf-8")
+        else:
+            raw_b = bytes(raw)
+        # Graph fileAttachment limit ~3MB for simple contentBytes; warn but still try
+        ctype = (att.get("content_type") or "application/octet-stream").strip()
+        atts_out.append(
+            {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": name[:200],
+                "contentType": ctype,
+                "contentBytes": base64.b64encode(raw_b).decode("ascii"),
+            }
+        )
+    if atts_out:
+        message["attachments"] = atts_out
     payload = {
-        "message": {
-            "subject": subject or "(no subject)",
-            "body": {"contentType": "Text", "content": body or ""},
-            "toRecipients": [
-                {"emailAddress": {"address": to}},
-            ],
-        },
+        "message": message,
         "saveToSentItems": bool(save_to_sent),
     }
     ok, _data, err, status = _request(

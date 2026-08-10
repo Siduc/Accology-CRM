@@ -176,10 +176,17 @@ Yours faithfully,
     return to, subject, body.strip() + "\n"
 
 
-def send_email(to: str, subject: str, body: str) -> Tuple[bool, str]:
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    attachments: Optional[list] = None,
+) -> Tuple[bool, str]:
     """
     Attempt SMTP send. Returns (ok, message).
     Caller must enforce CHASE_LIVE_MODE before calling.
+
+    attachments: optional list of {name, content (bytes), content_type}.
     """
     if not CHASE_LIVE_MODE:
         return False, "blocked_not_live"
@@ -193,6 +200,26 @@ def send_email(to: str, subject: str, body: str) -> Tuple[bool, str]:
         msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM}>" if SMTP_FROM_NAME else SMTP_FROM
         msg["To"] = to
         msg.set_content(body)
+        for att in attachments or []:
+            if not isinstance(att, dict):
+                continue
+            raw = att.get("content")
+            name = (att.get("name") or "attachment.bin").strip() or "attachment.bin"
+            if raw is None:
+                continue
+            data = raw.encode("utf-8") if isinstance(raw, str) else bytes(raw)
+            maintype, _, subtype = (
+                (att.get("content_type") or "application/octet-stream")
+                .partition("/")
+            )
+            if not subtype:
+                maintype, subtype = "application", "octet-stream"
+            msg.add_attachment(
+                data,
+                maintype=maintype,
+                subtype=subtype,
+                filename=name[:200],
+            )
         if SMTP_USE_TLS:
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
                 smtp.starttls()
