@@ -111,22 +111,36 @@
     {% set multi = item.page_end and item.page_start and (item.page_end - item.page_start) >= 1 %}
     {% if multi or (item.batch and item.batch.page_count and item.batch.page_count > 1) %}
     <div class="card" style="margin:0">
-      <h2 style="margin-top:0;font-size:1rem">Split multi-document PDF</h2>
-      <p class="small muted">
-        Image-only scans auto-split on blank pages; refine here if needed.
-        Enter the last page of each document <em>before</em> the next one starts
-        (e.g. <code>3,7,12</code> = docs end on pages 3, 7 and 12).
+      <h2 style="margin-top:0;font-size:1rem">Fix page splits (whole scan)</h2>
+      <p class="small muted" style="margin-top:0">
+        If typefaces or letters are mixed, re-cut the <strong>original {{ item.batch.page_count if item.batch else '?' }}-page</strong>
+        scan with exact page ranges. Example for 3 letters of 5, 2 and 4 pages:
+        <code>1-5, 6-7, 8-11</code>
+      </p>
+      {% if item.batch_id %}
+      <form method="post" action="/post/batches/{{ item.batch_id }}/reprocess" class="stack" style="gap:0.5rem"
+            onsubmit="return confirm('Replace open items for this scan with the new splits? (Filed/emailed items are kept.)');">
+        <label class="small muted" for="ranges">Page ranges (recommended)</label>
+        <input id="ranges" name="ranges" placeholder="e.g. 1-8, 9-12, 13-20, 21-24"
+               style="width:100%;font-family:ui-monospace,monospace"
+               title="Inclusive page numbers from the original multi-page scan">
+        <div class="actions" style="flex-wrap:wrap">
+          <button class="btn btn-sm" type="submit">Apply page ranges</button>
+          <button class="btn btn-sm btn-outline" type="submit" name="ranges" value=""
+                  onclick="return confirm('Auto-split using blank pages + letterhead changes?');">
+            Auto re-split (improved)
+          </button>
+        </div>
+      </form>
+      {% endif %}
+      <hr style="border:none;border-top:1px solid var(--border,#e2e8f0);margin:0.85rem 0">
+      <p class="small muted" style="margin:0 0 0.35rem">
+        Or split <em>only this item</em> after page numbers (e.g. <code>3,7</code> = new docs start after those pages):
       </p>
       <form method="post" action="/post/items/{{ item.id }}/split" class="actions" style="flex-wrap:wrap">
         <input name="breaks" placeholder="e.g. 3,7,12" style="min-width:10rem">
-        <button class="btn btn-sm btn-outline" type="submit">Split</button>
+        <button class="btn btn-sm btn-outline" type="submit">Split this item</button>
       </form>
-      {% if item.batch_id %}
-      <form method="post" action="/post/batches/{{ item.batch_id }}/reprocess" style="margin-top:0.65rem"
-            onsubmit="return confirm('Re-run auto-split on the whole scan (open items only)?');">
-        <button class="btn btn-sm btn-outline" type="submit">Re-run auto-split on whole batch</button>
-      </form>
-      {% endif %}
     </div>
     {% endif %}
   </div>

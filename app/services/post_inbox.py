@@ -281,9 +281,15 @@ _NEW_DOC_MARKERS = (
 
 
 def extract_page_ink_ratios(path: Path) -> List[float]:
+    """Fraction of non-white pixels per page (0–1)."""
+    profiles = extract_page_visual_profiles(path)
+    return [p.get("ink", 0.5) for p in profiles]
+
+
+def extract_page_visual_profiles(path: Path) -> List[Dict[str, Any]]:
     """
-    Fraction of non-white pixels per page (0–1), via PyMuPDF when available.
-    Used to detect blank separator sheets on image-only scanner PDFs (no OCR text).
+    Per-page ink + fixed-size greyscale fingerprints (full page + top letterhead band).
+    Used to find blank separators and letterhead changes on image-only scans.
     """
     path = Path(path)
     if not path.is_file() or path.suffix.lower() != ".pdf":
@@ -292,27 +298,58 @@ def extract_page_ink_ratios(path: Path) -> List[float]:
         import fitz  # PyMuPDF
     except ImportError:
         return []
+
+    def _grid(samples: bytes, w: int, h: int, size: int, y0: int = 0, y1: Optional[int] = None) -> List[float]:
+        y1 = h if y1 is None else min(h, y1)
+        y0 = max(0, y0)
+        out: List[float] = []
+        for gy in range(size):
+            for gx in range(size):
+                xa = int(gx * w / size)
+                xb = max(xa + 1, int((gx + 1) * w / size))
+                ya = y0 + int(gy * (y1 - y0) / size)
+                yb = y0 + max(1, int((gy + 1) * (y1 - y0) / size))
+                total = 0
+                n = 0
+                for y in range(ya, min(yb, y1)):
+                    row = y * w
+                    for x in range(xa, min(xb, w)):
+                        total += samples[row + x]
+                        n += 1
+                out.append(total / max(n, 1))
+        return out
+
     try:
         doc = fitz.open(str(path))
-        ratios: List[float] = []
-        # small render — enough to tell blank vs letter
-        mat = fitz.Matrix(0.18, 0.18)
+        profiles: List[Dict[str, Any]] = []
+        mat = fitz.Matrix(0.16, 0.16)
         for i in range(doc.page_count):
             try:
                 pix = doc[i].get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
                 samples = pix.samples or b""
-                if not samples:
-                    ratios.append(0.0)
+                w, h = pix.width, pix.height
+                if not samples or w < 2 or h < 2:
+                    profiles.append({"ink": 0.0, "full": [], "top": []})
                     continue
                 nonwhite = sum(1 for b in samples if b < 245)
-                ratios.append(nonwhite / max(len(samples), 1))
+                ink = nonwhite / max(len(samples), 1)
+                full = _grid(samples, w, h, 16)
+                top = _grid(samples, w, h, 12, y0=0, y1=max(1, h // 4))
+                profiles.append({"ink": ink, "full": full, "top": top})
             except Exception:
-                ratios.append(0.5)  # assume content if probe fails
+                profiles.append({"ink": 0.5, "full": [], "top": []})
         doc.close()
-        return ratios
+        return profiles
     except Exception as exc:
-        logger.warning("ink ratios failed for %s: %s", path, exc)
+        logger.warning("visual profiles failed for %s: %s", path, exc)
         return []
+
+
+def _visual_sim(a: List[float], b: List[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    mad = sum(abs(x - y) for x, y in zip(a, b)) / len(a) / 255.0
+    return 1.0 - mad
 
 
 def _page_is_blank(text: str, ink: Optional[float] = None) -> bool:
@@ -373,14 +410,16 @@ def _page_looks_like_new_document(text: str, *, is_first: bool) -> bool:
 def detect_document_page_ranges(
     page_texts: List[str],
     ink_ratios: Optional[List[float]] = None,
+    visual_profiles: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Tuple[int, int, str]]:
     """
-    Split a multi-page PDF into documents (Ahmed-style content boundaries).
+    Split a multi-page PDF into documents.
 
     Returns list of (page_start, page_end, reason) 1-based inclusive.
     Uses:
       - blank separator pages (text and/or low ink on image scans)
-      - letter/form start markers on a page (new document)
+      - letterhead / layout change (visual fingerprint) for image-only scans
+      - letter/form start markers in OCR text when available
     """
     n = len(page_texts)
     if n == 0:
@@ -388,7 +427,8 @@ def detect_document_page_ranges(
     if n == 1:
         return [(1, 1, "single page")]
 
-    ink = ink_ratios or []
+    profiles = visual_profiles or []
+    ink = ink_ratios or [p.get("ink", 0.5) for p in profiles]
 
     def blank(i: int) -> bool:
         t = page_texts[i] if i < len(page_texts) else ""
@@ -413,9 +453,21 @@ def detect_document_page_ranges(
                 reasons[i] = "after blank separator"
             continue
 
+        # Image-only: letterhead / layout change (same letterhead ⇒ keep together)
+        if i < len(profiles) and i - 1 < len(profiles):
+            cur, prev_p = profiles[i], profiles[i - 1]
+            top_s = _visual_sim(cur.get("top") or [], prev_p.get("top") or [])
+            full_s = _visual_sim(cur.get("full") or [], prev_p.get("full") or [])
+            # Strong same letterhead band → continuation of multi-page letter
+            if top_s >= 0.82:
+                pass  # do not split on layout alone
+            elif top_s < 0.76 and full_s < 0.86:
+                if i not in starts:
+                    starts.append(i)
+                    reasons[i] = f"letterhead change (top={top_s:.2f})"
+                continue
+
         if _page_looks_like_new_document(t, is_first=False):
-            # Avoid splitting mid-letter if previous page was also same form header only
-            # (repeated HMRC header on page 2) — require either blank before or "Page 1"
             head = t[:500]
             page1 = bool(re.search(r"\bPage\s*1\s*(?:of|/)\s*\d+\b", head, re.I))
             strong_new = bool(
@@ -428,7 +480,6 @@ def detect_document_page_ranges(
                     re.I,
                 )
             )
-            # If previous page clearly continued ("Page 2 of") don't split on HMRC alone
             prev_cont = bool(
                 re.search(r"\bPage\s*[2-9]\d*\s*(?:of|/)\s*\d+\b", prev[:400], re.I)
             )
@@ -441,15 +492,13 @@ def detect_document_page_ranges(
             elif not prev_cont and re.search(
                 r"\bHM\s*Revenue|\bHMRC\b|\bCompanies\s+House\b", head, re.I
             ):
-                # New agency letterhead after non-continuation page
                 if i not in starts:
                     starts.append(i)
-                    reasons[i] = "new letterhead"
+                    reasons[i] = "new letterhead text"
 
     starts = sorted(set(starts))
     ranges: List[Tuple[int, int, str]] = []
     for idx, st in enumerate(starts):
-        # Skip pure blank start pages
         while st < n and blank(st):
             st += 1
         if st >= n:
@@ -458,7 +507,6 @@ def detect_document_page_ranges(
             en = starts[idx + 1] - 1
         else:
             en = n - 1
-        # Trim trailing blanks
         while en > st and blank(en):
             en -= 1
         if en < st:
@@ -468,6 +516,51 @@ def detect_document_page_ranges(
     if not ranges:
         return [(1, n, "whole file")]
     return ranges
+
+
+def parse_page_ranges_spec(spec: str, page_count: int) -> List[Tuple[int, int, str]]:
+    """
+    Parse user page ranges like: 1-8, 10, 12-19, 21-24
+    Returns list of (start, end, reason) 1-based inclusive, validated & sorted.
+    """
+    raw = (spec or "").strip()
+    if not raw:
+        return []
+    out: List[Tuple[int, int, str]] = []
+    for part in re.split(r"[,;\n]+", raw):
+        part = part.strip().replace("–", "-").replace("—", "-")
+        if not part:
+            continue
+        if "-" in part:
+            a, _, b = part.partition("-")
+            if not a.strip().isdigit() or not b.strip().isdigit():
+                continue
+            ps, pe = int(a.strip()), int(b.strip())
+        elif part.isdigit():
+            ps = pe = int(part)
+        else:
+            continue
+        if ps < 1:
+            ps = 1
+        if pe > page_count:
+            pe = page_count
+        if pe < ps:
+            ps, pe = pe, ps
+        out.append((ps, pe, "manual range"))
+    out.sort(key=lambda x: (x[0], x[1]))
+    # drop overlaps by keeping first-listed order after sort — clip overlaps
+    cleaned: List[Tuple[int, int, str]] = []
+    last_end = 0
+    for ps, pe, reason in out:
+        if pe <= last_end:
+            continue
+        if ps <= last_end:
+            ps = last_end + 1
+        if ps > pe:
+            continue
+        cleaned.append((ps, pe, reason))
+        last_end = pe
+    return cleaned
 
 
 def _split_pdf_pages(
@@ -521,17 +614,25 @@ def _build_items_for_batch(
     *,
     ranges: Optional[List[Tuple[int, int, str]]] = None,
     ink_ratios: Optional[List[float]] = None,
+    visual_profiles: Optional[List[Dict[str, Any]]] = None,
 ) -> int:
     """Create PostItem rows for ranges; returns count created."""
     n_pages = len(page_texts) or batch.page_count or 1
-    if ink_ratios is None and source_pdf and Path(source_pdf).is_file():
+    profiles = visual_profiles
+    if profiles is None and source_pdf and Path(source_pdf).is_file():
+        profiles = extract_page_visual_profiles(Path(source_pdf))
+    if ink_ratios is None and profiles:
+        ink_ratios = [p.get("ink", 0.5) for p in profiles]
+    elif ink_ratios is None and source_pdf and Path(source_pdf).is_file():
         ink_ratios = extract_page_ink_ratios(Path(source_pdf))
     # Image-only scans: empty OCR text but ink on letter pages
     if page_texts and ink_ratios:
         page_texts = _normalize_page_texts_with_ink(page_texts, ink_ratios)
     if ranges is None:
         ranges = (
-            detect_document_page_ranges(page_texts, ink_ratios)
+            detect_document_page_ranges(
+                page_texts, ink_ratios, visual_profiles=profiles
+            )
             if page_texts
             else [(1, n_pages, "whole")]
         )
@@ -1047,10 +1148,12 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
             page_texts: List[str] = []
             page_count = 1
             ink_ratios: List[float] = []
+            visual_profiles: List[Dict[str, Any]] = []
             if proc.suffix.lower() == ".pdf":
                 page_texts, _terr = extract_pdf_page_texts(proc)
                 page_count = len(page_texts) or 1
-                ink_ratios = extract_page_ink_ratios(proc)
+                visual_profiles = extract_page_visual_profiles(proc)
+                ink_ratios = [p.get("ink", 0.5) for p in visual_profiles]
                 if page_count < 1 and ink_ratios:
                     page_count = len(ink_ratios)
                     page_texts = [""] * page_count
@@ -1086,6 +1189,7 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
                 page_texts,
                 dirs,
                 ink_ratios=ink_ratios,
+                visual_profiles=visual_profiles,
             )
             items_created += n_items
 
@@ -1157,10 +1261,17 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
     }
 
 
-def reprocess_batch(db: Session, batch_id: int) -> Tuple[bool, str]:
+def reprocess_batch(
+    db: Session,
+    batch_id: int,
+    *,
+    ranges_spec: str = "",
+    replace_all_open: bool = True,
+) -> Tuple[bool, str]:
     """
-    Re-run auto-split on an already-imported batch (e.g. after improving
-    blank-page detection for image-only scanner PDFs).
+    Re-run auto-split (or apply manual page ranges) on an imported batch.
+
+    ranges_spec examples: \"1-8, 10, 12-19, 21-24\"
     Replaces open inbox/suggested items only — keeps filed/emailed items.
     """
     batch = db.query(PostBatch).filter(PostBatch.id == batch_id).first()
@@ -1172,29 +1283,48 @@ def reprocess_batch(db: Session, batch_id: int) -> Tuple[bool, str]:
             src = Path(cand)
             break
     if not src:
-        return False, "Original scan file missing on disk"
+        return False, "Original scan file missing on disk — re-import from Accologies Post"
 
     dirs = ensure_inbox_dirs()
     page_texts, _err = extract_pdf_page_texts(src)
-    ink = extract_page_ink_ratios(src)
+    profiles = extract_page_visual_profiles(src)
+    ink = [p.get("ink", 0.5) for p in profiles]
     if not page_texts and ink:
         page_texts = [""] * len(ink)
     if not page_texts:
         return False, "Could not read PDF pages"
+
+    n_pages = len(page_texts)
+    manual = parse_page_ranges_spec(ranges_spec, n_pages) if ranges_spec else []
+
+    # Pages already claimed by filed/emailed items must not be recreated
+    kept = (
+        db.query(PostItem)
+        .filter(
+            PostItem.batch_id == batch_id,
+            PostItem.status.notin_(["inbox", "suggested", "error"]),
+        )
+        .all()
+    )
+    used_pages: set = set()
+    for it in kept:
+        ps = int(it.page_start or 0)
+        pe = int(it.page_end or 0)
+        if ps and pe and pe >= ps:
+            used_pages.update(range(ps, pe + 1))
 
     # Drop open items only (so re-run is safe after partial filing)
     open_items = (
         db.query(PostItem)
         .filter(
             PostItem.batch_id == batch_id,
-            PostItem.status.in_(["inbox", "suggested"]),
+            PostItem.status.in_(["inbox", "suggested", "error"]),
         )
         .all()
     )
     for it in open_items:
         try:
             if it.local_path and Path(it.local_path).is_file():
-                # only delete split files under splits/
                 lp = Path(it.local_path)
                 if "splits" in lp.parts:
                     lp.unlink(missing_ok=True)
@@ -1203,14 +1333,70 @@ def reprocess_batch(db: Session, batch_id: int) -> Tuple[bool, str]:
         db.delete(it)
     db.flush()
 
+    if manual:
+        ranges = manual
+    else:
+        ranges = detect_document_page_ranges(
+            _normalize_page_texts_with_ink(page_texts, ink) if ink else page_texts,
+            ink,
+            visual_profiles=profiles,
+        )
+    # Clip out pages already filed/emailed
+    if used_pages:
+        clipped: List[Tuple[int, int, str]] = []
+        for ps, pe, reason in ranges:
+            segs: List[Tuple[int, int]] = []
+            cur_s = None
+            for p in range(ps, pe + 1):
+                if p in used_pages:
+                    if cur_s is not None:
+                        segs.append((cur_s, p - 1))
+                        cur_s = None
+                else:
+                    if cur_s is None:
+                        cur_s = p
+            if cur_s is not None:
+                segs.append((cur_s, pe))
+            for a, b in segs:
+                clipped.append((a, b, reason + " · skip filed pages"))
+        ranges = clipped
+
     n = _build_items_for_batch(
-        db, batch, src, page_texts, dirs, ink_ratios=ink
+        db,
+        batch,
+        src,
+        page_texts,
+        dirs,
+        ranges=ranges if ranges else None,
+        ink_ratios=ink,
+        visual_profiles=profiles,
     )
-    batch.page_count = len(page_texts)
+    batch.page_count = n_pages
     batch.status = "ready"
     batch.processed_at = datetime.utcnow()
     db.commit()
-    return True, f"Re-split into {n} document(s) from {len(page_texts)} page(s)"
+
+    # OCR + client match for new items
+    try:
+        for it in (
+            db.query(PostItem)
+            .filter(
+                PostItem.batch_id == batch_id,
+                PostItem.status.in_(["inbox", "suggested"]),
+            )
+            .all()
+        ):
+            enrich_item_text_and_match(db, it, use_vision=True)
+        db.commit()
+    except Exception:
+        logger.exception("OCR after reprocess batch %s", batch_id)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+    mode = "manual ranges" if manual else "auto (blank + letterhead)"
+    return True, f"Re-split into {n} document(s) from {n_pages} page(s) · {mode}"
 
 
 def split_item(

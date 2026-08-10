@@ -58,9 +58,13 @@
   {% if pending_files|default(0) %}
   <div class="chase-banner chase-banner-info" style="margin-top:0.75rem">
     <strong>{{ pending_files }}</strong> scan file(s) waiting — press <strong>Import from scanner folder</strong> to pull them into the ledger
-    (multi-page PDFs are auto-split into separate documents when letter markers are found).
+    (multi-page PDFs are auto-split using blank pages + letterhead changes; you can fix ranges on Review).
   </div>
   {% endif %}
+  <p class="small muted" style="margin:0.65rem 0 0">
+    If pages from different letters are mixed, open any item from that scan → <strong>Fix page splits</strong>
+    and enter exact ranges (e.g. <code>1-5, 6-10, 11-18</code>) for the whole multi-page PDF.
+  </p>
 </div>
 
 <div class="card" style="margin-bottom:1rem">

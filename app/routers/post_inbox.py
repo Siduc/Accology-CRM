@@ -236,16 +236,24 @@ async def post_item_split(
 
 
 @router.post("/post/batches/{batch_id:int}/reprocess")
-async def post_batch_reprocess(batch_id: int, db: Session = Depends(get_db)):
-    """Re-run auto-split on a multi-page scan (image blank detection, markers)."""
-    ok, msg = post_svc.reprocess_batch(db, batch_id)
+async def post_batch_reprocess(
+    batch_id: int,
+    ranges: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Re-run split on a multi-page scan.
+    Optional ranges e.g. 1-8, 10, 12-19 (recommended when auto mix-up pages).
+    Empty ranges = auto (blank pages + letterhead change).
+    """
+    ok, msg = post_svc.reprocess_batch(db, batch_id, ranges_spec=ranges or "")
     if not ok:
         return RedirectResponse(
             f"/post?error={url_quote(msg[:300])}",
             status_code=303,
         )
     return RedirectResponse(
-        f"/post?msg={url_quote(msg[:300])}",
+        f"/post?msg={url_quote(msg[:400])}",
         status_code=303,
     )
 
