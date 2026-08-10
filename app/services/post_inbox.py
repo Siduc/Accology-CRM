@@ -1584,6 +1584,7 @@ def apply_item_action(
         "email_client",
         "file_and_email",
         "dismiss",
+        "delete",
         "review",
     ):
         return False, "Unknown action"
@@ -1601,8 +1602,37 @@ def apply_item_action(
         db.commit()
         return True, "Dismissed"
 
+    if action == "delete":
+        # Permanent remove — no client required (tests / junk / bad splits)
+        try:
+            if item.local_path:
+                lp = Path(item.local_path)
+                if lp.is_file() and "splits" in lp.parts:
+                    lp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        batch = item.batch
+        db.delete(item)
+        if batch:
+            left = (
+                db.query(PostItem)
+                .filter(PostItem.batch_id == batch.id)
+                .count()
+            )
+            # count after delete needs flush first
+            db.flush()
+            left = (
+                db.query(PostItem)
+                .filter(PostItem.batch_id == batch.id)
+                .count()
+            )
+            if left == 0:
+                db.delete(batch)
+        db.commit()
+        return True, "Deleted"
+
     if action in ("file_client", "file_hmrc", "file_and_email", "email_client"):
-        if not cid and action != "dismiss":
+        if not cid:
             return False, "Select a client first"
 
     path = Path(item.local_path or "")

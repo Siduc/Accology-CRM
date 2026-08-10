@@ -173,10 +173,20 @@
           <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_client">File to client</button>
           <button class="btn btn-secondary wc-touch" type="submit" name="action" value="email_client">Email client</button>
           <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_and_email">File + email</button>
-          <button class="btn btn-outline wc-touch" type="submit" name="action" value="dismiss"
-                  onclick="return confirm('Dismiss without filing?');">Dismiss</button>
         </div>
       </form>
+      {# Separate form — no client required (browser required= blocked dismiss before) #}
+      <div class="actions" style="flex-wrap:wrap;margin-top:0.75rem;padding-top:0.65rem;border-top:1px solid var(--border,#e2e8f0)">
+        <form method="post" action="/post/items/{{ item.id }}/action" style="display:inline"
+              onsubmit="return confirm('Dismiss without filing? (stays in history as dismissed)');">
+          <input type="hidden" name="action" value="dismiss">
+          <button class="btn btn-outline btn-sm wc-touch" type="submit">Dismiss</button>
+        </form>
+        <form method="post" action="/post/items/{{ item.id }}/delete" style="display:inline"
+              onsubmit="return confirm('Permanently delete this post item and its PDF split?');">
+          <button class="btn btn-outline btn-sm wc-touch" type="submit" style="border-color:#b91c1c;color:#b91c1c">Delete</button>
+        </form>
+      </div>
     </div>
 
     {% set multi = item.page_end and item.page_start and (item.page_end - item.page_start) >= 1 %}

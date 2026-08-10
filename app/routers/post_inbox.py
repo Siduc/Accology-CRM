@@ -198,6 +198,26 @@ async def post_item_file(item_id: int, db: Session = Depends(get_db)):
     )
 
 
+@router.post("/post/items/{item_id:int}/delete")
+async def post_item_delete(item_id: int, db: Session = Depends(get_db)):
+    """Permanent delete — no client required (tests / junk / bad splits)."""
+    ok, msg = post_svc.apply_item_action(
+        db,
+        item_id,
+        action="delete",
+        reviewed_by="",
+    )
+    if not ok:
+        return RedirectResponse(
+            f"/post/items/{item_id}?error={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/post?msg={url_quote(msg[:200])}",
+        status_code=303,
+    )
+
+
 @router.post("/post/items/{item_id:int}/action")
 async def post_item_action(
     item_id: int,

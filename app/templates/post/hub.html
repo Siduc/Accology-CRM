@@ -109,11 +109,15 @@
             <span class="badge">{{ it.suggested_action or 'review' }}</span>
             {% if it.confidence %}<span class="muted small">{{ '%.0f'|format(it.confidence * 100) }}%</span>{% endif %}
           </td>
-          <td class="actions" style="gap:0.25rem">
+          <td class="actions" style="gap:0.25rem;flex-wrap:wrap">
             <a class="btn btn-sm wc-touch" href="/post/items/{{ it.id }}">Review</a>
             {% if it.local_path %}
             <a class="btn btn-sm btn-outline wc-touch" href="/post/items/{{ it.id }}/file" target="_blank" rel="noopener">PDF</a>
             {% endif %}
+            <form method="post" action="/post/items/{{ it.id }}/delete" style="display:inline"
+                  onsubmit="return confirm('Delete this post item?');">
+              <button class="btn btn-sm btn-outline wc-touch" type="submit" style="border-color:#b91c1c;color:#b91c1c">Delete</button>
+            </form>
           </td>
         </tr>
         {% endfor %}
