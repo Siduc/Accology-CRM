@@ -707,8 +707,9 @@ def apply_rules(
 def suggest_client(
     db: Session, text: str
 ) -> Tuple[Optional[Client], float, str]:
-    """Match client by company number in text, then fuzzy name."""
-    for cn in _find_company_numbers(text):
+    """Match client by company number in text, letterhead name, or reverse name scan."""
+    raw = text or ""
+    for cn in _find_company_numbers(raw):
         c = (
             db.query(Client)
             .filter(Client.company_number == cn)
@@ -718,20 +719,259 @@ def suggest_client(
             return c, 0.95, f"Company number {cn}"
 
     # Try significant capitalised phrases as names (cheap heuristic)
-    # Use longest lines that look like company names
-    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
     candidates: List[str] = []
-    for ln in lines[:40]:
-        if len(ln) < 4 or len(ln) > 80:
+    for ln in lines[:60]:
+        if len(ln) < 4 or len(ln) > 100:
             continue
-        if re.search(r"\b(limited|ltd|llp|plc)\b", ln, re.I):
+        if re.search(r"\b(limited|ltd|llp|plc|llp)\b", ln, re.I):
             candidates.append(ln)
-    for name in candidates[:8]:
+        # Also lines in ALL CAPS that look like company names
+        elif len(ln) >= 8 and ln.upper() == ln and re.search(r"[A-Z]{3,}", ln):
+            candidates.append(ln.title())
+    for name in candidates[:12]:
         ranked = match_clients_ranked(db, name, limit=1)
-        if ranked and ranked[0][1] >= 70:
+        if ranked and ranked[0][1] >= 65:
             return ranked[0][0], min(0.9, ranked[0][1] / 100.0), f"Name ~ {name[:40]}"
 
+    # Reverse scan: does any practice client name appear in the letter text?
+    # Works well once OCR/vision has read the letterhead.
+    low = normalize_client_name(raw)
+    if len(low) >= 20:
+        best: Optional[Tuple[Client, float, str]] = None
+        clients = (
+            db.query(Client)
+            .filter(Client.overall_status.notin_(["Inactive", "Former"]))
+            .all()
+        )
+        for c in clients:
+            name = normalize_client_name(c.company_name or "")
+            if len(name) < 5:
+                continue
+            # Drop very common short suffixes-only matches
+            core = re.sub(
+                r"\b(limited|ltd|llp|plc|the|and|&)\b", " ", name
+            )
+            core = re.sub(r"\s+", " ", core).strip()
+            if len(core) < 4:
+                continue
+            if name in low or (len(core) >= 6 and core in low):
+                score = 0.88 if name in low else 0.78
+                # Prefer longer / more specific names
+                score += min(0.08, len(core) / 200.0)
+                if best is None or score > best[1]:
+                    best = (c, score, f"Letter mentions {c.company_name}")
+        if best and best[1] >= 0.78:
+            return best[0], min(0.95, best[1]), best[2]
+
     return None, 0.0, ""
+
+
+def _pdf_page_png_b64(path: Path, page_index: int = 0, dpi: float = 140) -> Optional[str]:
+    """Render one PDF page to PNG base64 for vision OCR."""
+    try:
+        import base64
+
+        import fitz
+    except ImportError:
+        return None
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        doc = fitz.open(str(path))
+        if page_index < 0 or page_index >= doc.page_count:
+            doc.close()
+            return None
+        zoom = max(1.0, dpi / 72.0)
+        pix = doc[page_index].get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+        data = pix.tobytes("png")
+        doc.close()
+        return base64.b64encode(data).decode("ascii")
+    except Exception as exc:
+        logger.warning("page render failed %s p%s: %s", path, page_index, exc)
+        return None
+
+
+def ocr_pdf_with_vision(path: Path, *, max_pages: int = 2) -> str:
+    """
+    Read text from image-only scan pages via xAI vision (Grok).
+    Used when pdfplumber/pypdf extract nothing (typical scanner PDFs).
+    """
+    from app.config import AI_MODEL, XAI_API_KEY
+
+    if not (XAI_API_KEY or "").strip():
+        return ""
+    path = Path(path)
+    if not path.is_file():
+        return ""
+    try:
+        import fitz
+        import httpx
+    except ImportError:
+        return ""
+
+    try:
+        n = fitz.open(str(path)).page_count
+    except Exception:
+        n = 1
+    n = min(max(1, n), max_pages)
+
+    chunks: List[str] = []
+    for i in range(n):
+        b64 = _pdf_page_png_b64(path, i, dpi=130)
+        if not b64:
+            continue
+        prompt = (
+            "You are reading a scanned UK accounting practice letter or form. "
+            "Transcribe the visible text faithfully. Prioritise: company/recipient "
+            "name, company number, address, sender (HMRC, Companies House, bank, etc.), "
+            "subject line, and any reference numbers. "
+            "Return plain text only — no markdown fences."
+        )
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{b64}",
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+        try:
+            headers = {
+                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Content-Type": "application/json",
+            }
+            body = {
+                "model": AI_MODEL or "grok-4.5",
+                "messages": messages,
+                "temperature": 0.1,
+                "max_tokens": 1200,
+            }
+            with httpx.Client(timeout=90.0) as client:
+                r = client.post(
+                    "https://api.x.ai/v1/chat/completions",
+                    headers=headers,
+                    json=body,
+                )
+                if r.status_code >= 400:
+                    logger.warning(
+                        "vision OCR HTTP %s: %s", r.status_code, r.text[:200]
+                    )
+                    continue
+                data = r.json()
+            text = (
+                ((data.get("choices") or [{}])[0].get("message") or {}).get(
+                    "content"
+                )
+                or ""
+            ).strip()
+            if text:
+                chunks.append(text)
+        except Exception as exc:
+            logger.warning("vision OCR failed %s p%s: %s", path.name, i + 1, exc)
+    return "\n\n".join(chunks)[:20000]
+
+
+def enrich_item_text_and_match(
+    db: Session, item: PostItem, *, use_vision: bool = True
+) -> bool:
+    """OCR if needed, re-run rules + client match. Returns True if updated."""
+    ensure_item_file(db, item)
+    path = Path(item.local_path) if item.local_path else None
+    text = (item.text_excerpt or "").strip()
+    placeholder = text.startswith("[scanned") or len(text) < 40
+
+    if path and path.is_file() and (placeholder or not text) and use_vision:
+        ocr = ocr_pdf_with_vision(path, max_pages=2)
+        if ocr and len(ocr) > 40:
+            text = ocr
+            item.text_excerpt = ocr[:8000]
+            # Prefer a real title from first line of OCR
+            title = _title_from_text(ocr, item.title or path.name)
+            if title and not title.startswith("Scan"):
+                item.title = title[:200]
+
+    if not text or len(text) < 20:
+        return False
+
+    rule, action, category, conf = apply_rules(db, text)
+    client, cconf, match_reason = suggest_client(db, text)
+    if rule and rule.client_id and not client:
+        client = db.query(Client).filter(Client.id == rule.client_id).first()
+        if client:
+            match_reason = f"Rule: {rule.name}"
+            cconf = max(cconf, 0.7)
+
+    item.category = category or item.category
+    item.suggested_action = action or item.suggested_action
+    if client:
+        item.suggested_client_id = client.id
+    # Keep confidence meaningful after OCR even if no client yet
+    if text and len(text) > 80:
+        conf = max(conf, 0.4)
+    if cconf:
+        conf = max(conf, cconf)
+    item.confidence = conf if conf else item.confidence
+    if match_reason:
+        item.match_reason = match_reason
+    item.rule_id = rule.id if rule else item.rule_id
+    if client:
+        item.status = "suggested"
+    elif item.status not in ("inbox", "suggested"):
+        pass
+    else:
+        item.status = "inbox"
+    return True
+
+
+def reclassify_open_items(
+    db: Session, *, limit: int = 40, use_vision: bool = True
+) -> Dict[str, Any]:
+    """Re-OCR and re-match open post items (fixes 10% confidence / no client)."""
+    items = (
+        db.query(PostItem)
+        .options(joinedload(PostItem.batch))
+        .filter(PostItem.status.in_(["inbox", "suggested"]))
+        .order_by(PostItem.id.desc())
+        .limit(limit)
+        .all()
+    )
+    updated = 0
+    matched = 0
+    errors: List[str] = []
+    for it in items:
+        try:
+            if enrich_item_text_and_match(db, it, use_vision=use_vision):
+                updated += 1
+                if it.suggested_client_id:
+                    matched += 1
+        except Exception as exc:
+            errors.append(f"#{it.id}: {exc}")
+            logger.exception("reclassify item %s", it.id)
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        return {
+            "ok": False,
+            "updated": 0,
+            "matched": 0,
+            "errors": [str(exc)],
+        }
+    return {
+        "ok": True,
+        "updated": updated,
+        "matched": matched,
+        "total": len(items),
+        "errors": errors,
+    }
 
 
 def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
@@ -852,6 +1092,25 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
             batch.status = "ready"
             batch.processed_at = datetime.utcnow()
             db.commit()
+
+            # Image-only scans: vision OCR first page(s) + client match
+            try:
+                batch_items = (
+                    db.query(PostItem)
+                    .filter(PostItem.batch_id == batch.id)
+                    .order_by(PostItem.sort_order.asc())
+                    .all()
+                )
+                for it in batch_items:
+                    enrich_item_text_and_match(db, it, use_vision=True)
+                db.commit()
+            except Exception:
+                logger.exception("OCR/match after import failed for batch %s", batch.id)
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+
             imported += 1
 
             try:

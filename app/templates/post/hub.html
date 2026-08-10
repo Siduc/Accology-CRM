@@ -13,6 +13,12 @@
     <form method="post" action="/post/import" style="display:inline">
       <button class="btn wc-touch" type="submit">Import from scanner folder</button>
     </form>
+    <form method="post" action="/post/reclassify" style="display:inline"
+          onsubmit="return confirm('Re-read open letters with OCR and re-match clients? This may take a minute.');">
+      <button class="btn btn-outline wc-touch" type="submit" title="Vision OCR + client match for image scans">
+        Re-read &amp; match clients
+      </button>
+    </form>
     <a class="btn btn-outline wc-touch" href="/post/rules">Routing rules</a>
     <a class="btn btn-outline wc-touch" href="/documents">Documents</a>
   </div>
@@ -95,7 +101,12 @@
             <span class="badge">{{ it.suggested_action or 'review' }}</span>
             {% if it.confidence %}<span class="muted small">{{ '%.0f'|format(it.confidence * 100) }}%</span>{% endif %}
           </td>
-          <td><a class="btn btn-sm wc-touch" href="/post/items/{{ it.id }}">Review</a></td>
+          <td class="actions" style="gap:0.25rem">
+            <a class="btn btn-sm wc-touch" href="/post/items/{{ it.id }}">Review</a>
+            {% if it.local_path %}
+            <a class="btn btn-sm btn-outline wc-touch" href="/post/items/{{ it.id }}/file" target="_blank" rel="noopener">PDF</a>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

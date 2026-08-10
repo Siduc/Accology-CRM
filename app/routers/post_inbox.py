@@ -74,6 +74,25 @@ async def post_import(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse(f"/post?msg={url_quote(msg[:400])}", status_code=303)
 
 
+@router.post("/post/reclassify")
+async def post_reclassify(request: Request, db: Session = Depends(get_db)):
+    """Re-OCR image scans (Grok vision) and re-match clients for open items."""
+    result = post_svc.reclassify_open_items(db, limit=40, use_vision=True)
+    if not result.get("ok"):
+        err = "; ".join(result.get("errors") or ["Re-read failed"])
+        return RedirectResponse(
+            f"/post?error={url_quote(err[:300])}",
+            status_code=303,
+        )
+    msg = (
+        f"Re-read {result.get('updated', 0)} of {result.get('total', 0)} item(s) · "
+        f"{result.get('matched', 0)} with a suggested client"
+    )
+    if result.get("errors"):
+        msg += " · some errors: " + "; ".join(result["errors"][:2])
+    return RedirectResponse(f"/post?msg={url_quote(msg[:400])}", status_code=303)
+
+
 @router.get("/post/items/{item_id:int}", response_class=HTMLResponse)
 async def post_item_detail(
     item_id: int, request: Request, db: Session = Depends(get_db)
