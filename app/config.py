@@ -315,6 +315,11 @@ def _default_post_inbox_path() -> str:
 
 POST_INBOX_PATH = _env("POST_INBOX_PATH", _default_post_inbox_path()) or _default_post_inbox_path()
 
+# Brother ADF often feeds from the back of the stack and may save pages upside-down.
+# Applied on import before split/OCR. Override with POST_SCAN_REVERSE_ORDER=0 / POST_SCAN_ROTATE_180=0.
+POST_SCAN_REVERSE_ORDER = _env_bool("POST_SCAN_REVERSE_ORDER", True)
+POST_SCAN_ROTATE_180 = _env_bool("POST_SCAN_ROTATE_180", True)
+
 # Companies House XML Gateway (Software Filing / presenter account)
 # Apply: https://www.gov.uk/guidance/apply-to-file-with-companies-house-using-software
 CH_XML_PRESENTER_ID = _env("CH_XML_PRESENTER_ID") or ""

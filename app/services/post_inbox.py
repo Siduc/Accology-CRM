@@ -1075,6 +1075,97 @@ def reclassify_open_items(
     }
 
 
+def normalize_scan_pdf(
+    path: Path,
+    *,
+    reverse_order: Optional[bool] = None,
+    rotate_180: Optional[bool] = None,
+) -> Tuple[bool, str]:
+    """
+    Fix feeder quirks common on Brother document scanners:
+      - reverse page order (ADF takes from back of stack)
+      - rotate each page 180° (saved upside down)
+
+    Rewrites *path* in place. Returns (ok, message).
+    """
+    from app import config
+
+    path = Path(path)
+    if path.suffix.lower() != ".pdf" or not path.is_file():
+        return True, "skip non-pdf"
+    do_rev = (
+        bool(getattr(config, "POST_SCAN_REVERSE_ORDER", True))
+        if reverse_order is None
+        else bool(reverse_order)
+    )
+    do_rot = (
+        bool(getattr(config, "POST_SCAN_ROTATE_180", True))
+        if rotate_180 is None
+        else bool(rotate_180)
+    )
+    if not do_rev and not do_rot:
+        return True, "no transform"
+
+    # Prefer PyMuPDF
+    try:
+        import fitz
+
+        src = fitz.open(str(path))
+        n = src.page_count
+        if n < 1:
+            src.close()
+            return True, "empty"
+        out = fitz.open()
+        indices = list(range(n))
+        if do_rev:
+            indices = list(reversed(indices))
+        for i in indices:
+            out.insert_pdf(src, from_page=i, to_page=i)
+            if do_rot:
+                # Combine with any existing rotation
+                cur = out[-1].rotation
+                out[-1].set_rotation((cur + 180) % 360)
+        tmp = path.with_suffix(".norm.pdf")
+        out.save(str(tmp), garbage=3, deflate=True)
+        out.close()
+        src.close()
+        tmp.replace(path)
+        bits = []
+        if do_rev:
+            bits.append("reversed")
+        if do_rot:
+            bits.append("rotated-180")
+        return True, f"{'+'.join(bits)} ({n} pages)"
+    except ImportError:
+        pass
+    except Exception as exc:
+        logger.warning("fitz normalize failed, trying pypdf: %s", exc)
+
+    try:
+        from pypdf import PdfReader, PdfWriter
+
+        reader = PdfReader(str(path), strict=False)
+        writer = PdfWriter()
+        pages = list(reader.pages)
+        if do_rev:
+            pages = list(reversed(pages))
+        for pg in pages:
+            if do_rot:
+                try:
+                    pg.rotate(180)
+                except Exception:
+                    pass
+            writer.add_page(pg)
+        tmp = path.with_suffix(".norm.pdf")
+        with tmp.open("wb") as f:
+            writer.write(f)
+        tmp.replace(path)
+        return True, f"pypdf reverse={do_rev} rotate={do_rot} pages={len(pages)}"
+    except Exception as exc:
+        logger.exception("normalize_scan_pdf %s", path)
+        return False, str(exc)
+
+
 def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
     """
     Import new files from inbox/ into post_batches + post_items.
@@ -1082,6 +1173,8 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
     Multi-page PDFs are auto-split into multiple items using content markers
     (letterheads, Dear…, Form SA…, blank separators) — same approach as the
     Ahmed Bros multi-invoice pipeline, adapted for post.
+
+    On import, PDFs are normalised for Brother ADF quirks (reverse order + 180°).
     """
     dirs = ensure_inbox_dirs()
     seed_default_rules(db)
@@ -1144,6 +1237,14 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
             if proc.exists():
                 proc = dirs["processing"] / f"{path.stem}_{h[:8]}{path.suffix}"
             shutil.move(str(path), str(proc))
+
+            # Brother ADF: reverse stack order + flip upside-down pages
+            if proc.suffix.lower() == ".pdf":
+                ok_n, nmsg = normalize_scan_pdf(proc)
+                if ok_n and nmsg not in ("no transform", "skip non-pdf", "empty"):
+                    logger.info("Scan normalize %s: %s", proc.name, nmsg)
+                elif not ok_n:
+                    logger.warning("Scan normalize failed %s: %s", proc.name, nmsg)
 
             page_texts: List[str] = []
             page_count = 1
