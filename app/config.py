@@ -308,8 +308,8 @@ def _default_post_inbox_path() -> str:
     from pathlib import Path
 
     if os.name == "nt":
-        # Local Windows practice machine — Documents\Accologies Post
-        return str(Path.home() / "Documents" / "Accologies Post")
+        # Local Windows practice machine — Documents\Accologise Post
+        return str(Path.home() / "Documents" / "Accologise Post")
     return "/var/data/post-inbox"
 
 

@@ -1283,7 +1283,7 @@ def reprocess_batch(
             src = Path(cand)
             break
     if not src:
-        return False, "Original scan file missing on disk — re-import from Accologies Post"
+        return False, "Original scan file missing on disk — re-import from Accologise Post"
 
     dirs = ensure_inbox_dirs()
     page_texts, _err = extract_pdf_page_texts(src)
