@@ -53,6 +53,31 @@ async def post_hub(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.post("/post/clear")
+async def post_clear(request: Request, db: Session = Depends(get_db)):
+    """Delete all post items/batches so a fresh import can start clean."""
+    from app.models.post_inbox import PostBatch, PostItem
+    from pathlib import Path as _Path
+
+    items = db.query(PostItem).all()
+    n_items = len(items)
+    for it in items:
+        try:
+            if it.local_path:
+                p = _Path(it.local_path)
+                if p.is_file() and "splits" in p.parts:
+                    p.unlink(missing_ok=True)
+        except Exception:
+            pass
+        db.delete(it)
+    n_batches = db.query(PostBatch).count()
+    for b in db.query(PostBatch).all():
+        db.delete(b)
+    db.commit()
+    msg = f"Cleared {n_items} item(s) and {n_batches} batch(es). Re-scan if needed, then Import."
+    return RedirectResponse(f"/post?msg={url_quote(msg[:300])}", status_code=303)
+
+
 @router.post("/post/import")
 async def post_import(request: Request, db: Session = Depends(get_db)):
     result = post_svc.import_from_inbox(db)

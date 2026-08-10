@@ -1,11 +1,82 @@
 {% extends "base.html" %}
-{% block title %}Review post · Accologise{% endblock %}
+{% block title %}Review post · Accology{% endblock %}
 {% block content %}
-<div class="page-header">
+<style>
+  /* Full-height review: preview column fills to bottom of viewport */
+  .post-review-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.9fr);
+    gap: 1rem;
+    align-items: stretch;
+    /* header + banners + page padding ≈ leave rest for layout */
+    min-height: calc(100vh - 9.5rem);
+    max-height: calc(100vh - 7.5rem);
+  }
+  .post-preview-card {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    max-height: calc(100vh - 7.5rem);
+  }
+  .post-preview-card h2 {
+    margin: 0 0 0.5rem;
+    flex: 0 0 auto;
+  }
+  .post-preview-frame {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 20rem;
+    height: 100%;
+    border: 1px solid var(--border, #ddd);
+    border-radius: 8px;
+    background: #0f172a;
+  }
+  .post-preview-img {
+    flex: 1 1 auto;
+    width: 100%;
+    object-fit: contain;
+    min-height: 20rem;
+    border: 1px solid var(--border, #ddd);
+    border-radius: 8px;
+    background: #0f172a;
+  }
+  .post-review-side {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-height: 0;
+    max-height: calc(100vh - 7.5rem);
+    overflow: auto;
+  }
+  .post-review-side .card { margin: 0; }
+  @media (max-width: 900px) {
+    .post-review-layout {
+      grid-template-columns: 1fr;
+      max-height: none;
+      min-height: 0;
+    }
+    .post-preview-card {
+      max-height: none;
+      height: auto;
+    }
+    .post-preview-frame {
+      min-height: 70vh;
+      height: 70vh;
+    }
+    .post-review-side {
+      max-height: none;
+      overflow: visible;
+    }
+  }
+</style>
+
+<div class="page-header" style="margin-bottom:0.75rem">
   <div>
     <p class="small muted"><a href="/post">← Post inbox</a></p>
-    <h1 class="desk-page-title" style="font-size:clamp(1.3rem,3vw,1.7rem)">{{ item.title or 'Post item' }}</h1>
-    <p class="desk-page-sub muted small">
+    <h1 class="desk-page-title" style="font-size:clamp(1.2rem,2.5vw,1.55rem);margin-bottom:0.15rem">{{ item.title or 'Post item' }}</h1>
+    <p class="desk-page-sub muted small" style="margin:0">
       {{ item.batch.original_filename if item.batch else '' }}
       {% if item.page_start and item.page_end %} · pages {{ item.page_start }}–{{ item.page_end }}{% endif %}
       · <span class="badge">{{ item.status }}</span>
@@ -21,26 +92,26 @@
 {% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
-<div style="display:grid;grid-template-columns:1.1fr 1fr;gap:1rem;align-items:start">
-  <div class="card" style="margin:0">
-    <h2 style="margin-top:0">Preview</h2>
+<div class="post-review-layout">
+  <div class="card post-preview-card">
+    <h2>Preview</h2>
     {% if item.local_path and (item.content_type or '').startswith('image') %}
-    <img src="/post/items/{{ item.id }}/file" alt="scan" style="max-width:100%;border:1px solid var(--border,#ddd);border-radius:8px">
+    <img class="post-preview-img" src="/post/items/{{ item.id }}/file" alt="scan">
     {% elif item.local_path %}
-    <iframe src="/post/items/{{ item.id }}/file" title="Post PDF" style="width:100%;min-height:28rem;border:1px solid var(--border,#ddd);border-radius:8px"></iframe>
+    <iframe class="post-preview-frame" src="/post/items/{{ item.id }}/file" title="Post PDF"></iframe>
     {% else %}
     <p class="muted">No preview file.</p>
     {% endif %}
     {% if item.text_excerpt %}
-    <details style="margin-top:0.75rem">
+    <details style="margin-top:0.5rem;flex:0 0 auto">
       <summary class="small">Extracted text (for matching)</summary>
-      <pre class="small" style="white-space:pre-wrap;max-height:12rem;overflow:auto">{{ item.text_excerpt[:4000] }}</pre>
+      <pre class="small" style="white-space:pre-wrap;max-height:8rem;overflow:auto">{{ item.text_excerpt[:4000] }}</pre>
     </details>
     {% endif %}
   </div>
 
-  <div class="stack" style="gap:1rem">
-    <div class="card" style="margin:0">
+  <div class="post-review-side">
+    <div class="card">
       <h2 style="margin-top:0">Suggestion</h2>
       <dl class="dl-grid small">
         <dt>Action</dt><dd><strong>{{ item.suggested_action or 'review' }}</strong></dd>
@@ -57,7 +128,7 @@
       </dl>
     </div>
 
-    <div class="card" style="margin:0">
+    <div class="card">
       <h2 style="margin-top:0">Action</h2>
       <form class="stack" method="post" action="/post/items/{{ item.id }}/action">
         <label>Client *</label>
@@ -110,32 +181,31 @@
 
     {% set multi = item.page_end and item.page_start and (item.page_end - item.page_start) >= 1 %}
     {% if multi or (item.batch and item.batch.page_count and item.batch.page_count > 1) %}
-    <div class="card" style="margin:0">
+    <div class="card">
       <h2 style="margin-top:0;font-size:1rem">Fix page splits (whole scan)</h2>
       <p class="small muted" style="margin-top:0">
         If typefaces or letters are mixed, re-cut the <strong>original {{ item.batch.page_count if item.batch else '?' }}-page</strong>
-        scan with exact page ranges. Example for 3 letters of 5, 2 and 4 pages:
+        scan with exact page ranges. Example:
         <code>1-5, 6-7, 8-11</code>
       </p>
       {% if item.batch_id %}
       <form method="post" action="/post/batches/{{ item.batch_id }}/reprocess" class="stack" style="gap:0.5rem"
             onsubmit="return confirm('Replace open items for this scan with the new splits? (Filed/emailed items are kept.)');">
-        <label class="small muted" for="ranges">Page ranges (recommended)</label>
-        <input id="ranges" name="ranges" placeholder="e.g. 1-8, 9-12, 13-20, 21-24"
-               style="width:100%;font-family:ui-monospace,monospace"
-               title="Inclusive page numbers from the original multi-page scan">
+        <label class="small muted" for="ranges">Page ranges</label>
+        <input id="ranges" name="ranges" placeholder="e.g. 1-8, 9-12, 13-20"
+               style="width:100%;font-family:ui-monospace,monospace">
         <div class="actions" style="flex-wrap:wrap">
           <button class="btn btn-sm" type="submit">Apply page ranges</button>
           <button class="btn btn-sm btn-outline" type="submit" name="ranges" value=""
                   onclick="return confirm('Auto-split using blank pages + letterhead changes?');">
-            Auto re-split (improved)
+            Auto re-split
           </button>
         </div>
       </form>
       {% endif %}
       <hr style="border:none;border-top:1px solid var(--border,#e2e8f0);margin:0.85rem 0">
       <p class="small muted" style="margin:0 0 0.35rem">
-        Or split <em>only this item</em> after page numbers (e.g. <code>3,7</code> = new docs start after those pages):
+        Or split <em>only this item</em> after page numbers (e.g. <code>3,7</code>):
       </p>
       <form method="post" action="/post/items/{{ item.id }}/split" class="actions" style="flex-wrap:wrap">
         <input name="breaks" placeholder="e.g. 3,7,12" style="min-width:10rem">
