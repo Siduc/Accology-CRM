@@ -9,12 +9,21 @@
     <h1>Sales Ledger</h1>
     <p class="muted small">Debtors · invoices · payments · credit control</p>
   </div>
-  <div class="actions">
+  <div class="actions" style="flex-wrap:wrap">
     <a class="btn" href="/sales/invoices/new">Raise invoice</a>
     <a class="btn btn-secondary" href="/sales/payments/new">Record payment</a>
     <a class="btn btn-outline" href="/sales/quotes/new">New quote</a>
+    <form method="post" action="/sales/apply-default-vat" style="display:inline"
+          onsubmit="return confirm('Set 20% VAT on all sales invoice lines currently at 0%, and update service defaults? Totals will recalculate (good for Xero).');">
+      <button class="btn btn-outline wc-touch" type="submit" title="Standard UK VAT for Xero">
+        Apply 20% VAT to 0% lines
+      </button>
+    </form>
   </div>
 </div>
+
+{% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
 <div class="sales-kpi-row">
   <a class="sales-kpi sales-kpi-warn" href="/sales/ageing">

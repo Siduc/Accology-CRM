@@ -24,6 +24,9 @@ from app.models.sales import (
 )
 from app.services.working_capital import AgeBucket
 
+# Standard UK VAT for practice sales / Xero sync (0.20 = 20%)
+DEFAULT_SALES_VAT_RATE = 0.20
+
 PAID_JOB_STATUSES = {
     "paid",
     "written off",
@@ -31,6 +34,21 @@ PAID_JOB_STATUSES = {
     "waived",
     "cancelled",
 }
+
+
+def coerce_sales_vat_rate(raw, *, default: float = DEFAULT_SALES_VAT_RATE) -> float:
+    """
+    Parse a VAT rate for sales lines.
+    Missing / blank → practice default (20%). Explicit 0 stays 0 (zero-rated).
+    """
+    if raw is None:
+        return float(default)
+    if isinstance(raw, str) and not raw.strip():
+        return float(default)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return float(default)
 
 CHASE_TYPES = [
     ("polite", "Polite email (7+ days)"),
@@ -218,7 +236,9 @@ def seed_services(db: Session) -> int:
                 name=row["name"],
                 description=row.get("description"),
                 default_fee=row.get("default_fee", 0.0),
-                default_vat_rate=row.get("default_vat_rate", 0.0),
+                default_vat_rate=row.get(
+                    "default_vat_rate", DEFAULT_SALES_VAT_RATE
+                ),
                 unit=row.get("unit", "job"),
                 category=row.get("category", "compliance"),
                 recurrence=rec,
@@ -228,6 +248,11 @@ def seed_services(db: Session) -> int:
             )
         )
         added += 1
+    # Ensure existing sellable services default to 20% when still 0
+    for svc in db.query(Service).filter(Service.is_active.is_(True)).all():
+        if float(svc.default_vat_rate or 0) <= 1e-9:
+            svc.default_vat_rate = DEFAULT_SALES_VAT_RATE
+            updated += 1
     # Normalise NULL recurrence on any catalogue row (column add / legacy)
     for s in db.query(Service).filter(Service.recurrence.is_(None)).all():
         s.recurrence = "none"
@@ -307,11 +332,21 @@ def format_invoice_number(seq: int) -> str:
 
 
 def next_invoice_number(db: Session) -> str:
-    """Next consecutive invoice number after the highest existing sequence."""
-    numbers = [row[0] for row in db.query(Invoice.number).all()]
-    max_n = 0
-    for num in numbers:
-        max_n = max(max_n, invoice_number_seq(num))
+    """
+    Next invoice number: fill the lowest free sequence first so deleted
+    invoice numbers are reused (helps Xero sequence alignment), otherwise max+1.
+    """
+    used = {
+        invoice_number_seq(row[0])
+        for row in db.query(Invoice.number).all()
+        if invoice_number_seq(row[0]) > 0
+    }
+    if not used:
+        return format_invoice_number(1)
+    max_n = max(used)
+    for i in range(1, max_n + 2):
+        if i not in used:
+            return format_invoice_number(i)
     return format_invoice_number(max_n + 1)
 
 
@@ -434,7 +469,10 @@ def create_invoice(
     for row in lines:
         qty = float(row.get("qty") or 1)
         price = float(row.get("unit_price") or 0)
-        vat_rate = float(row.get("vat_rate") or 0)
+        if "vat_rate" in row:
+            vat_rate = coerce_sales_vat_rate(row.get("vat_rate"))
+        else:
+            vat_rate = DEFAULT_SALES_VAT_RATE
         net, vat, gross = line_amounts(qty, price, vat_rate)
         db.add(
             InvoiceLine(
@@ -524,7 +562,10 @@ def update_invoice(
         for row in lines:
             qty = float(row.get("qty") or 1)
             price = float(row.get("unit_price") or 0)
-            vat_rate = float(row.get("vat_rate") or 0)
+            if "vat_rate" in row:
+                vat_rate = coerce_sales_vat_rate(row.get("vat_rate"))
+            else:
+                vat_rate = DEFAULT_SALES_VAT_RATE
             _net, _vat, gross = line_amounts(qty, price, vat_rate)
             db.add(
                 InvoiceLine(
@@ -558,6 +599,119 @@ def update_invoice(
     db.commit()
     db.refresh(invoice)
     return invoice
+
+
+def delete_invoice(
+    db: Session,
+    invoice: Invoice,
+    *,
+    allow_with_payments: bool = False,
+) -> Tuple[bool, str]:
+    """
+    Permanently delete an invoice so its number can be reused.
+
+    Removes lines, chase history, and payment allocations on this invoice.
+    Blocks if payments are allocated unless allow_with_payments=True
+    (allocations are removed; parent Payment rows are left for the cashbook).
+    """
+    if not invoice:
+        return False, "Invoice not found"
+
+    number = invoice.number or f"#{invoice.id}"
+    paid = float(invoice.amount_paid or 0)
+    alloc_n = (
+        db.query(PaymentAllocation)
+        .filter(PaymentAllocation.invoice_id == invoice.id)
+        .count()
+    )
+    if (paid > 0 or alloc_n > 0) and not allow_with_payments:
+        return (
+            False,
+            f"Invoice {number} has payment(s) allocated — remove payments first, "
+            "or confirm delete with payments.",
+        )
+
+    job_id = invoice.job_id
+    # Free allocations so number reuse is clean
+    db.query(PaymentAllocation).filter(
+        PaymentAllocation.invoice_id == invoice.id
+    ).delete(synchronize_session=False)
+    db.query(DebtChaseAction).filter(
+        DebtChaseAction.invoice_id == invoice.id
+    ).delete(synchronize_session=False)
+    db.query(InvoiceLine).filter(InvoiceLine.invoice_id == invoice.id).delete(
+        synchronize_session=False
+    )
+
+    if job_id:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if job:
+            if (job.invoice_reference or "") == (invoice.number or ""):
+                job.invoice_reference = None
+            if (job.billing_status or "").lower() in ("invoiced", "draft"):
+                job.billing_status = None
+
+    db.delete(invoice)
+    db.commit()
+    return True, f"Deleted {number} — that number can be reused on the next invoice"
+
+
+def apply_default_vat_to_sales(
+    db: Session,
+    *,
+    rate: float = DEFAULT_SALES_VAT_RATE,
+    only_zero_lines: bool = True,
+    include_void: bool = False,
+) -> Dict[str, int]:
+    """
+    Set sales line VAT to the standard rate (default 20%) and recompute totals.
+    By default only touches lines currently at 0% (so intentional zero-rated
+    can be re-set after if needed — use only_zero_lines=False to force all).
+    """
+    rate = float(rate)
+    q = db.query(Invoice)
+    if not include_void:
+        q = q.filter(Invoice.status.notin_(["void", "written_off"]))
+    invoices = q.options(joinedload(Invoice.lines)).all()
+    lines_updated = 0
+    invoices_touched = 0
+    for inv in invoices:
+        changed = False
+        for ln in inv.lines or []:
+            cur = float(ln.vat_rate or 0)
+            if only_zero_lines and abs(cur) > 1e-9:
+                continue
+            if abs(cur - rate) < 1e-9:
+                continue
+            ln.vat_rate = rate
+            lines_updated += 1
+            changed = True
+        if changed:
+            recompute_invoice_totals(db, inv)
+            invoices_touched += 1
+            if inv.job_id:
+                job = db.query(Job).filter(Job.id == inv.job_id).first()
+                if job and inv.vat_total is not None:
+                    job.vat_amount = float(inv.vat_total)
+                    if inv.total is not None:
+                        job.gross_amount = float(inv.total)
+
+    # Service catalogue defaults
+    svc_n = 0
+    for svc in db.query(Service).all():
+        if only_zero_lines and float(svc.default_vat_rate or 0) > 1e-9:
+            continue
+        if abs(float(svc.default_vat_rate or 0) - rate) < 1e-9:
+            continue
+        svc.default_vat_rate = rate
+        svc_n += 1
+
+    db.commit()
+    return {
+        "lines_updated": lines_updated,
+        "invoices_touched": invoices_touched,
+        "services_updated": svc_n,
+    }
 
 
 def allocate_payment(
@@ -1647,9 +1801,11 @@ def invoice_from_job(
         amount = float(job.fee or 0)
 
     svc = service_for_job_type(db, job.type or "")
-    vat_rate = 0.0
-    if svc and svc.default_vat_rate is not None:
-        vat_rate = float(svc.default_vat_rate or 0)
+    # Practice sales default to 20% VAT (Xero-aligned) unless service overrides
+    if svc and svc.default_vat_rate is not None and float(svc.default_vat_rate or 0) > 0:
+        vat_rate = float(svc.default_vat_rate)
+    else:
+        vat_rate = DEFAULT_SALES_VAT_RATE
 
     pe = job.period_end
     desc = (job.title or job.type or "Professional services").strip()
@@ -1768,7 +1924,10 @@ def create_quote(
     for row in lines:
         qty = float(row.get("qty") or 1)
         price = float(row.get("unit_price") or 0)
-        vat_rate = float(row.get("vat_rate") or 0)
+        if "vat_rate" in row:
+            vat_rate = coerce_sales_vat_rate(row.get("vat_rate"))
+        else:
+            vat_rate = DEFAULT_SALES_VAT_RATE
         net, vat, gross = line_amounts(qty, price, vat_rate)
         db.add(
             QuoteLine(

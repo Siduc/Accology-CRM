@@ -29,15 +29,19 @@ from app.services.chase_emails import (
 )
 from app.services.sales_ledger import (
     CHASE_TYPES,
+    DEFAULT_SALES_VAT_RATE,
     ageing_bucket_key,
     ageing_report,
+    apply_default_vat_to_sales,
     backfill_invoices_from_jobs,
     build_legal_export_zip,
     chase_pipeline_rows,
     chase_status_summary,
     clear_debtors_ledger,
+    coerce_sales_vat_rate,
     create_invoice,
     create_quote,
+    delete_invoice,
     debtor_age_tiles,
     debtors_total,
     import_opening_balances,
@@ -98,7 +102,14 @@ def _parse_invoice_lines_from_form(form) -> list[dict]:
         svc = (form.get(f"line_service_{n}") or "").strip()
         qty = form.get(f"line_qty_{n}") or "1"
         price = form.get(f"line_price_{n}") or "0"
-        vat = form.get(f"line_vat_{n}") or "0"
+        # Blank VAT field → practice default 20%; explicit 0 stays zero-rated
+        vat_raw = form.get(f"line_vat_{n}")
+        if vat_raw is None or str(vat_raw).strip() == "":
+            from app.services.sales_ledger import DEFAULT_SALES_VAT_RATE
+
+            vat_val = DEFAULT_SALES_VAT_RATE
+        else:
+            vat_val = _money(vat_raw)
         if not desc and _money(price) <= 0 and not svc:
             continue
         sid = int(svc) if svc.isdigit() else None
@@ -111,7 +122,7 @@ def _parse_invoice_lines_from_form(form) -> list[dict]:
                 "description": desc or "Service",
                 "qty": _money(qty) or 1,
                 "unit_price": _money(price),
-                "vat_rate": _money(vat),
+                "vat_rate": vat_val,
             }
         )
     return lines
@@ -138,6 +149,8 @@ async def sales_home(request: Request, db: Session = Depends(get_db)):
             "quote_count": db.query(Quote).count(),
             "chase_summary": chase_sum,
             "chase_live": CHASE_LIVE_MODE,
+            "msg": request.query_params.get("msg", ""),
+            "error": request.query_params.get("error", ""),
         },
     )
 
@@ -349,17 +362,17 @@ async def invoice_create(
     line_service_1: str = Form(""),
     line_qty_1: str = Form("1"),
     line_price_1: str = Form("0"),
-    line_vat_1: str = Form("0"),
+    line_vat_1: str = Form("0.2"),
     line_desc_2: str = Form(""),
     line_service_2: str = Form(""),
     line_qty_2: str = Form("1"),
     line_price_2: str = Form("0"),
-    line_vat_2: str = Form("0"),
+    line_vat_2: str = Form("0.2"),
     line_desc_3: str = Form(""),
     line_service_3: str = Form(""),
     line_qty_3: str = Form("1"),
     line_price_3: str = Form("0"),
-    line_vat_3: str = Form("0"),
+    line_vat_3: str = Form("0.2"),
     db: Session = Depends(get_db),
 ):
     lines = []
@@ -380,7 +393,7 @@ async def invoice_create(
                 "description": (desc or "Service").strip(),
                 "qty": _money(qty) or 1,
                 "unit_price": _money(price),
-                "vat_rate": _money(vat),
+                "vat_rate": coerce_sales_vat_rate(vat),
             }
         )
     if not lines:
@@ -661,6 +674,64 @@ async def invoice_discard_not_bill(
     if not inv:
         return RedirectResponse("/sales/invoices", status_code=303)
     return _do_invoice_discard(db, inv, reason=reason, remember=remember)
+
+
+@router.post("/invoices/{invoice_id:int}/delete", response_class=HTMLResponse)
+async def invoice_delete_permanent(
+    invoice_id: int,
+    request: Request,
+    confirm: str = Form(""),
+    allow_payments: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Permanently delete an invoice so its number can be reused (Xero sequence).
+    Prefer void/discard for audit; use delete when the number must be free again.
+    """
+    inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not inv:
+        return RedirectResponse("/sales/invoices", status_code=303)
+    if (confirm or "").strip().lower() not in ("1", "yes", "on", "true", "delete"):
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}?error={url_quote('Confirm delete to free the invoice number')}",
+            status_code=303,
+        )
+    num = inv.number
+    ok, msg = delete_invoice(
+        db,
+        inv,
+        allow_with_payments=(allow_payments or "").strip().lower()
+        in ("1", "yes", "on", "true"),
+    )
+    if not ok:
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}?error={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/sales/invoices?msg={url_quote(msg[:300])}",
+        status_code=303,
+    )
+
+
+@router.post("/apply-default-vat", response_class=HTMLResponse)
+async def sales_apply_default_vat(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Set standard 20% VAT on sales lines currently at 0% (and service defaults)."""
+    result = apply_default_vat_to_sales(
+        db, rate=DEFAULT_SALES_VAT_RATE, only_zero_lines=True, include_void=False
+    )
+    msg = (
+        f"Applied {DEFAULT_SALES_VAT_RATE * 100:.0f}% VAT to "
+        f"{result['lines_updated']} line(s) on {result['invoices_touched']} invoice(s); "
+        f"{result['services_updated']} service default(s) updated."
+    )
+    return RedirectResponse(
+        f"/sales?msg={url_quote(msg[:400])}",
+        status_code=303,
+    )
 
 
 @router.post("/invoices/{invoice_id}/discard", response_class=HTMLResponse)
@@ -1252,12 +1323,12 @@ async def quote_create(
     line_service_1: str = Form(""),
     line_qty_1: str = Form("1"),
     line_price_1: str = Form("0"),
-    line_vat_1: str = Form("0"),
+    line_vat_1: str = Form("0.2"),
     line_desc_2: str = Form(""),
     line_service_2: str = Form(""),
     line_qty_2: str = Form("1"),
     line_price_2: str = Form("0"),
-    line_vat_2: str = Form("0"),
+    line_vat_2: str = Form("0.2"),
     db: Session = Depends(get_db),
 ):
     lines = []
@@ -1277,7 +1348,7 @@ async def quote_create(
                 "description": (desc or "Service").strip(),
                 "qty": _money(qty) or 1,
                 "unit_price": _money(price),
-                "vat_rate": _money(vat),
+                "vat_rate": coerce_sales_vat_rate(vat),
             }
         )
     if not lines:

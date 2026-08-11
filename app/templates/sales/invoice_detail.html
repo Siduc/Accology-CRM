@@ -35,6 +35,15 @@
     {% endif %}
     {% endif %}
     <button class="btn btn-outline" type="button" onclick="window.print()">Print</button>
+    <form method="post" action="/sales/invoices/{{ inv.id }}/delete" style="display:inline"
+          onsubmit="return confirm('PERMANENTLY delete invoice {{ inv.number }}? The number will be free to reuse (Xero sequence). Prefer Void if you only need to cancel.');">
+      <input type="hidden" name="confirm" value="delete">
+      {% if (inv.amount_paid or 0) > 0 %}
+      <input type="hidden" name="allow_payments" value="yes">
+      {% endif %}
+      <button class="btn btn-outline" type="submit" style="border-color:#b91c1c;color:#b91c1c"
+              title="Hard delete — frees the invoice number for reuse">Delete &amp; free number</button>
+    </form>
   </div>
 </div>
 

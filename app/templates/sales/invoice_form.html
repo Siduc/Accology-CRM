@@ -55,8 +55,8 @@
         <input name="line_price_{{ n }}" value="{% if n==1 and job %}{{ '%.2f'|format(job.fee or 0) }}{% else %}0{% endif %}">
       </div>
       <div>
-        <label>VAT rate (e.g. 0.2)</label>
-        <input name="line_vat_{{ n }}" value="0">
+        <label>VAT rate (0.2 = 20%)</label>
+        <input name="line_vat_{{ n }}" value="0.2" title="Standard UK VAT 20% — use 0 for zero-rated">
       </div>
     </div>
     {% endfor %}

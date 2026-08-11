@@ -132,8 +132,8 @@
                 class="invoice-line-input num-input" inputmode="decimal" placeholder="0.00">
             </td>
             <td class="num">
-              <input name="line_vat_{{ n }}" value="{{ '%.2f'|format(ln.vat_rate) if ln else '0' }}"
-                class="invoice-line-input num-input" inputmode="decimal" title="e.g. 0.2 for 20%">
+              <input name="line_vat_{{ n }}" value="{{ '%.2f'|format(ln.vat_rate) if ln else '0.20' }}"
+                class="invoice-line-input num-input" inputmode="decimal" title="0.2 = 20% (default) · 0 = zero-rated">
             </td>
           </tr>
           {% endfor %}
