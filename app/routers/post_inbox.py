@@ -149,6 +149,93 @@ async def post_import(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse(f"/post?msg={url_quote(msg[:400])}", status_code=303)
 
 
+@router.post("/post/reimport-done")
+async def post_reimport_done(request: Request, db: Session = Depends(get_db)):
+    """
+    Re-import scans sitting in the processed (done/) folder after a bad split
+    or delete — uses improved court/blank-page logic.
+    """
+    result = post_svc.reimport_from_done(db, limit=20, force=True)
+    bits = [
+        f"Moved {result.get('moved_from_done', 0)} from done/",
+        f"imported {result.get('imported', 0)}",
+        f"→ {result.get('items_created', 0)} document(s)",
+    ]
+    if result.get("skipped"):
+        bits.append(f"skipped {result.get('skipped')}")
+    msg = " · ".join(bits)
+    errs = (result.get("errors") or []) + (result.get("reimport_errors") or [])
+    if errs:
+        return RedirectResponse(
+            f"/post?error={url_quote('; '.join(errs[:3])[:300])}&msg={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    return RedirectResponse(f"/post?msg={url_quote(msg[:400])}", status_code=303)
+
+
+@router.post("/post/batches/{batch_id:int}/keep-together")
+async def post_batch_keep_together(
+    batch_id: int,
+    db: Session = Depends(get_db),
+):
+    """Force whole multi-page scan into one review document and learn keywords."""
+    batch = post_svc.get_batch(db, batch_id) if hasattr(post_svc, "get_batch") else None
+    if batch is None:
+        from app.models.post_inbox import PostBatch
+
+        batch = db.query(PostBatch).filter(PostBatch.id == batch_id).first()
+    if not batch:
+        return RedirectResponse(
+            f"/post?error={url_quote('Batch not found')}", status_code=303
+        )
+    n = int(batch.page_count or 0)
+    if n < 1:
+        n = 1
+    ranges = f"1-{n}" if n > 1 else "1"
+    ok, msg = post_svc.reprocess_batch(db, batch_id, ranges_spec=ranges)
+    if ok:
+        # Reinforce learning
+        try:
+            from app.models.post_inbox import PostItem
+
+            it = (
+                db.query(PostItem)
+                .filter(PostItem.batch_id == batch_id)
+                .order_by(PostItem.id.desc())
+                .first()
+            )
+            if it:
+                post_svc.learn_keep_together_from_item(db, it)
+        except Exception:
+            pass
+        msg = f"Kept as one document ({n} pages). {msg}"
+    if not ok:
+        return RedirectResponse(
+            f"/post?error={url_quote(msg[:300])}", status_code=303
+        )
+    # Prefer open the new single item
+    try:
+        from app.models.post_inbox import PostItem
+
+        it = (
+            db.query(PostItem)
+            .filter(
+                PostItem.batch_id == batch_id,
+                PostItem.status.in_(["inbox", "suggested"]),
+            )
+            .order_by(PostItem.id.desc())
+            .first()
+        )
+        if it:
+            return RedirectResponse(
+                f"/post/items/{it.id}?msg={url_quote(msg[:300])}",
+                status_code=303,
+            )
+    except Exception:
+        pass
+    return RedirectResponse(f"/post?msg={url_quote(msg[:400])}", status_code=303)
+
+
 @router.post("/post/reclassify")
 async def post_reclassify(request: Request, db: Session = Depends(get_db)):
     """Re-OCR image scans (Grok vision) and re-match clients for open items."""

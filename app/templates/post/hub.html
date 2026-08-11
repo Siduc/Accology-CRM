@@ -13,6 +13,12 @@
     <form method="post" action="/post/import" style="display:inline">
       <button class="btn wc-touch" type="submit">Import from scanner folder</button>
     </form>
+    <form method="post" action="/post/reimport-done" style="display:inline"
+          onsubmit="return confirm('Re-import scans from the processed (done) folder? Use this after a bad split or delete — court packs with blank pages stay as one document.');">
+      <button class="btn btn-outline wc-touch" type="submit" title="Pull PDFs from done/ back into the review queue">
+        Re-import from processed
+      </button>
+    </form>
     <form method="post" action="/post/reclassify" style="display:inline"
           onsubmit="return confirm('Re-read open letters with OCR and re-match clients? This may take a minute.');">
       <button class="btn btn-outline wc-touch" type="submit" title="Vision OCR + client match for image scans">
@@ -72,6 +78,11 @@
   <p class="small muted" style="margin:0.65rem 0 0">
     If pages from different letters are mixed, open any item from that scan → <strong>Fix page splits</strong>
     and enter exact ranges (e.g. <code>1-5, 6-10, 11-18</code>) for the whole multi-page PDF.
+  </p>
+  <p class="small muted" style="margin:0.4rem 0 0">
+    <strong>Court packs</strong> often leave a page blank on purpose — those blanks no longer split the scan,
+    and blank pages are kept inside the document. If a pack was split wrongly, use
+    <strong>Re-import from processed</strong> or open the item → <strong>Keep as one document</strong>.
   </p>
   <p class="small muted" style="margin:0.4rem 0 0">
     On import, PDFs are auto-corrected for the Brother feeder:

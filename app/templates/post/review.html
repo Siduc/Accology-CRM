@@ -476,6 +476,15 @@
         Example: <code>1-5, 6-7, 8-11</code>
       </p>
       {% if item.batch_id %}
+      <form method="post" action="/post/batches/{{ item.batch_id }}/keep-together" style="margin-bottom:0.65rem"
+            onsubmit="return confirm('Merge this whole scan into one document (keeps blank pages inside)? Keywords will be learned for similar court/legal packs.');">
+        <button class="btn btn-sm wc-touch" type="submit" style="background:#0f766e;border-color:#0f766e">
+          Keep as one document (court / pack)
+        </button>
+        <p class="small muted" style="margin:0.35rem 0 0">
+          Use for court forms and multipage packs that leave a page blank on purpose.
+        </p>
+      </form>
       <form method="post" action="/post/batches/{{ item.batch_id }}/reprocess" class="stack" style="gap:0.5rem"
             onsubmit="return confirm('Replace open items for this scan with the new splits? (Filed/emailed/holding kept.)');">
         <label class="small muted" for="ranges">Page ranges</label>
@@ -484,7 +493,7 @@
         <div class="actions" style="flex-wrap:wrap">
           <button class="btn btn-sm" type="submit">Apply page ranges</button>
           <button class="btn btn-sm btn-outline" type="submit" name="ranges" value=""
-                  onclick="return confirm('Auto-split using blank pages + letterhead changes?');">
+                  onclick="return confirm('Auto re-split (court packs keep blanks; only strong new letters split)?');">
             Auto re-split
           </button>
         </div>

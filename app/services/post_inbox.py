@@ -356,6 +356,9 @@ def _page_is_blank(text: str, ink: Optional[float] = None) -> bool:
     """
     Blank page = almost no text, and either no ink data or very little ink
     (white separator sheet between letters on multi-doc scanner jobs).
+
+    Court packs often include *intentional* blank reverse pages — those are
+    handled separately (we do not treat every blank as a document break).
     """
     s = re.sub(r"\s+", "", text or "")
     text_empty = len(s) < 8
@@ -366,6 +369,111 @@ def _page_is_blank(text: str, ink: Optional[float] = None) -> bool:
         if text_empty and ink >= 0.12:
             return False
     return text_empty
+
+
+# Court / tribunal packs often leave blank reverse sides or blank form pages
+_COURT_LEGAL_KEYWORDS = (
+    "county court",
+    "high court",
+    "crown court",
+    "family court",
+    "tribunal",
+    "claim form",
+    "particulars of claim",
+    "statement of case",
+    "witness statement",
+    "affidavit",
+    "claimant",
+    "defendant",
+    "applicant",
+    "respondent",
+    "solicitor",
+    "barrister",
+    "court seal",
+    "sealed by",
+    "civil procedure",
+    "cpr ",
+    "n1 ",
+    "n244",
+    "n460",
+    "statement of truth",
+    "in the matter of",
+    "between:",
+    "claim number",
+    "case number",
+    "court fee",
+    "judgement",
+    "judgment",
+    "injunction",
+    "possession order",
+    "winding up",
+    "petition",
+)
+
+
+def _combined_page_text(page_texts: List[str], limit: int = 12000) -> str:
+    return "\n".join(page_texts or "")[:limit]
+
+
+def _looks_like_court_or_legal_pack(page_texts: List[str]) -> bool:
+    """True when OCR/text suggests a court, tribunal or formal legal pack."""
+    low = _combined_page_text(page_texts).lower()
+    if not low.strip():
+        return False
+    hits = sum(1 for k in _COURT_LEGAL_KEYWORDS if k in low)
+    return hits >= 2 or any(
+        k in low
+        for k in (
+            "particulars of claim",
+            "statement of truth",
+            "county court",
+            "high court",
+            "claim form",
+            "witness statement",
+        )
+    )
+
+
+def _continuous_page_of_total(page_texts: List[str]) -> bool:
+    """
+    True if several pages share the same 'Page X of N' total (one multipage pack).
+    """
+    totals: Dict[int, int] = {}
+    for t in page_texts or []:
+        for m in re.finditer(
+            r"\bPage\s*(\d+)\s*(?:of|/)\s*(\d+)\b", t or "", re.I
+        ):
+            tot = int(m.group(2))
+            if tot >= 3:
+                totals[tot] = totals.get(tot, 0) + 1
+    if not totals:
+        return False
+    best_tot, best_n = max(totals.items(), key=lambda x: x[1])
+    return best_n >= 2 and best_tot >= 3
+
+
+def _strong_new_letter_start(text: str) -> bool:
+    """Only clear 'this is a different letter' cues — not weak form noise."""
+    head = (text or "")[:700]
+    if not head.strip():
+        return False
+    if re.search(
+        r"\bDear\s+(?:Sir|Madam|Sir/Madam|Mr|Mrs|Ms|Miss)\b"
+        r"|\bFinal\s+(?:demand|notice)\b"
+        r"|\bInvoice\s+(?:No\.?|Number)\b"
+        r"|\bForm\s+(?:SA\d+|CT\d+|P\d+)\b"
+        r"|\bHM\s*Revenue\s*(?:&|and)\s*Customs\b"
+        r"|\bHMRC\b"
+        r"|\bCompanies\s+House\b",
+        head,
+        re.I,
+    ):
+        return True
+    if re.search(r"\bPage\s*1\s*(?:of|/)\s*\d+\b", head, re.I) and re.search(
+        r"\bDear\s+|\bInvoice\b|\bHMRC\b|\bHM\s*Revenue\b", head, re.I
+    ):
+        return True
+    return False
 
 
 def _normalize_page_texts_with_ink(
@@ -416,10 +524,12 @@ def detect_document_page_ranges(
     Split a multi-page PDF into documents.
 
     Returns list of (page_start, page_end, reason) 1-based inclusive.
-    Uses:
-      - blank separator pages (text and/or low ink on image scans)
-      - letterhead / layout change (visual fingerprint) for image-only scans
-      - letter/form start markers in OCR text when available
+
+    Blank pages are **kept inside** a document (court packs leave blanks).
+    A blank only starts a *new* document when the following page is a strong
+    new letter (Dear… / HMRC / invoice / Form SA…), not merely non-blank.
+
+    Court/legal packs and continuous "Page X of N" packs stay as one file.
     """
     n = len(page_texts)
     if n == 0:
@@ -435,6 +545,17 @@ def detect_document_page_ranges(
         ik = ink[i] if i < len(ink) else None
         return _page_is_blank(t, ik)
 
+    # Keep-together modes (court blanks, multipage packs)
+    court_pack = _looks_like_court_or_legal_pack(page_texts)
+    continuous = _continuous_page_of_total(page_texts)
+    if court_pack or continuous:
+        reason = (
+            "court/legal pack — blanks kept"
+            if court_pack
+            else "continuous page X of N — kept together"
+        )
+        return [(1, n, reason)]
+
     # Build starts: page indices (0-based) that begin a document
     starts: List[int] = [0]
     reasons: Dict[int, str] = {0: "start of file"}
@@ -443,52 +564,60 @@ def detect_document_page_ranges(
         t = page_texts[i] or ""
         prev = page_texts[i - 1] or ""
 
-        # Blank page after content → next non-blank starts new doc
+        # Blank pages stay in the current document (never open a new start here)
         if blank(i):
             continue
 
+        # After blank: only split if this page is clearly a *new letter*
+        # (court reverse blanks must NOT split)
         if blank(i - 1) and not blank(i):
-            if i not in starts:
-                starts.append(i)
-                reasons[i] = "after blank separator"
+            if _strong_new_letter_start(t):
+                if i not in starts:
+                    starts.append(i)
+                    reasons[i] = "new letter after blank separator"
+            # else: intentional blank inside same pack — keep together
             continue
 
         # Image-only: letterhead / layout change (same letterhead ⇒ keep together)
         if i < len(profiles) and i - 1 < len(profiles):
-            cur, prev_p = profiles[i], profiles[i - 1]
+            # Look across a preceding blank to the last content page for letterhead
+            prev_idx = i - 1
+            while prev_idx > 0 and blank(prev_idx):
+                prev_idx -= 1
+            cur, prev_p = profiles[i], profiles[prev_idx]
             top_s = _visual_sim(cur.get("top") or [], prev_p.get("top") or [])
             full_s = _visual_sim(cur.get("full") or [], prev_p.get("full") or [])
             # Strong same letterhead band → continuation of multi-page letter
-            if top_s >= 0.82:
+            if top_s >= 0.78:
                 pass  # do not split on layout alone
-            elif top_s < 0.76 and full_s < 0.86:
+            elif top_s < 0.72 and full_s < 0.84 and _strong_new_letter_start(t):
                 if i not in starts:
                     starts.append(i)
                     reasons[i] = f"letterhead change (top={top_s:.2f})"
                 continue
+            elif top_s < 0.72 and full_s < 0.84:
+                # Layout changed but no strong new-letter cue — keep (safer for packs)
+                pass
 
         if _page_looks_like_new_document(t, is_first=False):
             head = t[:500]
             page1 = bool(re.search(r"\bPage\s*1\s*(?:of|/)\s*\d+\b", head, re.I))
-            strong_new = bool(
-                re.search(
-                    r"\bDear\s+(?:Sir|Madam|Sir/Madam|Mr|Mrs|Ms|Miss)\b"
-                    r"|\bFinal\s+(?:demand|notice)\b"
-                    r"|\bInvoice\s+(?:No\.?|Number)\b"
-                    r"|\bForm\s+(?:SA\d+|CT\d+|P\d+)\b",
-                    head,
-                    re.I,
-                )
-            )
+            strong_new = _strong_new_letter_start(t)
             prev_cont = bool(
                 re.search(r"\bPage\s*[2-9]\d*\s*(?:of|/)\s*\d+\b", prev[:400], re.I)
             )
             if prev_cont and not page1 and not strong_new:
                 continue
-            if page1 or strong_new or blank(i - 1):
+            if strong_new or (page1 and strong_new):
                 if i not in starts:
                     starts.append(i)
                     reasons[i] = "letter/form marker" if not page1 else "page 1 of N"
+            elif page1 and not prev_cont:
+                # Page 1 of N alone is weak after mid-pack noise — require extra cue
+                if re.search(r"\bDear\s+|\bHMRC\b|\bInvoice\b|\bForm\s+SA", head, re.I):
+                    if i not in starts:
+                        starts.append(i)
+                        reasons[i] = "page 1 of N + letter cue"
             elif not prev_cont and re.search(
                 r"\bHM\s*Revenue|\bHMRC\b|\bCompanies\s+House\b", head, re.I
             ):
@@ -499,16 +628,16 @@ def detect_document_page_ranges(
     starts = sorted(set(starts))
     ranges: List[Tuple[int, int, str]] = []
     for idx, st in enumerate(starts):
-        while st < n and blank(st):
-            st += 1
+        # Keep leading blanks only if they are the very start; otherwise attach
+        # blanks to the previous document (they sit before this start index).
         if st >= n:
             continue
         if idx + 1 < len(starts):
             en = starts[idx + 1] - 1
         else:
             en = n - 1
-        while en > st and blank(en):
-            en -= 1
+        # Include blank pages inside the range (do NOT strip — was dropping
+        # court blank pages and making packs "incomplete")
         if en < st:
             continue
         ranges.append((st + 1, en + 1, reasons.get(starts[idx], "split")))
@@ -715,45 +844,135 @@ def _keyword_hits(text: str, keywords: tuple) -> List[str]:
 
 
 def seed_default_rules(db: Session) -> int:
-    """Install starter rules if none exist."""
+    """Install starter rules if none exist; also ensure court/legal rule exists."""
+    created = 0
     n = db.query(PostRule).count()
-    if n:
-        return 0
-    starters = [
-        PostRule(
-            name="HMRC standard correspondence",
-            keywords="\n".join(_HMRC_KEYWORDS[:10]),
-            match_mode="any",
-            action="file_hmrc",
-            category="HMRC",
-            priority=200,
-            learned=False,
-            notes="File to client HMRC/Tax correspondence folder",
-        ),
-        PostRule(
-            name="Payment chaser / demand",
-            keywords="\n".join(_CHASE_KEYWORDS[:10]),
-            match_mode="any",
-            action="email_client",
-            category="Chase / demand",
-            priority=180,
-            learned=False,
-            notes="Forward to client contact for action",
-        ),
-        PostRule(
-            name="Companies House",
-            keywords="\n".join(_CH_KEYWORDS),
-            match_mode="any",
-            action="file_client",
-            category="Companies House",
-            priority=170,
-            learned=False,
-        ),
-    ]
-    for r in starters:
-        db.add(r)
-    db.commit()
-    return len(starters)
+    if n == 0:
+        starters = [
+            PostRule(
+                name="HMRC standard correspondence",
+                keywords="\n".join(_HMRC_KEYWORDS[:10]),
+                match_mode="any",
+                action="file_hmrc",
+                category="HMRC",
+                priority=200,
+                learned=False,
+                notes="File to client HMRC/Tax correspondence folder",
+            ),
+            PostRule(
+                name="Payment chaser / demand",
+                keywords="\n".join(_CHASE_KEYWORDS[:10]),
+                match_mode="any",
+                action="email_client",
+                category="Chase / demand",
+                priority=180,
+                learned=False,
+                notes="Forward to client contact for action",
+            ),
+            PostRule(
+                name="Companies House",
+                keywords="\n".join(_CH_KEYWORDS),
+                match_mode="any",
+                action="file_client",
+                category="Companies House",
+                priority=170,
+                learned=False,
+            ),
+        ]
+        for r in starters:
+            db.add(r)
+        created += len(starters)
+
+    # Always ensure court/legal routing exists (filing category; split logic
+    # also keeps packs together when these keywords appear in OCR).
+    court_name = "Court / legal pack"
+    has_court = (
+        db.query(PostRule).filter(PostRule.name == court_name).first() is not None
+    )
+    if not has_court:
+        db.add(
+            PostRule(
+                name=court_name,
+                keywords="\n".join(
+                    [
+                        "county court",
+                        "high court",
+                        "claim form",
+                        "particulars of claim",
+                        "witness statement",
+                        "statement of truth",
+                        "claimant",
+                        "defendant",
+                        "claim number",
+                        "tribunal",
+                    ]
+                ),
+                match_mode="any",
+                action="file_client",
+                category="Client correspondence",
+                priority=190,
+                learned=True,
+                notes=(
+                    "Court packs often include intentional blank pages — "
+                    "auto-split keeps them as one document."
+                ),
+            )
+        )
+        created += 1
+
+    if created:
+        db.commit()
+    return created
+
+
+def learn_keep_together_from_item(db: Session, item: PostItem) -> None:
+    """
+    When a user forces a multi-page item to stay as one document, remember
+    keywords from its text so future court/legal-like packs classify correctly.
+    """
+    text = (item.text_excerpt or "").strip()
+    if len(text) < 40:
+        return
+    # Prefer court-ish tokens from the text
+    low = text.lower()
+    found = [k for k in _COURT_LEGAL_KEYWORDS if k in low][:8]
+    if not found:
+        words = re.findall(r"[A-Za-z][A-Za-z&]{4,}", text[:800])
+        found = list(dict.fromkeys(w.lower() for w in words))[:6]
+    if not found:
+        return
+    name = "Learned keep-together (court/pack)"
+    rule = db.query(PostRule).filter(PostRule.name == name).first()
+    if rule:
+        existing = {
+            k.strip().lower()
+            for k in re.split(r"[\n,;]+", rule.keywords or "")
+            if k.strip()
+        }
+        for k in found:
+            existing.add(k)
+        rule.keywords = "\n".join(sorted(existing)[:40])
+        rule.hit_count = int(rule.hit_count or 0) + 1
+        rule.updated_at = datetime.utcnow()
+        rule.is_active = True
+    else:
+        db.add(
+            PostRule(
+                name=name,
+                keywords="\n".join(found),
+                match_mode="any",
+                action="file_client",
+                category="Client correspondence",
+                priority=185,
+                learned=True,
+                hit_count=1,
+                notes="Learned when a multipage scan was kept as one document",
+            )
+        )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
 
 
 def list_rules(db: Session, *, active_only: bool = False) -> List[PostRule]:
@@ -1166,6 +1385,90 @@ def normalize_scan_pdf(
         return False, str(exc)
 
 
+def reimport_from_done(
+    db: Session, *, limit: int = 20, force: bool = True
+) -> Dict[str, Any]:
+    """
+    Pull PDFs from the processed (done/) folder back through import.
+
+    After a bad auto-split, files sit in done/ and normal Import skips them
+    by content hash. force=True allows re-import when the old batch has no
+    open review items (or always creates a fresh batch by clearing hash match
+    for empty batches).
+    """
+    dirs = ensure_inbox_dirs()
+    if not dirs["done"].is_dir():
+        return {
+            "ok": False,
+            "moved": 0,
+            "errors": ["done/ folder missing"],
+            "inbox_path": str(dirs["inbox"]),
+        }
+
+    moved = 0
+    errors: List[str] = []
+    for p in sorted(
+        dirs["done"].iterdir(), key=lambda x: x.stat().st_mtime, reverse=True
+    ):
+        if moved >= limit:
+            break
+        if not p.is_file():
+            continue
+        if p.suffix.lower() not in {
+            ".pdf",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".tif",
+            ".tiff",
+            ".webp",
+        }:
+            continue
+        try:
+            h = _file_hash(p)
+            existing = (
+                db.query(PostBatch).filter(PostBatch.content_hash == h).first()
+            )
+            if existing and force:
+                open_n = (
+                    db.query(PostItem)
+                    .filter(
+                        PostItem.batch_id == existing.id,
+                        PostItem.status.in_(
+                            ["inbox", "suggested", "error", "holding"]
+                        ),
+                    )
+                    .count()
+                )
+                if open_n == 0:
+                    # Free the hash so import can run again
+                    existing.content_hash = f"{h}_superseded_{existing.id}"
+                    existing.status = "reviewed"
+                    db.commit()
+                else:
+                    errors.append(
+                        f"{p.name}: batch still has {open_n} open item(s) — clear them first"
+                    )
+                    continue
+            elif existing and not force:
+                errors.append(f"{p.name}: already imported (hash match)")
+                continue
+
+            dest = dirs["inbox"] / p.name
+            if dest.exists():
+                dest = dirs["inbox"] / f"{p.stem}_reimport{p.suffix}"
+            shutil.move(str(p), str(dest))
+            moved += 1
+        except Exception as exc:
+            errors.append(f"{p.name}: {exc}")
+
+    result = import_from_inbox(db, limit=limit)
+    result["moved_from_done"] = moved
+    result["reimport_errors"] = errors
+    result["ok"] = True
+    return result
+
+
 def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
     """
     Import new files from inbox/ into post_batches + post_items.
@@ -1173,6 +1476,8 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
     Multi-page PDFs are auto-split into multiple items using content markers
     (letterheads, Dear…, Form SA…, blank separators) — same approach as the
     Ahmed Bros multi-invoice pipeline, adapted for post.
+
+    Court/legal packs with intentional blank pages stay as one document.
 
     On import, PDFs are normalised for Brother ADF quirks (reverse order + 180°).
     """
@@ -1496,7 +1801,23 @@ def reprocess_batch(
         except Exception:
             pass
 
-    mode = "manual ranges" if manual else "auto (blank + letterhead)"
+    # Learn keep-together when user forces a single whole-file range
+    if manual and len(manual) == 1:
+        ps, pe, _ = manual[0]
+        if ps == 1 and pe >= (batch.page_count or pe) and pe >= 2:
+            try:
+                sample = (
+                    db.query(PostItem)
+                    .filter(PostItem.batch_id == batch_id)
+                    .order_by(PostItem.id.desc())
+                    .first()
+                )
+                if sample:
+                    learn_keep_together_from_item(db, sample)
+            except Exception:
+                logger.exception("learn_keep_together failed batch=%s", batch_id)
+
+    mode = "manual ranges" if manual else "auto (blank + letterhead + court keep)"
     return True, f"Re-split into {n} document(s) from {n_pages} page(s) · {mode}"
 
 
