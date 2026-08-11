@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import quote as url_quote
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -32,6 +32,7 @@ async def post_hub(request: Request, db: Session = Depends(get_db)):
     post_svc.seed_default_rules(db)
     counts = post_svc.inbox_counts(db)
     items = post_svc.list_open_items(db, limit=80)
+    holding = post_svc.list_holding_items(db, limit=80)
     recent = post_svc.list_recent_items(db, limit=30)
     dirs = post_svc.ensure_inbox_dirs()
     pending_files = post_svc.count_pending_scan_files()
@@ -41,6 +42,7 @@ async def post_hub(request: Request, db: Session = Depends(get_db)):
         {
             "counts": counts,
             "items": items,
+            "holding": holding,
             "recent": recent,
             "inbox_path": str(dirs["inbox"]),
             "root_path": str(dirs["root"]),
@@ -50,6 +52,54 @@ async def post_hub(request: Request, db: Session = Depends(get_db)):
             "categories": POST_CATEGORIES,
             "doc_categories": DOCUMENT_CATEGORIES,
         },
+    )
+
+
+@router.post("/post/holding/combine")
+async def post_holding_combine(
+    request: Request,
+    title: str = Form(""),
+    order: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Combine selected holding pages into one normal review document.
+    Form fields: holding_id (repeated) and/or order=h12,h34,h5
+    """
+    form = await request.form()
+    ids: list[int] = []
+    # Explicit order string preferred (from drag strip)
+    raw_order = (order or "").strip()
+    if raw_order:
+        for bit in raw_order.replace(";", ",").replace(" ", ",").split(","):
+            bit = bit.strip().lower()
+            if bit.startswith("h") and bit[1:].isdigit():
+                ids.append(int(bit[1:]))
+            elif bit.isdigit():
+                ids.append(int(bit))
+    if not ids:
+        for key in form.keys():
+            if key in ("holding_id", "holding_ids"):
+                for v in form.getlist(key):
+                    s = str(v or "").strip()
+                    if s.isdigit():
+                        ids.append(int(s))
+    ok, msg, new_id = post_svc.combine_holding_into_document(
+        db, ids, title=(title or "").strip() or None, classify=True
+    )
+    if not ok:
+        return RedirectResponse(
+            f"/post?error={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    if new_id:
+        return RedirectResponse(
+            f"/post/items/{new_id}?msg={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/post?msg={url_quote(msg[:300])}",
+        status_code=303,
     )
 
 
@@ -125,6 +175,16 @@ async def post_item_detail(
     item = post_svc.get_item(db, item_id)
     if not item:
         return RedirectResponse("/post", status_code=303)
+    # Prefer same-batch holding pages first, then rest of holding area
+    holding_same = (
+        post_svc.list_holding_items(db, batch_id=item.batch_id, limit=60)
+        if item.batch_id
+        else []
+    )
+    holding_all = post_svc.list_holding_items(db, limit=80)
+    seen = {h.id for h in holding_same}
+    holding = list(holding_same) + [h for h in holding_all if h.id not in seen]
+    page_count = post_svc.item_pdf_page_count(item)
     clients = (
         db.query(Client)
         .filter(Client.overall_status.notin_(["Inactive", "Former"]))
@@ -142,6 +202,14 @@ async def post_item_detail(
             .limit(80)
             .all()
         )
+    # Other open docs in this batch (for quick "go attach there" from holding)
+    siblings = []
+    if item.batch_id:
+        siblings = [
+            it
+            for it in post_svc.list_open_items(db, limit=80)
+            if it.batch_id == item.batch_id and it.id != item.id
+        ]
     return render(
         request,
         "post/review.html",
@@ -152,6 +220,9 @@ async def post_item_detail(
             "categories": POST_CATEGORIES,
             "doc_categories": DOCUMENT_CATEGORIES,
             "actions": POST_ACTIONS,
+            "holding": holding,
+            "page_count": page_count,
+            "siblings": siblings,
             "msg": request.query_params.get("msg", ""),
             "error": request.query_params.get("error", ""),
         },
@@ -189,12 +260,17 @@ async def post_item_file(item_id: int, db: Session = Depends(get_db)):
     media = item.content_type or "application/pdf"
     if path.suffix.lower() == ".pdf":
         media = "application/pdf"
+    # No-store so iframe preview always reflects page detach/attach (holding area edits)
     return FileResponse(
         path,
         media_type=media,
         filename=path.name,
         content_disposition_type="inline",
-        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=60"},
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
     )
 
 
@@ -276,6 +352,141 @@ async def post_item_split(
         )
     return RedirectResponse(
         f"/post?msg={url_quote(msg[:300])}",
+        status_code=303,
+    )
+
+
+@router.post("/post/items/{item_id:int}/detach-to-holding")
+async def post_item_detach_to_holding(
+    item_id: int,
+    request: Request,
+    pages: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Move selected pages from this document into the holding area.
+    pages: comma-separated 1-based page numbers within this item's PDF,
+    or repeated form fields named page (checkbox values).
+    """
+    form = await request.form()
+    page_nums: list[int] = []
+    # checkbox name="page" value="1" etc.
+    for key in form.keys():
+        if key in ("page", "pages"):
+            for v in form.getlist(key):
+                s = str(v or "").strip()
+                if s.isdigit():
+                    page_nums.append(int(s))
+    # also accept pages=1,3,5 free text
+    for bit in (pages or "").replace(";", ",").split(","):
+        bit = bit.strip()
+        if bit.isdigit():
+            page_nums.append(int(bit))
+    ok, msg = post_svc.detach_pages_to_holding(db, item_id, page_nums)
+    if not ok:
+        return RedirectResponse(
+            f"/post/items/{item_id}?error={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/post/items/{item_id}?msg={url_quote(msg[:300])}",
+        status_code=303,
+    )
+
+
+@router.post("/post/items/{item_id:int}/attach-holding")
+async def post_item_attach_holding(
+    item_id: int,
+    request: Request,
+    position: str = Form("end"),
+    insert_at: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Attach selected holding-area page(s) onto this document (start/end or insert_at)."""
+    form = await request.form()
+    holding_ids: list[int] = []
+    for key in form.keys():
+        if key in ("holding_id", "holding_ids"):
+            for v in form.getlist(key):
+                s = str(v or "").strip()
+                if s.isdigit():
+                    holding_ids.append(int(s))
+    at: int | None = None
+    if (insert_at or "").strip().lstrip("-").isdigit():
+        at = int(insert_at)
+    ok, msg = post_svc.attach_holding_to_item(
+        db,
+        item_id,
+        holding_ids,
+        position=position or "end",
+        insert_at=at,
+    )
+    if not ok:
+        return RedirectResponse(
+            f"/post/items/{item_id}?error={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/post/items/{item_id}?msg={url_quote(msg[:300])}",
+        status_code=303,
+    )
+
+
+@router.get("/post/items/{item_id:int}/thumb")
+async def post_item_thumb(
+    item_id: int,
+    page: int = 1,
+    db: Session = Depends(get_db),
+):
+    """Medium PNG thumbnail of a PDF page (for holding tray / page order UI)."""
+    item = post_svc.get_item(db, item_id)
+    if not item:
+        return Response(status_code=404)
+    data = post_svc.item_thumbnail_png(db, item, page=max(1, int(page or 1)), max_width=220)
+    if not data:
+        return Response(status_code=404)
+    return Response(
+        content=data,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "private, max-age=120",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.post("/post/items/{item_id:int}/page-order")
+async def post_item_page_order(
+    item_id: int,
+    request: Request,
+    order: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Rebuild document from a page sequence.
+    order: comma-separated tokens p1,p2,h45,p3 (current pages + holding ids).
+    """
+    form = await request.form()
+    tokens: list[str] = []
+    # Accept order=p1,h2,p3 or repeated token fields
+    raw = (order or "").strip()
+    if not raw:
+        for key in form.keys():
+            if key in ("order", "token", "seq"):
+                for v in form.getlist(key):
+                    raw = (raw + "," + str(v)).strip(",")
+    for bit in raw.replace(";", ",").replace(" ", ",").split(","):
+        bit = bit.strip()
+        if bit:
+            tokens.append(bit)
+    ok, msg = post_svc.apply_page_sequence(db, item_id, tokens)
+    if not ok:
+        return RedirectResponse(
+            f"/post/items/{item_id}?error={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/post/items/{item_id}?msg={url_quote(msg[:300])}",
         status_code=303,
     )
 

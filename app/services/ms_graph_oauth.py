@@ -55,6 +55,64 @@ def default_redirect_uri() -> str:
     return (_cfg.MS_GRAPH_REDIRECT_URI or "").strip()
 
 
+def _is_loopback_uri(uri: str) -> bool:
+    u = (uri or "").lower()
+    return "localhost" in u or "127.0.0.1" in u or "0.0.0.0" in u
+
+
+def resolve_redirect_uri(request: Any = None) -> str:
+    """
+    Redirect URI for authorize + token exchange (must match exactly).
+
+    On Render/production, if env still has a localhost callback (common copy-paste
+    from .env), derive https://{host}/oauth/microsoft/callback from the request
+    so Connect Microsoft actually leaves Accology for login.microsoftonline.com.
+    """
+    _sync_cfg()
+    configured = (_cfg.MS_GRAPH_REDIRECT_URI or "").strip()
+    if request is None:
+        return configured or "http://127.0.0.1:8000/oauth/microsoft/callback"
+
+    try:
+        scheme = (request.url.scheme or "https").split(",")[0].strip()
+        host = (request.url.hostname or "").strip()
+        # Render / reverse proxies
+        xf_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+        xf_host = (
+            request.headers.get("x-forwarded-host")
+            or request.headers.get("host")
+            or ""
+        ).split(",")[0].strip()
+        if xf_proto:
+            scheme = xf_proto
+        if xf_host:
+            # host may include port
+            host = xf_host
+        if not host:
+            return configured or "http://127.0.0.1:8000/oauth/microsoft/callback"
+        # Prefer https in production when behind TLS-terminating proxy
+        if scheme not in ("http", "https"):
+            scheme = "https"
+        derived = f"{scheme}://{host.rstrip('/')}/oauth/microsoft/callback"
+        host_loopback = _is_loopback_uri(host) or host.startswith("127.")
+        if not configured:
+            return derived
+        # Env still points at local machine while user is on accology.co
+        if _is_loopback_uri(configured) and not host_loopback:
+            logger.warning(
+                "MS Graph redirect_uri env is loopback (%s) but request host is %s — "
+                "using derived %s (add this URI in Azure App registration)",
+                configured,
+                host,
+                derived,
+            )
+            return derived
+        return configured
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("resolve_redirect_uri failed: %s", exc)
+        return configured or "http://127.0.0.1:8000/oauth/microsoft/callback"
+
+
 def mask_client_id(client_id: Optional[str] = None) -> str:
     if client_id is None:
         _sync_cfg()
@@ -76,13 +134,15 @@ def build_scopes() -> str:
     ).strip()
 
 
-def sign_state(*, return_to: str = "") -> str:
+def sign_state(*, return_to: str = "", redirect_uri: str = "") -> str:
     payload = {
         "n": secrets.token_urlsafe(16),
         "exp": int(
             (datetime.utcnow() + timedelta(seconds=STATE_MAX_AGE_SECONDS)).timestamp()
         ),
         "ret": (return_to or "")[:500],
+        # Must match authorize + token exchange redirect_uri exactly
+        "redir": (redirect_uri or "")[:500],
     }
     body = base64.urlsafe_b64encode(
         json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -118,11 +178,16 @@ def parse_state(state: str) -> Tuple[bool, Dict[str, Any], str]:
 
 def build_authorise_url(*, state: str, redirect_uri: Optional[str] = None) -> str:
     if not oauth_is_ready():
-        raise RuntimeError("Microsoft Graph is not configured.")
+        raise RuntimeError(
+            "Microsoft Graph is not configured. Set MS_GRAPH_CLIENT_ID and "
+            "MS_GRAPH_CLIENT_SECRET on the server (Render env), then restart."
+        )
     _sync_cfg()
     redir = (redirect_uri or default_redirect_uri()).strip()
     if not redir:
-        raise RuntimeError("MS_GRAPH_REDIRECT_URI is empty.")
+        raise RuntimeError(
+            "MS_GRAPH_REDIRECT_URI is empty and could not be derived from the request."
+        )
     logger.info(
         "MS Graph authorize redirect_uri=%s client_id=%s",
         redir,
@@ -135,8 +200,12 @@ def build_authorise_url(*, state: str, redirect_uri: Optional[str] = None) -> st
         "response_mode": "query",
         "scope": build_scopes(),
         "state": state,
+        # Force account picker so a silent SSO failure does not look like "nothing happens"
+        "prompt": "select_account",
     }
     base = (_cfg.MS_GRAPH_AUTHORISE_URL or "").strip()
+    if not base:
+        raise RuntimeError("MS_GRAPH_AUTHORISE_URL is empty.")
     return f"{base}?{urlencode(params)}"
 
 

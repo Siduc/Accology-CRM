@@ -23,6 +23,7 @@ from app.services.ms_graph_oauth import (
     oauth_is_ready,
     parse_state,
     probe_connection,
+    resolve_redirect_uri,
     revoke_local,
     save_token,
     sign_state,
@@ -38,25 +39,42 @@ async def oauth_start(
     return_to: str = "",
     db: Session = Depends(get_db),
 ):
+    refresh_ms_graph_settings(force_dotenv=True)
     if not oauth_is_ready():
         return RedirectResponse(
-            "/settings?oauth_error="
+            "/settings/microsoft-graph?oauth_error="
             + url_quote(
-                "Set MS_GRAPH_CLIENT_ID and MS_GRAPH_CLIENT_SECRET in .env and restart."
+                "Microsoft is not configured on this server. On Render set "
+                "MS_GRAPH_CLIENT_ID and MS_GRAPH_CLIENT_SECRET, then restart. "
+                "Also register the redirect URI in Azure (see Microsoft settings)."
             ),
             status_code=303,
         )
     ret = (return_to or "").strip() or "/settings/microsoft-graph"
-    state = sign_state(return_to=ret)
+    # Never keep a bare #fragment in return_to (breaks query strings after callback)
+    if "#" in ret:
+        ret = ret.split("#", 1)[0]
+    if not ret.startswith("/"):
+        ret = "/settings/microsoft-graph"
+
+    redir = resolve_redirect_uri(request)
+    state = sign_state(return_to=ret, redirect_uri=redir)
     if hasattr(request, "session"):
         request.session["ms_oauth_state"] = state
+        request.session["ms_oauth_redirect"] = redir
     try:
-        url = build_authorise_url(state=state)
+        url = build_authorise_url(state=state, redirect_uri=redir)
     except RuntimeError as exc:
         return RedirectResponse(
-            f"/settings?oauth_error={url_quote(str(exc))}", status_code=303
+            f"/settings/microsoft-graph?oauth_error={url_quote(str(exc)[:300])}",
+            status_code=303,
         )
-    return RedirectResponse(url, status_code=303)
+    # External Microsoft login — do not cache
+    return RedirectResponse(
+        url,
+        status_code=303,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/oauth/microsoft/callback")
@@ -71,27 +89,39 @@ async def oauth_callback(
     if error:
         msg = error_description or error
         return RedirectResponse(
-            f"/settings?oauth_error={url_quote(msg[:300])}", status_code=303
+            f"/settings/microsoft-graph?oauth_error={url_quote(msg[:300])}",
+            status_code=303,
         )
     ok, payload, serr = parse_state(state or "")
     ret = "/settings/microsoft-graph"
+    redir = ""
     if ok:
         ret = (payload.get("ret") or ret) or ret
+        redir = (payload.get("redir") or "").strip()
     if not ok:
         return RedirectResponse(
-            f"/settings?oauth_error={url_quote(serr or 'Invalid state')}",
+            f"/settings/microsoft-graph?oauth_error={url_quote(serr or 'Invalid state')}",
             status_code=303,
         )
     if not (code or "").strip():
         return RedirectResponse(
-            f"/settings?oauth_error={url_quote('No authorisation code returned.')}",
+            f"/settings/microsoft-graph?oauth_error={url_quote('No authorisation code returned.')}",
             status_code=303,
         )
 
-    result = exchange_code(code.strip())
+    # Same redirect_uri as authorize (from state), else resolve from this request
+    if not redir:
+        try:
+            redir = (request.session.get("ms_oauth_redirect") or "").strip()
+        except Exception:
+            redir = ""
+    if not redir:
+        redir = resolve_redirect_uri(request)
+
+    result = exchange_code(code.strip(), redirect_uri=redir)
     if not result.ok:
         return RedirectResponse(
-            f"/settings?oauth_error={url_quote(result.error[:300])}",
+            f"/settings/microsoft-graph?oauth_error={url_quote(result.error[:300])}",
             status_code=303,
         )
 
@@ -134,6 +164,8 @@ async def settings_ms_graph(request: Request, db: Session = Depends(get_db)):
         probe = probe_connection(db)
         status = connection_status(db)
     configured = ms_graph_configured(refresh=True)
+    effective = resolve_redirect_uri(request)
+    env_redir = (app_config.MS_GRAPH_REDIRECT_URI or default_redirect_uri() or "").strip()
     return render(
         request,
         "settings_ms_graph.html",
@@ -143,7 +175,11 @@ async def settings_ms_graph(request: Request, db: Session = Depends(get_db)):
             "configured": configured,
             "client_mask": mask_client_id(app_config.MS_GRAPH_CLIENT_ID),
             "secret_set": bool((app_config.MS_GRAPH_CLIENT_SECRET or "").strip()),
-            "redirect_uri": app_config.MS_GRAPH_REDIRECT_URI or default_redirect_uri(),
+            "redirect_uri": effective,
+            "redirect_uri_env": env_redir,
+            "redirect_uri_overridden": bool(
+                env_redir and effective and env_redir.rstrip("/") != effective.rstrip("/")
+            ),
             "oauth_error": request.query_params.get("oauth_error", ""),
             "oauth_msg": request.query_params.get("oauth_msg", ""),
         },

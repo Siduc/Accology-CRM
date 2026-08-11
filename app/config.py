@@ -524,18 +524,18 @@ def refresh_ms_graph_settings(*, force_dotenv: bool = True) -> dict:
 
 def ms_graph_configured(*, refresh: bool = True) -> bool:
     """
-    True when the three required Microsoft Graph env vars are present:
+    True when Azure app credentials are present.
 
-      MS_GRAPH_CLIENT_ID
-      MS_GRAPH_CLIENT_SECRET
-      MS_GRAPH_REDIRECT_URI
+    Requires MS_GRAPH_CLIENT_ID + MS_GRAPH_CLIENT_SECRET.
+    MS_GRAPH_REDIRECT_URI is preferred but optional — production can derive
+    https://{host}/oauth/microsoft/callback from the request (must still be
+    registered in Azure).
     """
     if refresh:
         refresh_ms_graph_settings(force_dotenv=True)
     return bool(
         (MS_GRAPH_CLIENT_ID or "").strip()
         and (MS_GRAPH_CLIENT_SECRET or "").strip()
-        and (MS_GRAPH_REDIRECT_URI or "").strip()
     )
 
 

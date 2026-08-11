@@ -49,6 +49,7 @@ from app.services.dev_backlog import list_backlog, seed_system_backlog
 from app.services.ms_graph_oauth import (
     connection_status as ms_connection_status,
     mask_client_id as ms_mask_client_id,
+    resolve_redirect_uri as ms_resolve_redirect_uri,
 )
 from app.templating import render
 
@@ -142,7 +143,11 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "ms_graph_secret_set": bool(
                 (app_config.MS_GRAPH_CLIENT_SECRET or "").strip()
             ),
-            "ms_graph_redirect": app_config.MS_GRAPH_REDIRECT_URI or "",
+            "ms_graph_redirect": (
+                ms_resolve_redirect_uri(request)
+                or app_config.MS_GRAPH_REDIRECT_URI
+                or ""
+            ),
             "ms_status": ms_status,
             "oauth_error": request.query_params.get("oauth_error", ""),
             "oauth_msg": request.query_params.get("oauth_msg", ""),

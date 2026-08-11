@@ -32,10 +32,14 @@
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
 <div class="wip-desk subdash-desk" style="margin-bottom:1rem">
-  <div class="wc-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+  <div class="wc-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
     <div class="wc-box wc-box-wip">
       <div class="wc-box-head"><span class="wc-box-title">Awaiting review</span></div>
       <div class="wc-box-value">{{ counts.open|default(0) }}</div>
+    </div>
+    <div class="wc-box" style="border-color:#f59e0b">
+      <div class="wc-box-head"><span class="wc-box-title">Holding area</span></div>
+      <div class="wc-box-value">{{ counts.holding|default(0) }}</div>
     </div>
     <div class="wc-box wc-box-debtors">
       <div class="wc-box-head"><span class="wc-box-title">Active rules</span></div>
@@ -75,6 +79,139 @@
     <strong>rotated 180°</strong> (upside-down). Load the stack face-up as usual; the CRM fixes orientation.
   </p>
 </div>
+
+{% if holding %}
+<div class="card" style="margin-bottom:1rem;border-left:4px solid #f59e0b">
+  <h2 style="margin-top:0">Holding area <span class="badge">{{ holding|length }}</span></h2>
+  <p class="small muted" style="margin:0 0 0.65rem">
+    Pages removed from the wrong letter.
+    <strong>Tick</strong> pages that belong together, optionally drag to set order, then
+    <strong>Combine into new document</strong> — they become a normal review item you can file/email.
+    Or open another document and drag a page onto its page-order strip.
+  </p>
+
+  <form id="holding-combine-form" method="post" action="/post/holding/combine"
+        onsubmit="return holdingCombineSubmit(event);">
+    <input type="hidden" name="order" id="holding-combine-order" value="">
+    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.65rem;align-items:center">
+      <label class="small" style="display:inline-flex;align-items:center;gap:0.35rem">
+        Title (optional)
+        <input name="title" placeholder="e.g. HMRC SA302 pack" style="min-width:14rem">
+      </label>
+      <button class="btn wc-touch" type="submit" style="background:#b45309;border-color:#b45309">
+        Combine selected into new document
+      </button>
+      <button class="btn btn-outline btn-sm" type="button" id="holding-select-all">Select all</button>
+      <button class="btn btn-outline btn-sm" type="button" id="holding-select-none">Clear</button>
+    </div>
+
+    <div id="holding-combine-strip" style="display:flex;flex-wrap:wrap;gap:0.75rem">
+      {% for it in holding %}
+      {% set hv = it.updated_at.strftime('%Y%m%d%H%M%S') if it.updated_at else it.id %}
+      <div class="holding-hub-chip" draggable="true" data-holding-id="{{ it.id }}"
+           style="width:9.25rem;border:1px solid #f59e0b;border-radius:8px;padding:0.4rem;background:rgba(245,158,11,0.08);cursor:grab;position:relative">
+        <label style="display:block;cursor:pointer;margin:0">
+          <input type="checkbox" name="holding_id" value="{{ it.id }}" class="holding-pick"
+                 style="position:absolute;top:0.4rem;left:0.4rem;z-index:2;width:1.05rem;height:1.05rem">
+          <img src="/post/items/{{ it.id }}/thumb?page=1&amp;v={{ hv }}" alt="Holding"
+               style="display:block;width:100%;height:9.5rem;object-fit:contain;background:#0f172a;border-radius:4px;pointer-events:none">
+          <div class="small" style="margin-top:0.35rem;text-align:center;line-height:1.25">
+            <strong>{{ it.title or ('Holding #' ~ it.id) }}</strong>
+            {% if it.page_start %}<div class="muted">scan p{{ it.page_start }}</div>{% endif %}
+          </div>
+        </label>
+        <div class="actions" style="justify-content:center;gap:0.25rem;margin-top:0.3rem;flex-wrap:wrap">
+          <a class="btn btn-sm btn-outline wc-touch" href="/post/items/{{ it.id }}/file?v={{ hv }}" target="_blank" rel="noopener">PDF</a>
+          <a class="btn btn-sm wc-touch" href="/post/items/{{ it.id }}">View</a>
+          <button class="btn btn-sm btn-outline wc-touch" type="submit" formaction="/post/items/{{ it.id }}/delete" formmethod="post"
+                  style="border-color:#b91c1c;color:#b91c1c"
+                  onclick="return confirm('Delete this holding page?');">×</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="muted small" style="margin:0.55rem 0 0">
+      Tip: tick 2+ pages · drag chips left/right to set page order · combine creates a full review document.
+    </p>
+  </form>
+</div>
+<script>
+(function () {
+  var strip = document.getElementById('holding-combine-strip');
+  var orderInput = document.getElementById('holding-combine-order');
+  var form = document.getElementById('holding-combine-form');
+  if (!strip || !form) return;
+
+  var dragEl = null;
+
+  document.getElementById('holding-select-all') && document.getElementById('holding-select-all').addEventListener('click', function () {
+    strip.querySelectorAll('.holding-pick').forEach(function (c) { c.checked = true; });
+  });
+  document.getElementById('holding-select-none') && document.getElementById('holding-select-none').addEventListener('click', function () {
+    strip.querySelectorAll('.holding-pick').forEach(function (c) { c.checked = false; });
+  });
+
+  window.holdingCombineSubmit = function (e) {
+    var picks = Array.from(strip.querySelectorAll('.holding-hub-chip')).filter(function (chip) {
+      var cb = chip.querySelector('.holding-pick');
+      return cb && cb.checked;
+    });
+    if (picks.length < 1) {
+      e.preventDefault();
+      alert('Tick at least one holding page (or select all).');
+      return false;
+    }
+    // Build order from visual strip order among checked chips
+    orderInput.value = picks.map(function (chip) {
+      return 'h' + chip.dataset.holdingId;
+    }).join(',');
+    return true;
+  };
+
+  strip.querySelectorAll('.holding-hub-chip').forEach(function (chip) {
+    chip.addEventListener('dragstart', function (e) {
+      // Don't start drag from checkbox/buttons
+      if (e.target.closest('button, a, input')) {
+        e.preventDefault();
+        return;
+      }
+      dragEl = chip;
+      chip.style.opacity = '0.45';
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', chip.dataset.holdingId || '');
+    });
+    chip.addEventListener('dragend', function () {
+      chip.style.opacity = '';
+      dragEl = null;
+    });
+  });
+
+  strip.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  });
+
+  strip.addEventListener('drop', function (e) {
+    e.preventDefault();
+    if (!dragEl) return;
+    var over = e.target.closest('.holding-hub-chip');
+    if (!over || over === dragEl) {
+      dragEl = null;
+      return;
+    }
+    var rect = over.getBoundingClientRect();
+    if (e.clientX < rect.left + rect.width / 2) {
+      strip.insertBefore(dragEl, over);
+    } else if (over.nextSibling) {
+      strip.insertBefore(dragEl, over.nextSibling);
+    } else {
+      strip.appendChild(dragEl);
+    }
+    dragEl = null;
+  });
+})();
+</script>
+{% endif %}
 
 <div class="card" style="margin-bottom:1rem">
   <h2 style="margin-top:0">Needs review</h2>
@@ -138,7 +275,7 @@
 <div class="card" style="margin-bottom:1rem">
   <h2 style="margin-top:0">Recently handled</h2>
   <ul class="stack" style="list-style:none;padding:0;margin:0">
-    {% for it in recent if it.status not in ('inbox','suggested') %}
+    {% for it in recent if it.status not in ('inbox','suggested','error','holding') %}
     <li class="small" style="padding:0.35rem 0;border-bottom:1px solid var(--border,#e5e5e5)">
       <span class="badge">{{ it.status }}</span>
       {{ it.title or '—' }}
@@ -158,6 +295,7 @@
     <li><strong>Scan a pile</strong> as one multi-page PDF (or many files). Import auto-splits on letter markers (HMRC, Dear…, Form SA…, blank separator sheets) — same idea as the Ahmed invoice multi-pack splitter.</li>
     <li><strong>Import</strong> extracts text (pdfplumber + pypdf), splits into separate review items, suggests client (company number / name) and action (HMRC file · chaser email · review). Manual page split still available if auto-split misses.</li>
     <li><strong>Review</strong> confirms or corrects client, then File / File as HMRC / Email client / Dismiss. Tick <em>Learn this</em> to save keywords → action as a rule.</li>
+    <li><strong>Wrong pages in a letter?</strong> On Review, tick the stray pages under <em>Wrong pages here?</em> → move to holding. Open the correct document and <em>Attach to start/end</em> from the holding list.</li>
     <li><strong>HMRC standard letters</strong> usually file to the client Tax / Correspondence folder without emailing.</li>
     <li><strong>Chasers / demands</strong> usually email the client (and optionally file a copy).</li>
     <li><strong>Filing lives in OneDrive</strong> under Accology Documents / Clients / … (Microsoft must be connected).</li>

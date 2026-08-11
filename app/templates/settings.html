@@ -702,11 +702,14 @@
     </dl>
     <div class="actions">
       {% if ms_graph_configured %}
-      <a class="btn wc-touch" href="/oauth/microsoft/start?return_to=/settings#settings-other">
+      {# No bare # in href — it breaks the query string and can look like "nothing happens" #}
+      <a class="btn wc-touch" href="/oauth/microsoft/start?return_to=%2Fsettings%2Fmicrosoft-graph">
         {% if ms_status.connected %}Reconnect Microsoft{% else %}Connect Microsoft{% endif %}
       </a>
       {% else %}
-      <span class="btn disabled" aria-disabled="true">Connect Microsoft</span>
+      <a class="btn wc-touch" href="/settings/microsoft-graph?oauth_error={{ 'Microsoft%20not%20configured%20on%20this%20server.%20Set%20MS_GRAPH_CLIENT_ID%20and%20MS_GRAPH_CLIENT_SECRET%20in%20Render%20Environment%2C%20then%20restart.' }}">
+        Connect Microsoft
+      </a>
       {% endif %}
       <a class="btn btn-outline wc-touch" href="/settings/microsoft-graph">Manage</a>
       <a class="btn btn-outline wc-touch" href="/documents">Documents</a>

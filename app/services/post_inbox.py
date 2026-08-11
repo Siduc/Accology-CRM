@@ -1940,8 +1940,10 @@ def inbox_counts(db: Session) -> Dict[str, int]:
         .filter(PostItem.status.in_(["inbox", "suggested", "error"]))
         .count()
     )
+    holding_n = db.query(PostItem).filter(PostItem.status == "holding").count()
     return {
         "open": open_n,
+        "holding": holding_n,
         "batches": db.query(PostBatch).count(),
         "rules": db.query(PostRule).filter(PostRule.is_active.is_(True)).count(),
     }
@@ -1988,3 +1990,640 @@ def get_item(db: Session, item_id: int) -> Optional[PostItem]:
         .filter(PostItem.id == item_id)
         .first()
     )
+
+
+def item_pdf_page_count(item: PostItem) -> int:
+    """Pages in the item's local PDF (fallback to page_end - page_start + 1)."""
+    ensure_item_file  # type: ignore  # noqa — ensure available
+    path = Path(item.local_path) if item.local_path else None
+    if path and path.is_file() and path.suffix.lower() == ".pdf":
+        try:
+            from pypdf import PdfReader
+
+            return max(1, len(PdfReader(str(path), strict=False).pages))
+        except Exception:
+            try:
+                import fitz
+
+                doc = fitz.open(str(path))
+                n = doc.page_count
+                doc.close()
+                return max(1, n)
+            except Exception:
+                pass
+    if item.page_start and item.page_end and item.page_end >= item.page_start:
+        return int(item.page_end - item.page_start + 1)
+    return 1
+
+
+def list_holding_items(
+    db: Session, *, batch_id: Optional[int] = None, limit: int = 100
+) -> List[PostItem]:
+    q = (
+        db.query(PostItem)
+        .options(joinedload(PostItem.batch))
+        .filter(PostItem.status == "holding")
+        .order_by(PostItem.batch_id.asc(), PostItem.page_start.asc(), PostItem.id.asc())
+    )
+    if batch_id:
+        q = q.filter(PostItem.batch_id == batch_id)
+    return q.limit(limit).all()
+
+
+def combine_holding_into_document(
+    db: Session,
+    holding_ids: List[int],
+    *,
+    title: Optional[str] = None,
+    classify: bool = True,
+) -> Tuple[bool, str, Optional[int]]:
+    """
+    Merge selected holding-area pages into one normal review document
+    (status inbox/suggested). Holding rows are deleted after merge.
+
+    Page order follows the order of holding_ids.
+    Returns (ok, message, new_item_id).
+    """
+    ids: List[int] = []
+    seen: set = set()
+    for raw in holding_ids:
+        try:
+            hid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if hid > 0 and hid not in seen:
+            seen.add(hid)
+            ids.append(hid)
+    if not ids:
+        return False, "Select at least one holding page to combine", None
+
+    holdings: List[PostItem] = []
+    for hid in ids:
+        h = (
+            db.query(PostItem)
+            .options(joinedload(PostItem.batch))
+            .filter(PostItem.id == hid, PostItem.status == "holding")
+            .first()
+        )
+        if not h:
+            return False, f"Holding page #{hid} not found (already used?)", None
+        ensure_item_file(db, h)
+        hp = Path(h.local_path or "")
+        if not hp.is_file():
+            return False, f"PDF missing for holding #{hid}", None
+        holdings.append(h)
+
+    # Prefer a common batch; otherwise first item's batch
+    batch_id = holdings[0].batch_id
+    batch_counts: Dict[int, int] = {}
+    for h in holdings:
+        if h.batch_id:
+            batch_counts[int(h.batch_id)] = batch_counts.get(int(h.batch_id), 0) + 1
+    if batch_counts:
+        batch_id = max(batch_counts.items(), key=lambda x: x[1])[0]
+
+    try:
+        from pypdf import PdfReader, PdfWriter
+
+        writer = PdfWriter()
+        page_starts: List[int] = []
+        for h in holdings:
+            reader = PdfReader(str(h.local_path), strict=False)
+            if not reader.pages:
+                return False, f"Holding #{h.id} has no pages", None
+            for pg in reader.pages:
+                writer.add_page(pg)
+            if h.page_start:
+                page_starts.append(int(h.page_start))
+
+        n_pages = len(writer.pages)
+        if n_pages < 1:
+            return False, "Combine produced empty PDF", None
+
+        dirs = ensure_inbox_dirs()
+        dest = (
+            dirs["splits"]
+            / f"holding_combined_b{batch_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S%f')}.pdf"
+        )
+        with dest.open("wb") as f:
+            writer.write(f)
+    except Exception as exc:
+        return False, f"Combine failed: {exc}", None
+
+    # Light text extract for title/match (OCR enrichment optional after)
+    _, text = _extract_pdf_text_and_pages(dest)
+    rule, action, category, conf = apply_rules(db, text or "")
+    client, cconf, match_reason = suggest_client(db, text or "")
+    if rule and rule.client_id and not client:
+        client = db.query(Client).filter(Client.id == rule.client_id).first()
+        if client:
+            match_reason = f"Rule: {rule.name}"
+            cconf = max(cconf, 0.7)
+
+    scan_lo = min(page_starts) if page_starts else None
+    scan_hi = max(page_starts) if page_starts else None
+    # If multi-page holdings contributed, approximate end from total pages
+    if scan_lo is not None and n_pages > 1 and (scan_hi is None or scan_hi < scan_lo + n_pages - 1):
+        scan_hi = scan_lo + n_pages - 1
+
+    auto_title = (title or "").strip()
+    if not auto_title:
+        auto_title = _title_from_text(
+            text or "",
+            f"Combined from holding ({n_pages} page{'s' if n_pages != 1 else ''})",
+        )
+    if len(holdings) > 1 and not (title or "").strip():
+        # Prefer a clear holding-combine label when OCR is weak
+        if not text or len(text.strip()) < 40:
+            pages_bit = (
+                f"scan p{scan_lo}" + (f"–{scan_hi}" if scan_hi and scan_hi != scan_lo else "")
+                if scan_lo
+                else f"{n_pages} pages"
+            )
+            auto_title = f"Combined document · {pages_bit}"
+
+    reason_bits = [
+        f"Combined from {len(holdings)} holding page(s)",
+        f"ids {','.join(str(h.id) for h in holdings)}",
+    ]
+    if match_reason:
+        reason_bits.append(match_reason)
+
+    item = PostItem(
+        batch_id=batch_id,
+        sort_order=8000,
+        title=(auto_title or "Combined document")[:200],
+        page_start=scan_lo,
+        page_end=scan_hi if scan_hi is not None else scan_lo,
+        local_path=str(dest),
+        content_type="application/pdf",
+        size_bytes=int(dest.stat().st_size) if dest.is_file() else 0,
+        text_excerpt=(text or "")[:8000] or None,
+        category=category or "Other",
+        suggested_action=action or "review",
+        suggested_client_id=client.id if client else None,
+        confidence=max(conf, cconf) if (conf or cconf) else 0.35,
+        match_reason=" · ".join(reason_bits)[:500],
+        status="suggested" if (action and action != "review" and client) else "inbox",
+        rule_id=rule.id if rule else None,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(item)
+    db.flush()  # get item.id
+
+    # Delete holding source rows + files
+    for h in holdings:
+        try:
+            hp = Path(h.local_path or "")
+            if hp.is_file() and "splits" in hp.parts:
+                hp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            tdir = dirs["splits"] / "thumbs"
+            for oldt in tdir.glob(f"i{h.id}_*.png"):
+                oldt.unlink(missing_ok=True)
+        except Exception:
+            pass
+        db.delete(h)
+
+    db.commit()
+    db.refresh(item)
+
+    if classify:
+        try:
+            enrich_item_text_and_match(db, item, use_vision=True)
+            db.commit()
+            db.refresh(item)
+        except Exception as exc:
+            logger.warning("combine classify failed item=%s: %s", item.id, exc)
+
+    msg = (
+        f"Combined {len(holdings)} holding page(s) into document #{item.id} "
+        f"({n_pages} page{'s' if n_pages != 1 else ''}) — ready to review"
+    )
+    return True, msg, int(item.id)
+
+
+def _write_pdf_pages(source: Path, dest: Path, page_indices_0: List[int]) -> Tuple[bool, str]:
+    """Write 0-based page indices from source PDF to dest (preserves order)."""
+    if not page_indices_0:
+        return False, "No pages"
+    try:
+        from pypdf import PdfReader, PdfWriter
+
+        reader = PdfReader(str(source), strict=False)
+        n = len(reader.pages)
+        writer = PdfWriter()
+        for i in page_indices_0:
+            if 0 <= i < n:
+                writer.add_page(reader.pages[i])
+        if len(writer.pages) < 1:
+            return False, "No valid pages"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with dest.open("wb") as f:
+            writer.write(f)
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def detach_pages_to_holding(
+    db: Session, item_id: int, pages_1based: List[int]
+) -> Tuple[bool, str]:
+    """
+    Remove selected pages (1-based within this item's PDF) into the holding area.
+    Each detached page becomes a status=holding PostItem (single-page PDF).
+    """
+    item = get_item(db, item_id)
+    if not item:
+        return False, "Item not found"
+    if (item.status or "") in ("filed", "emailed", "dismissed"):
+        return False, f"Cannot edit pages on {item.status} items"
+    if (item.status or "") == "holding":
+        return False, "Already in holding — attach to a document instead"
+
+    ensure_item_file(db, item)
+    src = Path(item.local_path) if item.local_path else Path()
+    if not src.is_file():
+        return False, "PDF missing on disk"
+
+    n = item_pdf_page_count(item)
+    want = sorted({int(p) for p in pages_1based if 1 <= int(p) <= n})
+    if not want:
+        return False, "Select at least one valid page number"
+    if len(want) >= n:
+        return False, "Cannot remove every page — delete the item instead, or leave one page"
+
+    keep = [i for i in range(n) if (i + 1) not in set(want)]
+    dirs = ensure_inbox_dirs()
+    batch_id = item.batch_id
+
+    # Map item-relative page → original scan page number when known
+    def orig_page(rel_1: int) -> int:
+        if item.page_start:
+            return int(item.page_start) + rel_1 - 1
+        return rel_1
+
+    created = 0
+    for rel in want:
+        dest = dirs["splits"] / f"holding_b{batch_id}_from{item.id}_p{rel}_{datetime.utcnow().strftime('%H%M%S%f')}.pdf"
+        ok, err = _write_pdf_pages(src, dest, [rel - 1])
+        if not ok:
+            return False, f"Could not extract page {rel}: {err}"
+        op = orig_page(rel)
+        h = PostItem(
+            batch_id=batch_id,
+            sort_order=9000 + op,
+            title=f"Holding · scan p{op}",
+            page_start=op,
+            page_end=op,
+            local_path=str(dest),
+            content_type="application/pdf",
+            size_bytes=int(dest.stat().st_size) if dest.is_file() else 0,
+            category="Other",
+            suggested_action="review",
+            status="holding",
+            match_reason=f"Detached from item #{item.id} (page {rel} of that PDF)",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(h)
+        created += 1
+
+    # Rebuild remaining document
+    keep_dest = dirs["splits"] / f"batch{batch_id}_item{item.id}_edit.pdf"
+    ok, err = _write_pdf_pages(src, keep_dest, keep)
+    if not ok:
+        db.rollback()
+        return False, f"Could not rebuild document: {err}"
+    # Remove old path if under splits and different
+    old = src
+    item.local_path = str(keep_dest)
+    item.size_bytes = int(keep_dest.stat().st_size) if keep_dest.is_file() else 0
+    # Update page range metadata: keep contiguous only if we removed from ends
+    if item.page_start and item.page_end:
+        # Approximate: keep original start, shrink by count removed mid-range is imperfect
+        # Store remaining count in page_end as start + n_keep - 1 for display
+        item.page_end = int(item.page_start) + len(keep) - 1
+    item.updated_at = datetime.utcnow()
+    item.match_reason = (
+        (item.match_reason or "") + f" · removed {len(want)} page(s) to holding"
+    ).strip(" ·")
+    try:
+        if old.is_file() and old.resolve() != keep_dest.resolve() and "splits" in old.parts:
+            # only delete if not the batch archive
+            if "holding_" not in old.name:
+                old.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    db.commit()
+    return True, f"Moved {created} page(s) to holding · document now has {len(keep)} page(s)"
+
+
+def attach_holding_to_item(
+    db: Session,
+    item_id: int,
+    holding_ids: List[int],
+    *,
+    position: str = "end",
+    insert_at: Optional[int] = None,
+) -> Tuple[bool, str]:
+    """
+    Attach holding-area page PDFs onto a document.
+    position: "start" | "end" (used when insert_at is None).
+    insert_at: 0-based index among *current* pages before which to insert
+               (0 = start, n = end). Takes precedence over position.
+    Holding items are deleted after merge.
+    """
+    # Build sequence tokens then use apply_page_sequence
+    item = get_item(db, item_id)
+    if not item:
+        return False, "Document not found"
+    if (item.status or "") in ("filed", "emailed", "dismissed", "holding"):
+        return False, "Open a normal document to attach pages (not a holding item)"
+
+    n = item_pdf_page_count(item)
+    base_tokens = [f"p{i}" for i in range(1, n + 1)]
+    hold_tokens = [f"h{int(hid)}" for hid in holding_ids if int(hid) > 0]
+    if not hold_tokens:
+        return False, "Select holding page(s) to attach"
+
+    if insert_at is not None:
+        idx = max(0, min(int(insert_at), n))
+        seq = base_tokens[:idx] + hold_tokens + base_tokens[idx:]
+    elif (position or "end").lower() == "start":
+        seq = hold_tokens + base_tokens
+    else:
+        seq = base_tokens + hold_tokens
+
+    return apply_page_sequence(db, item_id, seq)
+
+
+def item_thumbnail_png(
+    db: Session,
+    item: PostItem,
+    *,
+    page: int = 1,
+    max_width: int = 220,
+) -> Optional[bytes]:
+    """
+    Render a medium PNG thumbnail for a page of the item's PDF (1-based page).
+    Cached under splits/thumbs/.
+    """
+    ensure_item_file(db, item)
+    path = Path(item.local_path) if item.local_path else Path()
+    if not path.is_file():
+        return None
+
+    page_1 = max(1, int(page or 1))
+    try:
+        mtime = int(path.stat().st_mtime)
+        size = int(path.stat().st_size)
+    except Exception:
+        mtime, size = 0, 0
+
+    dirs = ensure_inbox_dirs()
+    thumb_dir = dirs["splits"] / "thumbs"
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+    cache = thumb_dir / f"i{item.id}_p{page_1}_w{max_width}_{mtime}_{size}.png"
+    if cache.is_file() and cache.stat().st_size > 40:
+        try:
+            return cache.read_bytes()
+        except Exception:
+            pass
+
+    # Invalidate older thumbs for this item/page
+    try:
+        for old in thumb_dir.glob(f"i{item.id}_p{page_1}_w{max_width}_*.png"):
+            if old != cache:
+                old.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    # Image files
+    if path.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".tif", ".tiff"):
+        try:
+            from PIL import Image
+            import io
+
+            im = Image.open(path)
+            im.thumbnail((max_width, int(max_width * 1.45)), Image.Resampling.LANCZOS)
+            if im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            buf = io.BytesIO()
+            im.save(buf, format="PNG", optimize=True)
+            data = buf.getvalue()
+            cache.write_bytes(data)
+            return data
+        except Exception as exc:
+            logger.warning("PIL thumb failed: %s", exc)
+            return None
+
+    if path.suffix.lower() != ".pdf":
+        return None
+
+    try:
+        import fitz
+
+        doc = fitz.open(str(path))
+        if page_1 > doc.page_count:
+            doc.close()
+            return None
+        pg = doc[page_1 - 1]
+        # Aim for ~max_width CSS pixels at 96dpi
+        zoom = max(0.35, min(2.0, max_width / max(pg.rect.width, 1.0)))
+        pix = pg.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        data = pix.tobytes("png")
+        doc.close()
+        try:
+            cache.write_bytes(data)
+        except Exception:
+            pass
+        return data
+    except Exception as exc:
+        logger.warning("thumb render failed item=%s page=%s: %s", item.id, page_1, exc)
+        return None
+
+
+def reorder_item_pages(
+    db: Session, item_id: int, pages_1based: List[int]
+) -> Tuple[bool, str]:
+    """Reorder pages of a document PDF (1-based indices, each page once)."""
+    item = get_item(db, item_id)
+    if not item:
+        return False, "Item not found"
+    n = item_pdf_page_count(item)
+    if n < 1:
+        return False, "No pages"
+    want = [int(p) for p in pages_1based if 1 <= int(p) <= n]
+    if len(want) != n or len(set(want)) != n:
+        return False, f"Order must list each of the {n} page(s) exactly once"
+    seq = [f"p{p}" for p in want]
+    return apply_page_sequence(db, item_id, seq)
+
+
+def apply_page_sequence(
+    db: Session, item_id: int, sequence: List[str]
+) -> Tuple[bool, str]:
+    """
+    Rebuild a document from a page sequence.
+
+    Tokens:
+      p{n}  — page n (1-based) of the *current* document PDF
+      h{id} — holding PostItem id (all pages of that holding PDF, usually 1)
+
+    All current pages must appear exactly once (so nothing is lost).
+    Holding pages listed are merged in and removed from the holding area.
+    """
+    item = get_item(db, item_id)
+    if not item:
+        return False, "Document not found"
+    if (item.status or "") in ("filed", "emailed", "dismissed"):
+        return False, f"Cannot reorder {item.status} items"
+    if (item.status or "") == "holding":
+        return False, "Cannot apply sequence to a holding page — open the target document"
+
+    ensure_item_file(db, item)
+    base = Path(item.local_path) if item.local_path else Path()
+    if not base.is_file():
+        return False, "Document PDF missing on disk"
+
+    n = item_pdf_page_count(item)
+    tokens: List[str] = []
+    for raw in sequence:
+        t = (raw or "").strip().lower()
+        if not t:
+            continue
+        if t.startswith("p") and t[1:].isdigit():
+            tokens.append(f"p{int(t[1:])}")
+        elif t.startswith("h") and t[1:].isdigit():
+            tokens.append(f"h{int(t[1:])}")
+        elif t.isdigit():
+            tokens.append(f"p{int(t)}")
+        else:
+            return False, f"Bad sequence token: {raw}"
+
+    if not tokens:
+        return False, "Empty page order"
+
+    # Validate current pages: each 1..n exactly once
+    used_pages = [int(t[1:]) for t in tokens if t.startswith("p")]
+    if sorted(used_pages) != list(range(1, n + 1)):
+        missing = set(range(1, n + 1)) - set(used_pages)
+        extra = [p for p in used_pages if p < 1 or p > n]
+        dup = [p for p in used_pages if used_pages.count(p) > 1]
+        bits = []
+        if missing:
+            bits.append(f"missing pages {sorted(missing)}")
+        if extra:
+            bits.append(f"invalid pages {extra}")
+        if dup:
+            bits.append(f"duplicate pages {sorted(set(dup))}")
+        return False, "Order must include every current page once — " + "; ".join(bits)
+
+    hold_ids = [int(t[1:]) for t in tokens if t.startswith("h")]
+    holdings_by_id: Dict[int, PostItem] = {}
+    for hid in hold_ids:
+        if hid in holdings_by_id:
+            continue
+        h = (
+            db.query(PostItem)
+            .filter(PostItem.id == hid, PostItem.status == "holding")
+            .first()
+        )
+        if not h:
+            return False, f"Holding page #{hid} not found (already attached?)"
+        ensure_item_file(db, h)
+        if not h.local_path or not Path(h.local_path).is_file():
+            return False, f"Holding file missing for #{hid}"
+        holdings_by_id[hid] = h
+
+    try:
+        from pypdf import PdfReader, PdfWriter
+
+        base_reader = PdfReader(str(base), strict=False)
+        hold_readers: Dict[int, Any] = {}
+        for hid, h in holdings_by_id.items():
+            hold_readers[hid] = PdfReader(str(h.local_path), strict=False)
+
+        writer = PdfWriter()
+        for t in tokens:
+            if t.startswith("p"):
+                pi = int(t[1:]) - 1
+                if 0 <= pi < len(base_reader.pages):
+                    writer.add_page(base_reader.pages[pi])
+            else:
+                hid = int(t[1:])
+                for pg in hold_readers[hid].pages:
+                    writer.add_page(pg)
+
+        if len(writer.pages) < 1:
+            return False, "Rebuild produced empty PDF"
+
+        dirs = ensure_inbox_dirs()
+        dest = (
+            dirs["splits"]
+            / f"batch{item.batch_id}_item{item.id}_seq_{datetime.utcnow().strftime('%H%M%S%f')}.pdf"
+        )
+        with dest.open("wb") as f:
+            writer.write(f)
+        n_new = len(writer.pages)
+    except Exception as exc:
+        return False, f"Rebuild failed: {exc}"
+
+    old = base
+    item.local_path = str(dest)
+    item.size_bytes = int(dest.stat().st_size) if dest.is_file() else 0
+    if item.page_start:
+        item.page_end = int(item.page_start) + n_new - 1
+    item.updated_at = datetime.utcnow()
+    n_hold = len(holdings_by_id)
+    note_bits = []
+    if n_hold:
+        note_bits.append(f"attached {n_hold} holding page(s)")
+    if used_pages != list(range(1, n + 1)):
+        note_bits.append("reordered pages")
+    if note_bits:
+        item.match_reason = (
+            (item.match_reason or "") + " · " + " · ".join(note_bits)
+        ).strip(" ·")
+
+    for hid, h in holdings_by_id.items():
+        try:
+            hp = Path(h.local_path or "")
+            if hp.is_file() and "splits" in hp.parts:
+                hp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        # Drop cached thumbs
+        try:
+            tdir = ensure_inbox_dirs()["splits"] / "thumbs"
+            for oldt in tdir.glob(f"i{hid}_*.png"):
+                oldt.unlink(missing_ok=True)
+        except Exception:
+            pass
+        db.delete(h)
+
+    try:
+        if old.is_file() and old.resolve() != dest.resolve() and "splits" in old.parts:
+            old.unlink(missing_ok=True)
+    except Exception:
+        pass
+    # Invalidate doc thumbs
+    try:
+        tdir = ensure_inbox_dirs()["splits"] / "thumbs"
+        for oldt in tdir.glob(f"i{item.id}_*.png"):
+            oldt.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    db.commit()
+    msg = f"Document now has {n_new} page(s)"
+    if n_hold:
+        msg = f"Merged {n_hold} holding page(s) · " + msg
+    if used_pages != list(range(1, n + 1)):
+        msg = "Pages reordered · " + msg
+    return True, msg

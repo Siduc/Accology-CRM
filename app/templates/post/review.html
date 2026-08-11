@@ -2,13 +2,11 @@
 {% block title %}Review post · Accology{% endblock %}
 {% block content %}
 <style>
-  /* Full-height review: preview column fills to bottom of viewport */
   .post-review-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.9fr);
+    grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.95fr);
     gap: 1rem;
     align-items: stretch;
-    /* header + banners + page padding ≈ leave rest for layout */
     min-height: calc(100vh - 9.5rem);
     max-height: calc(100vh - 7.5rem);
   }
@@ -27,7 +25,7 @@
   .post-preview-frame {
     flex: 1 1 auto;
     width: 100%;
-    min-height: 20rem;
+    min-height: 14rem;
     height: 100%;
     border: 1px solid var(--border, #ddd);
     border-radius: 8px;
@@ -37,7 +35,7 @@
     flex: 1 1 auto;
     width: 100%;
     object-fit: contain;
-    min-height: 20rem;
+    min-height: 14rem;
     border: 1px solid var(--border, #ddd);
     border-radius: 8px;
     background: #0f172a;
@@ -51,6 +49,140 @@
     overflow: auto;
   }
   .post-review-side .card { margin: 0; }
+  .post-page-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.65rem;
+    margin: 0.35rem 0 0.6rem;
+  }
+  .post-page-grid label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--border, #334155);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    background: var(--surface-2, #1e293b);
+  }
+  .post-page-grid label:hover { border-color: #0944F4; }
+
+  /* Page order + holding thumbs */
+  .page-order-wrap {
+    flex: 0 0 auto;
+    margin-top: 0.65rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid var(--border, #334155);
+  }
+  .page-order-strip {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.55rem;
+    overflow-x: auto;
+    padding: 0.45rem 0.25rem 0.65rem;
+    min-height: 9.5rem;
+    border: 2px dashed transparent;
+    border-radius: 10px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .page-order-strip.drag-over {
+    border-color: #0944F4;
+    background: rgba(9, 68, 244, 0.08);
+  }
+  .page-chip {
+    flex: 0 0 auto;
+    width: 7.25rem;
+    cursor: grab;
+    user-select: none;
+    border: 1px solid var(--border, #334155);
+    border-radius: 8px;
+    background: var(--surface-2, #1e293b);
+    padding: 0.3rem;
+    position: relative;
+  }
+  .page-chip:active { cursor: grabbing; }
+  .page-chip.dragging { opacity: 0.45; }
+  .page-chip.drop-before { box-shadow: inset 3px 0 0 #0944F4; }
+  .page-chip.drop-after { box-shadow: inset -3px 0 0 #0944F4; }
+  .page-chip.is-holding {
+    border-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.12);
+  }
+  .page-chip img {
+    display: block;
+    width: 100%;
+    height: 7.5rem;
+    object-fit: contain;
+    background: #0f172a;
+    border-radius: 4px;
+  }
+  .page-chip .chip-label {
+    font-size: 0.72rem;
+    margin-top: 0.25rem;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .page-chip .chip-badge {
+    position: absolute;
+    top: 0.35rem;
+    left: 0.35rem;
+    background: #0944F4;
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+  }
+  .page-chip.is-holding .chip-badge { background: #b45309; }
+
+  .holding-tray {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    max-height: 18rem;
+    overflow: auto;
+    padding: 0.25rem 0;
+    min-height: 5rem;
+  }
+  .holding-tray.drag-over {
+    outline: 2px dashed #f59e0b;
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+  .holding-chip {
+    width: 8rem;
+    cursor: grab;
+    user-select: none;
+    border: 1px solid #f59e0b;
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.1);
+    padding: 0.35rem;
+    position: relative;
+  }
+  .holding-chip:active { cursor: grabbing; }
+  .holding-chip.dragging { opacity: 0.4; }
+  .holding-chip img {
+    display: block;
+    width: 100%;
+    height: 8.5rem;
+    object-fit: contain;
+    background: #0f172a;
+    border-radius: 4px;
+  }
+  .holding-chip .chip-label {
+    font-size: 0.72rem;
+    margin-top: 0.3rem;
+    line-height: 1.25;
+    text-align: center;
+  }
+  .holding-chip .chip-actions {
+    display: flex;
+    gap: 0.25rem;
+    justify-content: center;
+    margin-top: 0.25rem;
+  }
+
   @media (max-width: 900px) {
     .post-review-layout {
       grid-template-columns: 1fr;
@@ -62,8 +194,8 @@
       height: auto;
     }
     .post-preview-frame {
-      min-height: 70vh;
-      height: 70vh;
+      min-height: 55vh;
+      height: 55vh;
     }
     .post-review-side {
       max-height: none;
@@ -78,13 +210,15 @@
     <h1 class="desk-page-title" style="font-size:clamp(1.2rem,2.5vw,1.55rem);margin-bottom:0.15rem">{{ item.title or 'Post item' }}</h1>
     <p class="desk-page-sub muted small" style="margin:0">
       {{ item.batch.original_filename if item.batch else '' }}
-      {% if item.page_start and item.page_end %} · pages {{ item.page_start }}–{{ item.page_end }}{% endif %}
+      {% if item.page_start and item.page_end %} · scan pages {{ item.page_start }}–{{ item.page_end }}{% endif %}
+      {% if page_count|default(0) %} · {{ page_count }} page{{ 's' if page_count != 1 else '' }} in this PDF{% endif %}
       · <span class="badge">{{ item.status }}</span>
     </p>
   </div>
+  {% set file_v = (item.updated_at.strftime('%Y%m%d%H%M%S') if item.updated_at else '0') ~ '-' ~ (item.size_bytes or 0) ~ '-' ~ (page_count|default(0)) %}
   <div class="actions">
     {% if item.local_path %}
-    <a class="btn btn-outline wc-touch" href="/post/items/{{ item.id }}/file" target="_blank" rel="noopener">Open PDF</a>
+    <a class="btn btn-outline wc-touch" href="/post/items/{{ item.id }}/file?v={{ file_v }}" target="_blank" rel="noopener">Open PDF</a>
     {% endif %}
   </div>
 </div>
@@ -92,16 +226,55 @@
 {% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
+{% if item.status == 'holding' %}
+<div class="chase-banner chase-banner-info" style="margin-bottom:0.75rem">
+  <strong>Holding area page</strong> — drag this onto a document’s page strip, or open that document and drop from its holding tray.
+</div>
+{% endif %}
+
 <div class="post-review-layout">
   <div class="card post-preview-card">
-    <h2>Preview</h2>
+    <h2>Preview
+      {% if page_count|default(0) %}
+      <span class="muted small" style="font-weight:normal">· {{ page_count }} page{{ 's' if page_count != 1 else '' }}</span>
+      {% endif %}
+    </h2>
     {% if item.local_path and (item.content_type or '').startswith('image') %}
-    <img class="post-preview-img" src="/post/items/{{ item.id }}/file" alt="scan">
+    <img class="post-preview-img" src="/post/items/{{ item.id }}/file?v={{ file_v }}" alt="scan">
     {% elif item.local_path %}
-    <iframe class="post-preview-frame" src="/post/items/{{ item.id }}/file" title="Post PDF"></iframe>
+    <iframe class="post-preview-frame" id="post-preview-frame"
+            src="/post/items/{{ item.id }}/file?v={{ file_v }}" title="Post PDF"></iframe>
     {% else %}
     <p class="muted">No preview file.</p>
     {% endif %}
+
+    {% if item.status != 'holding' and item.local_path %}
+    <div class="page-order-wrap">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap">
+        <strong class="small">Page order</strong>
+        <span class="muted small">Drag to reorder · drop holding pages here</span>
+      </div>
+      <form id="page-order-form" method="post" action="/post/items/{{ item.id }}/page-order">
+        <input type="hidden" name="order" id="page-order-input" value="">
+        <div id="page-order-strip" class="page-order-strip"
+             data-item-id="{{ item.id }}"
+             title="Drop holding pages here to attach">
+          {% for p in range(1, (page_count|default(1)) + 1) %}
+          <div class="page-chip" draggable="true" data-token="p{{ p }}" data-kind="page" data-page="{{ p }}">
+            <span class="chip-badge">{{ p }}</span>
+            <img src="/post/items/{{ item.id }}/thumb?page={{ p }}&amp;v={{ file_v }}" alt="Page {{ p }}" loading="lazy">
+            <div class="chip-label">Page {{ p }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="actions" style="flex-wrap:wrap;margin-top:0.25rem">
+          <button class="btn btn-sm wc-touch" type="submit" id="btn-apply-order">Apply page order</button>
+          <span class="muted small" id="order-hint">Changes apply when you drop a holding page or click Apply.</span>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+
     {% if item.text_excerpt %}
     <details style="margin-top:0.5rem;flex:0 0 auto">
       <summary class="small">Extracted text (for matching)</summary>
@@ -111,6 +284,111 @@
   </div>
 
   <div class="post-review-side">
+
+    {% if item.status != 'holding' and (page_count|default(0)) > 1 %}
+    <div class="card" style="border-left:4px solid #f59e0b">
+      <h2 style="margin-top:0;font-size:1rem">Wrong pages here?</h2>
+      <p class="small muted" style="margin:0 0 0.5rem">
+        Tick pages that do <strong>not</strong> belong, then move them to holding.
+      </p>
+      <form method="post" action="/post/items/{{ item.id }}/detach-to-holding"
+            onsubmit="return document.querySelectorAll('input[name=page]:checked').length > 0 || (alert('Tick at least one page'), false);">
+        <div class="post-page-grid">
+          {% for p in range(1, (page_count|default(1)) + 1) %}
+          <label>
+            <input type="checkbox" name="page" value="{{ p }}">
+            Page {{ p }}
+          </label>
+          {% endfor %}
+        </div>
+        <button class="btn btn-sm wc-touch" type="submit" style="background:#b45309;border-color:#b45309">
+          Move selected → holding
+        </button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if item.status != 'holding' %}
+    <div class="card" style="border-left:4px solid #0944F4">
+      <h2 style="margin-top:0;font-size:1rem">
+        Holding area
+        {% if holding %}<span class="badge">{{ holding|length }}</span>{% endif %}
+      </h2>
+      {% if holding %}
+      <p class="small muted" style="margin:0 0 0.5rem">
+        Drag a thumbnail onto the <strong>Page order</strong> strip (left) to attach it at that position.
+        Or tick and use the buttons.
+      </p>
+      <div id="holding-tray" class="holding-tray">
+        {% for h in holding %}
+        {% set hv = h.updated_at.strftime('%Y%m%d%H%M%S') if h.updated_at else h.id %}
+        <div class="holding-chip" draggable="true"
+             data-token="h{{ h.id }}" data-kind="holding" data-holding-id="{{ h.id }}"
+             title="Drag onto page order strip">
+          <img src="/post/items/{{ h.id }}/thumb?page=1&amp;v={{ hv }}" alt="Holding {{ h.id }}" loading="lazy">
+          <div class="chip-label">
+            <strong>{{ h.title or ('Holding #' ~ h.id) }}</strong>
+            {% if h.page_start %}<br><span class="muted">scan p{{ h.page_start }}</span>{% endif %}
+          </div>
+          <div class="chip-actions">
+            <a class="btn btn-sm btn-outline" href="/post/items/{{ h.id }}/file?v={{ hv }}" target="_blank" rel="noopener">PDF</a>
+            <form method="post" action="/post/items/{{ h.id }}/delete" style="display:inline"
+                  onsubmit="return confirm('Delete this holding page?');">
+              <button class="btn btn-sm btn-outline" type="submit" style="border-color:#b91c1c;color:#b91c1c">×</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <form method="post" action="/post/items/{{ item.id }}/attach-holding" style="margin-top:0.65rem"
+            onsubmit="return document.querySelectorAll('#holding-checkboxes input:checked').length > 0 || (alert('Select holding page(s) first'), false);">
+        <div id="holding-checkboxes" class="small" style="margin-bottom:0.4rem">
+          {% for h in holding %}
+          <label style="display:inline-flex;align-items:center;gap:0.25rem;margin-right:0.65rem">
+            <input type="checkbox" name="holding_id" value="{{ h.id }}"> #{{ h.id }}
+          </label>
+          {% endfor %}
+        </div>
+        <div class="actions" style="flex-wrap:wrap;gap:0.35rem">
+          <button class="btn btn-sm wc-touch" type="submit" name="position" value="end">Attach to end</button>
+          <button class="btn btn-sm btn-outline wc-touch" type="submit" name="position" value="start">Attach to start</button>
+        </div>
+      </form>
+      {% else %}
+      <p class="small muted" style="margin:0">
+        Empty. Move stray pages here with <strong>Wrong pages here?</strong>, then drag them onto the correct document’s page strip.
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if item.status == 'holding' %}
+    <div class="card">
+      <h2 style="margin-top:0;font-size:1rem">This holding page</h2>
+      <p class="small muted">{{ item.match_reason or 'Detached page waiting to be attached.' }}</p>
+      {% set hv = item.updated_at.strftime('%Y%m%d%H%M%S') if item.updated_at else item.id %}
+      <img src="/post/items/{{ item.id }}/thumb?page=1&amp;v={{ hv }}" alt="Holding"
+           style="width:100%;max-width:12rem;height:auto;border-radius:8px;border:1px solid var(--border,#334155);background:#0f172a;display:block;margin:0.5rem 0">
+      <div class="actions" style="flex-wrap:wrap">
+        <a class="btn btn-sm" href="/post">Back to inbox</a>
+        <form method="post" action="/post/items/{{ item.id }}/delete" style="display:inline"
+              onsubmit="return confirm('Delete this holding page permanently?');">
+          <button class="btn btn-sm btn-outline" type="submit" style="border-color:#b91c1c;color:#b91c1c">Delete</button>
+        </form>
+      </div>
+      {% if siblings is defined and siblings %}
+      <p class="small muted" style="margin-top:0.75rem">Open documents from this scan (then drag from holding):</p>
+      <ul class="small" style="margin:0.25rem 0 0;padding-left:1.1rem">
+        {% for s in siblings %}
+        <li><a href="/post/items/{{ s.id }}">{{ s.title or ('Item #' ~ s.id) }}</a>
+          {% if s.page_start and s.page_end %} · p{{ s.page_start }}–{{ s.page_end }}{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% else %}
+
     <div class="card">
       <h2 style="margin-top:0">Suggestion</h2>
       <dl class="dl-grid small">
@@ -175,7 +453,6 @@
           <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_and_email">File + email</button>
         </div>
       </form>
-      {# Separate form — no client required (browser required= blocked dismiss before) #}
       <div class="actions" style="flex-wrap:wrap;margin-top:0.75rem;padding-top:0.65rem;border-top:1px solid var(--border,#e2e8f0)">
         <form method="post" action="/post/items/{{ item.id }}/action" style="display:inline"
               onsubmit="return confirm('Dismiss without filing? (stays in history as dismissed)');">
@@ -188,19 +465,19 @@
         </form>
       </div>
     </div>
+    {% endif %}
 
     {% set multi = item.page_end and item.page_start and (item.page_end - item.page_start) >= 1 %}
-    {% if multi or (item.batch and item.batch.page_count and item.batch.page_count > 1) %}
+    {% if item.status != 'holding' and (multi or (item.batch and item.batch.page_count and item.batch.page_count > 1)) %}
     <div class="card">
       <h2 style="margin-top:0;font-size:1rem">Fix page splits (whole scan)</h2>
       <p class="small muted" style="margin-top:0">
-        If typefaces or letters are mixed, re-cut the <strong>original {{ item.batch.page_count if item.batch else '?' }}-page</strong>
-        scan with exact page ranges. Example:
-        <code>1-5, 6-7, 8-11</code>
+        Re-cut the original {{ item.batch.page_count if item.batch else '?' }}-page scan.
+        Example: <code>1-5, 6-7, 8-11</code>
       </p>
       {% if item.batch_id %}
       <form method="post" action="/post/batches/{{ item.batch_id }}/reprocess" class="stack" style="gap:0.5rem"
-            onsubmit="return confirm('Replace open items for this scan with the new splits? (Filed/emailed items are kept.)');">
+            onsubmit="return confirm('Replace open items for this scan with the new splits? (Filed/emailed/holding kept.)');">
         <label class="small muted" for="ranges">Page ranges</label>
         <input id="ranges" name="ranges" placeholder="e.g. 1-8, 9-12, 13-20"
                style="width:100%;font-family:ui-monospace,monospace">
@@ -225,4 +502,184 @@
     {% endif %}
   </div>
 </div>
+
+{% if item.status != 'holding' and item.local_path %}
+<script>
+(function () {
+  const strip = document.getElementById('page-order-strip');
+  const form = document.getElementById('page-order-form');
+  const orderInput = document.getElementById('page-order-input');
+  const hint = document.getElementById('order-hint');
+  if (!strip || !form || !orderInput) return;
+
+  let dragEl = null;
+  let dirty = false;
+
+  function tokens() {
+    return Array.from(strip.querySelectorAll('.page-chip')).map(function (el) {
+      return el.dataset.token;
+    });
+  }
+
+  function syncInput() {
+    orderInput.value = tokens().join(',');
+  }
+
+  function markDirty() {
+    dirty = true;
+    if (hint) hint.textContent = 'Order changed — click Apply page order, or drop a holding page to save now.';
+  }
+
+  function submitOrder() {
+    syncInput();
+    if (!orderInput.value) return;
+    form.submit();
+  }
+
+  function clearDropMarks() {
+    strip.querySelectorAll('.page-chip').forEach(function (c) {
+      c.classList.remove('drop-before', 'drop-after');
+    });
+  }
+
+  function insertAt(el, target, before) {
+    if (!el || !target || el === target) return;
+    if (before) {
+      strip.insertBefore(el, target);
+    } else if (target.nextSibling) {
+      strip.insertBefore(el, target.nextSibling);
+    } else {
+      strip.appendChild(el);
+    }
+  }
+
+  function placeFromEvent(el, clientX) {
+    const chips = Array.from(strip.querySelectorAll('.page-chip')).filter(function (c) {
+      return c !== el;
+    });
+    if (!chips.length) {
+      strip.appendChild(el);
+      return;
+    }
+    let placed = false;
+    for (var i = 0; i < chips.length; i++) {
+      var rect = chips[i].getBoundingClientRect();
+      var mid = rect.left + rect.width / 2;
+      if (clientX < mid) {
+        strip.insertBefore(el, chips[i]);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) strip.appendChild(el);
+  }
+
+  // Drag from page strip (reorder)
+  strip.addEventListener('dragstart', function (e) {
+    var chip = e.target.closest('.page-chip');
+    if (!chip) return;
+    dragEl = chip;
+    chip.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', chip.dataset.token || '');
+    e.dataTransfer.setData('application/x-post-token', chip.dataset.token || '');
+    e.dataTransfer.setData('application/x-post-source', 'strip');
+  });
+
+  strip.addEventListener('dragend', function (e) {
+    var chip = e.target.closest('.page-chip');
+    if (chip) chip.classList.remove('dragging');
+    strip.classList.remove('drag-over');
+    clearDropMarks();
+    dragEl = null;
+  });
+
+  strip.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    strip.classList.add('drag-over');
+    clearDropMarks();
+    var over = e.target.closest('.page-chip');
+    if (over && over !== dragEl) {
+      var rect = over.getBoundingClientRect();
+      if (e.clientX < rect.left + rect.width / 2) over.classList.add('drop-before');
+      else over.classList.add('drop-after');
+    }
+  });
+
+  strip.addEventListener('dragleave', function (e) {
+    if (!strip.contains(e.relatedTarget)) {
+      strip.classList.remove('drag-over');
+      clearDropMarks();
+    }
+  });
+
+  strip.addEventListener('drop', function (e) {
+    e.preventDefault();
+    strip.classList.remove('drag-over');
+    clearDropMarks();
+
+    var token = e.dataTransfer.getData('application/x-post-token')
+      || e.dataTransfer.getData('text/plain');
+    var source = e.dataTransfer.getData('application/x-post-source') || '';
+
+    // Reorder existing chip
+    if (dragEl && source === 'strip' && dragEl.parentElement === strip) {
+      placeFromEvent(dragEl, e.clientX);
+      dragEl.classList.remove('dragging');
+      markDirty();
+      syncInput();
+      return;
+    }
+
+    // Holding dropped onto strip → insert + auto-apply (merge + reorder procedure)
+    if (token && token.indexOf('h') === 0) {
+      // Avoid duplicate if already in strip
+      if (strip.querySelector('.page-chip[data-token="' + token + '"]')) {
+        placeFromEvent(strip.querySelector('.page-chip[data-token="' + token + '"]'), e.clientX);
+      } else {
+        var chip = document.createElement('div');
+        chip.className = 'page-chip is-holding';
+        chip.draggable = true;
+        chip.dataset.token = token;
+        chip.dataset.kind = 'holding';
+        var hid = token.slice(1);
+        chip.innerHTML =
+          '<span class="chip-badge">+</span>' +
+          '<img src="/post/items/' + hid + '/thumb?page=1" alt="Holding">' +
+          '<div class="chip-label">Holding #' + hid + '</div>';
+        placeFromEvent(chip, e.clientX);
+      }
+      // Remove from tray visually
+      var trayChip = document.querySelector('.holding-chip[data-token="' + token + '"]');
+      if (trayChip) trayChip.remove();
+      if (hint) hint.textContent = 'Saving new page order…';
+      submitOrder();
+      return;
+    }
+  });
+
+  // Holding tray → start drag
+  document.querySelectorAll('.holding-chip').forEach(function (chip) {
+    chip.addEventListener('dragstart', function (e) {
+      dragEl = null;
+      chip.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'copyMove';
+      e.dataTransfer.setData('text/plain', chip.dataset.token || '');
+      e.dataTransfer.setData('application/x-post-token', chip.dataset.token || '');
+      e.dataTransfer.setData('application/x-post-source', 'holding');
+    });
+    chip.addEventListener('dragend', function () {
+      chip.classList.remove('dragging');
+    });
+  });
+
+  form.addEventListener('submit', function () {
+    syncInput();
+  });
+
+  syncInput();
+})();
+</script>
+{% endif %}
 {% endblock %}

@@ -31,6 +31,7 @@ BATCH_STATUSES = (
 ITEM_STATUSES = (
     "inbox",  # needs review
     "suggested",  # rule/AI suggested action
+    "holding",  # detached page(s) waiting to be attached to another doc
     "filed",
     "emailed",
     "dismissed",
