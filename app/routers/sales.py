@@ -624,6 +624,7 @@ async def invoice_status(
     status: str = Form(...),
     reason: str = Form("Not billed"),
     remember: str = Form(""),
+    xero_note: str = Form(""),
     db: Session = Depends(get_db),
 ):
     inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
@@ -635,7 +636,7 @@ async def invoice_status(
     if st in ("do_not_bill", "discard", "not_billed", "not-billed"):
         return _do_invoice_discard(db, inv, reason=reason, remember=remember)
 
-    if st in ("draft", "sent", "void", "written_off"):
+    if st in ("draft", "sent", "void", "written_off", "paid", "part_paid"):
         inv.status = st
         if st in ("void", "written_off"):
             inv.balance = 0.0
@@ -649,13 +650,101 @@ async def invoice_status(
                 ):
                     job.billing_status = "not_billable"
                     job.invoice_reference = None
-        if st == "sent" and inv.job_id:
+        if st == "sent":
+            # Dual-run with Xero: finalise without emailing the client
+            if (xero_note or "").strip() in ("1", "yes", "on", "true"):
+                tag = "Finalised in CRM (issued via Xero — no Accology email)"
+                notes = (inv.notes or "").strip()
+                if tag not in notes:
+                    inv.notes = (notes + "\n" + tag).strip() if notes else tag
+            if inv.job_id:
+                job = db.query(Job).filter(Job.id == inv.job_id).first()
+                if job:
+                    job.billing_status = "invoiced"
+                    job.invoice_reference = inv.number
+        db.commit()
+        msg = ""
+        if st == "sent" and (xero_note or "").strip() in ("1", "yes", "on", "true"):
+            msg = "?msg=" + url_quote(
+                "Finalised — no email sent. You can record a payment (or use Paid in Xero)."
+            )
+        return RedirectResponse(f"/sales/invoices/{invoice_id}{msg}", status_code=303)
+    return RedirectResponse(f"/sales/invoices/{invoice_id}", status_code=303)
+
+
+@router.post("/invoices/{invoice_id:int}/xero-paid", response_class=HTMLResponse)
+async def invoice_mark_paid_in_xero(
+    invoice_id: int,
+    request: Request,
+    payment_date: str = Form(""),
+    reference: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Dual-ledger helper: finalise a draft (issued in Xero, no email) and record
+    full payment against the balance — e.g. Frans INV-0801 already paid in Xero.
+    """
+    inv = (
+        db.query(Invoice)
+        .options(joinedload(Invoice.lines))
+        .filter(Invoice.id == invoice_id)
+        .first()
+    )
+    if not inv:
+        return RedirectResponse("/sales/invoices", status_code=303)
+    if (inv.status or "").lower() in ("void", "written_off"):
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}?error={url_quote('Cannot pay a void invoice')}",
+            status_code=303,
+        )
+
+    # Finalise draft without email
+    if (inv.status or "").lower() == "draft":
+        inv.status = "sent"
+        tag = "Finalised in CRM (issued via Xero — no Accology email)"
+        notes = (inv.notes or "").strip()
+        if tag not in notes:
+            inv.notes = (notes + "\n" + tag).strip() if notes else tag
+        if inv.job_id:
             job = db.query(Job).filter(Job.id == inv.job_id).first()
             if job:
                 job.billing_status = "invoiced"
                 job.invoice_reference = inv.number
         db.commit()
-    return RedirectResponse(f"/sales/invoices/{invoice_id}", status_code=303)
+        db.refresh(inv)
+
+    bal = float(inv.balance or 0)
+    if bal <= 0.001 and (inv.status or "").lower() == "paid":
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}?msg={url_quote('Already paid')}",
+            status_code=303,
+        )
+    if bal <= 0.001:
+        # Totals may be wrong; use total - paid
+        bal = max(0.0, float(inv.total or 0) - float(inv.amount_paid or 0))
+    if bal <= 0.001:
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}?error={url_quote('Nothing left to allocate')}",
+            status_code=303,
+        )
+
+    pdate = _parse_date(payment_date) or date.today()
+    ref = (reference or "").strip() or f"Xero paid · {inv.number}"
+    record_payment(
+        db,
+        client_id=int(inv.client_id),
+        amount=bal,
+        payment_date=pdate,
+        method="bank",
+        reference=ref,
+        notes=f"Mirrored from Xero for {inv.number} (dual-run — no Accology email)",
+        invoice_allocations=[(inv.id, bal)],
+        post_to_bank=False,  # cash already in Xero bank; avoid double bank entry
+    )
+    return RedirectResponse(
+        f"/sales/invoices/{invoice_id}?msg={url_quote(f'Finalised and paid {bal:.2f} (Xero mirror)')}",
+        status_code=303,
+    )
 
 
 @router.post("/invoices/{invoice_id:int}/discard", response_class=HTMLResponse)
@@ -817,12 +906,33 @@ async def payment_new_form(
     clients = db.query(Client).order_by(Client.company_name).all()
     open_inv = []
     if client_id:
+        # Include drafts — dual-run with Xero: pay CRM invoice even if not emailed
         open_inv = (
             db.query(Invoice)
-            .filter(Invoice.client_id == client_id, Invoice.balance > 0.001)
+            .filter(
+                Invoice.client_id == client_id,
+                Invoice.balance > 0.001,
+                Invoice.status.notin_(["void", "written_off"]),
+            )
             .order_by(Invoice.issue_date)
             .all()
         )
+    # If a specific invoice was requested but not in list (e.g. zero balance), still load client
+    preselect = invoice_id
+    if invoice_id and not client_id:
+        inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+        if inv:
+            client_id = inv.client_id
+            open_inv = (
+                db.query(Invoice)
+                .filter(
+                    Invoice.client_id == client_id,
+                    Invoice.balance > 0.001,
+                    Invoice.status.notin_(["void", "written_off"]),
+                )
+                .order_by(Invoice.issue_date)
+                .all()
+            )
     return render(
         request,
         "sales/payment_form.html",
@@ -830,7 +940,7 @@ async def payment_new_form(
             "clients": clients,
             "selected_client_id": client_id,
             "open_invoices": open_inv,
-            "preselect_invoice_id": invoice_id,
+            "preselect_invoice_id": preselect,
             "today": date.today(),
         },
     )

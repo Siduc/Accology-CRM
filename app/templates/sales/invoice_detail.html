@@ -11,12 +11,14 @@
       {% if job %} · <a href="/jobs/{{ job.id }}">Job #{{ job.id }}</a>{% endif %}
     </p>
   </div>
-  <div class="actions">
+  <div class="actions" style="flex-wrap:wrap">
     <a class="btn" href="/sales/invoices/{{ inv.id }}/edit">Edit invoice</a>
     {% if (inv.status or '')|lower == 'draft' %}
-    <form method="post" action="/sales/invoices/{{ inv.id }}/status" style="display:inline">
+    <form method="post" action="/sales/invoices/{{ inv.id }}/status" style="display:inline"
+          title="Finalise in CRM without emailing the client (Xero dual-run)">
       <input type="hidden" name="status" value="sent">
-      <button class="btn btn-outline" type="submit">Mark sent</button>
+      <input type="hidden" name="xero_note" value="1">
+      <button class="btn btn-outline" type="submit">Finalise (no email)</button>
     </form>
     {% endif %}
     {% if (inv.status or '')|lower in ('draft', 'sent') and (inv.amount_paid or 0) <= 0 %}
@@ -28,9 +30,18 @@
       <button class="btn btn-outline" type="submit">Discard — do not bill</button>
     </form>
     {% endif %}
-    {% if inv.balance > 0 and (inv.status or '')|lower not in ('draft', 'void', 'written_off') %}
+    {# Dual-run with Xero: allow payment on draft/sent while balance remains #}
+    {% if inv.balance > 0.001 and (inv.status or '')|lower not in ('void', 'written_off') %}
     <a class="btn btn-outline" href="/sales/payments/new?client_id={{ inv.client_id }}&invoice_id={{ inv.id }}">Record payment</a>
-    {% if overdue >= 7 %}
+    {% if (inv.status or '')|lower in ('draft', 'sent', 'part_paid') %}
+    <form method="post" action="/sales/invoices/{{ inv.id }}/xero-paid" style="display:inline"
+          onsubmit="return confirm('Mark {{ inv.number }} finalised and fully paid (as in Xero)? No email is sent.');">
+      <button class="btn wc-touch" type="submit" title="Issued + paid in Xero — mirror in CRM">
+        Paid in Xero (full)
+      </button>
+    </form>
+    {% endif %}
+    {% if overdue >= 7 and (inv.status or '')|lower not in ('draft',) %}
     <a class="btn btn-secondary wc-touch" href="/sales/chase/preview/{{ inv.id }}?stage={{ suggest }}">Preview chase email</a>
     {% endif %}
     {% endif %}
@@ -58,16 +69,25 @@
 {% set can_discard = inv_st in ('draft', 'sent') and (inv.amount_paid or 0) <= 0 and inv_st not in ('paid', 'part_paid') %}
 {% if inv_st == 'draft' %}
 <div class="card no-print" style="margin-bottom:1rem;border-left:4px solid #0f766e">
-  <h2 style="margin-top:0">Draft invoice — not sent</h2>
+  <h2 style="margin-top:0">Draft — dual-run with Xero</h2>
   <p class="small muted" style="margin-top:0">
-    Raised from {% if job %}job completion{% else %}sales{% endif %}.
-    Hold here to review. It is <strong>not</strong> chased as a debtor until you mark it <strong>Sent</strong>.
+    Not emailed by Accology. If you already issued this in <strong>Xero</strong>, finalise here without sending,
+    then record the payment (or use <strong>Paid in Xero</strong> for a full receipt in one step).
+    Drafts are not chased until finalised.
   </p>
   <div class="actions" style="flex-wrap:wrap;gap:0.5rem;align-items:center">
     <form method="post" action="/sales/invoices/{{ inv.id }}/status" style="display:inline">
       <input type="hidden" name="status" value="sent">
-      <button class="btn wc-touch" type="submit">Mark sent (bill client)</button>
+      <input type="hidden" name="xero_note" value="1">
+      <button class="btn wc-touch" type="submit">Finalise (issued in Xero — no email)</button>
     </form>
+    {% if inv.balance > 0.001 %}
+    <a class="btn btn-outline" href="/sales/payments/new?client_id={{ inv.client_id }}&invoice_id={{ inv.id }}">Record payment…</a>
+    <form method="post" action="/sales/invoices/{{ inv.id }}/xero-paid" style="display:inline"
+          onsubmit="return confirm('Finalise {{ inv.number }} and record full payment of {{ (inv.balance or inv.total or 0)|money2 }} as paid in Xero?');">
+      <button class="btn btn-secondary wc-touch" type="submit">Paid in Xero (full)</button>
+    </form>
+    {% endif %}
     <form method="post" action="/sales/invoices/{{ inv.id }}/status" class="actions" style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.35rem"
           onsubmit="return confirm('Discard this draft and mark the job as not billed? The invoice will be voided and will not be sent.');">
       <input type="hidden" name="status" value="do_not_bill">

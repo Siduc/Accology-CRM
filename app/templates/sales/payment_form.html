@@ -43,6 +43,9 @@
     </div>
     {% if open_invoices %}
     <h3>Allocate to invoice</h3>
+    <p class="small muted" style="margin:0 0 0.5rem">
+      Includes <strong>draft</strong> invoices (dual-run with Xero — payment still allowed).
+    </p>
     <div class="form-grid">
       <div>
         <label>Invoice</label>
@@ -50,7 +53,7 @@
           <option value="">— none —</option>
           {% for i in open_invoices %}
           <option value="{{ i.id }}" {% if preselect_invoice_id==i.id %}selected{% endif %}>
-            {{ i.number }} · bal {{i.balance|money2}}
+            {{ i.number }} · {{ i.status }} · bal {{i.balance|money2}}
           </option>
           {% endfor %}
         </select>
@@ -61,7 +64,8 @@
       </div>
     </div>
     {% endif %}
-    <label><input type="checkbox" name="post_to_bank" value="yes" checked> Also post to Bank Ledger (primary account)</label>
+    <label><input type="checkbox" name="post_to_bank" value="yes"> Also post to Bank Ledger (primary account)</label>
+    <p class="small muted" style="margin:0">Leave unchecked when the receipt is already in Xero (avoid double bank entry).</p>
     <label>Notes</label>
     <textarea name="notes"></textarea>
     <button class="btn wc-touch" type="submit">Save payment</button>
