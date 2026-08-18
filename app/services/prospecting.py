@@ -115,6 +115,7 @@ def log_activity(
     outcome: str = "",
     campaign_id: Optional[int] = None,
     activity_at: Optional[datetime] = None,
+    meta: Optional[Dict[str, Any]] = None,
     commit: bool = True,
 ) -> ProspectActivity:
     at = (activity_type or "note").strip().lower()
@@ -129,6 +130,7 @@ def log_activity(
         direction=direction or "outbound",
         outcome=(outcome or "")[:120] or None,
         activity_at=activity_at or datetime.utcnow(),
+        meta_json=json.dumps(meta) if meta else None,
     )
     db.add(act)
     if commit:

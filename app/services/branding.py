@@ -57,6 +57,77 @@ def letterhead_image_path() -> Optional[Path]:
     return _find_stem(LETTERHEAD_IMG_STEM, _LETTERHEAD_IMG_EXT)
 
 
+def pays_letterhead_path() -> Optional[Path]:
+    """Imagine lockup with Accology Pays contact — does not replace Accology Limited letterhead."""
+    return ensure_pays_letterhead()
+
+
+def ensure_pays_letterhead() -> Optional[Path]:
+    """
+    Build letterhead_pays_header.png from the Imagine ACCOLOGY header
+    (wordmark + cyan→purple bar). Accology Limited assets are left untouched.
+    """
+    dest = ensure_branding_dir() / "letterhead_pays_header.png"
+    src = letterhead_header_source()
+    if not src or not src.is_file():
+        return dest if dest.is_file() else None
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return dest if dest.is_file() else None
+
+    base = Image.open(src).convert("RGB")
+    w, h = base.size
+    # Find the thin cyan rule and keep everything above it (Imagine lockup).
+    pixels = base.load()
+    crop_h = int(h * 0.55)
+    for y in range(int(h * 0.35), h - 8):
+        cyan_run = 0
+        for x in range(0, w, 8):
+            r, g, b = pixels[x, y][:3]
+            if g > 160 and b > 180 and r < 120:
+                cyan_run += 1
+        if cyan_run > (w / 8) * 0.45:
+            crop_h = min(h, y + 4)
+            break
+    lockup = base.crop((0, 0, w, crop_h))
+    extra = max(72, int(h * 0.28))
+    out = Image.new("RGB", (w, lockup.height + extra), (255, 255, 255))
+    out.paste(lockup, (0, 0))
+    draw = ImageDraw.Draw(out)
+    font = None
+    for fp in (
+        r"C:\Windows\Fonts\segoeui.ttf",
+        r"C:\Windows\Fonts\arial.ttf",
+        r"C:\Windows\Fonts\calibri.ttf",
+    ):
+        if Path(fp).is_file():
+            try:
+                font = ImageFont.truetype(fp, max(20, int(w / 72)))
+                break
+            except OSError:
+                continue
+    if font is None:
+        font = ImageFont.load_default()
+    contact = (
+        "Accology Pays Limited  ·  Company 16011017  ·  "
+        "Bolton Arena, Bolton BL6 6LB  ·  payroll@accology.co  ·  07857 224801"
+    )
+    draw.text((8, lockup.height + 10), contact, fill=(100, 110, 120), font=font)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    out.save(dest, "PNG", optimize=True)
+    return dest
+
+
+def letterhead_header_source() -> Optional[Path]:
+    """Prefer the Imagine header band; fall back to full letterhead image."""
+    for name in ("letterhead_header.png", "letterhead.png"):
+        p = ensure_branding_dir() / name
+        if p.is_file():
+            return p
+    return letterhead_image_path()
+
+
 def static_url(path: Optional[Path]) -> str:
     if not path or not path.is_file():
         return ""
@@ -74,6 +145,7 @@ def branding_status() -> dict:
     lh_pdf = letterhead_pdf_path()
     lh_docx = letterhead_docx_path()
     lh_img = letterhead_image_path()
+    pays_img = pays_letterhead_path()
     dark = BRANDING_DIR / "logo_on_dark.png"
     return {
         "logo_ready": bool(logo),
@@ -89,6 +161,8 @@ def branding_status() -> dict:
         "letterhead_image_ready": bool(lh_img),
         "letterhead_image_url": static_url(lh_img),
         "letterhead_image_name": lh_img.name if lh_img else "",
+        "pays_letterhead_ready": bool(pays_img),
+        "pays_letterhead_url": static_url(pays_img),
         "any_ready": bool(logo or lh_pdf or lh_docx or lh_img),
     }
 
@@ -211,4 +285,6 @@ def practice_branding_context() -> dict:
         "practice_letterhead_pdf_ready": st["letterhead_pdf_ready"],
         "practice_letterhead_image_url": st["letterhead_image_url"],
         "practice_letterhead_image_ready": st["letterhead_image_ready"],
+        "pays_letterhead_url": st.get("pays_letterhead_url") or "",
+        "pays_letterhead_ready": st.get("pays_letterhead_ready") or False,
     }

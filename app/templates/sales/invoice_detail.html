@@ -33,14 +33,6 @@
     {# Dual-run with Xero: allow payment on draft/sent while balance remains #}
     {% if inv.balance > 0.001 and (inv.status or '')|lower not in ('void', 'written_off') %}
     <a class="btn btn-outline" href="/sales/payments/new?client_id={{ inv.client_id }}&invoice_id={{ inv.id }}">Record payment</a>
-    {% if (inv.status or '')|lower in ('draft', 'sent', 'part_paid') %}
-    <form method="post" action="/sales/invoices/{{ inv.id }}/xero-paid" style="display:inline"
-          onsubmit="return confirm('Mark {{ inv.number }} finalised and fully paid (as in Xero)? No email is sent.');">
-      <button class="btn wc-touch" type="submit" title="Issued + paid in Xero — mirror in CRM">
-        Paid in Xero (full)
-      </button>
-    </form>
-    {% endif %}
     {% if overdue >= 7 and (inv.status or '')|lower not in ('draft',) %}
     <a class="btn btn-secondary wc-touch" href="/sales/chase/preview/{{ inv.id }}?stage={{ suggest }}">Preview chase email</a>
     {% endif %}
@@ -72,8 +64,7 @@
   <h2 style="margin-top:0">Draft — dual-run with Xero</h2>
   <p class="small muted" style="margin-top:0">
     Not emailed by Accology. If you already issued this in <strong>Xero</strong>, finalise here without sending,
-    then record the payment (or use <strong>Paid in Xero</strong> for a full receipt in one step).
-    Drafts are not chased until finalised.
+    then use <strong>Paid in Xero</strong> below (pick the real payment date). Drafts are not chased until finalised.
   </p>
   <div class="actions" style="flex-wrap:wrap;gap:0.5rem;align-items:center">
     <form method="post" action="/sales/invoices/{{ inv.id }}/status" style="display:inline">
@@ -83,10 +74,6 @@
     </form>
     {% if inv.balance > 0.001 %}
     <a class="btn btn-outline" href="/sales/payments/new?client_id={{ inv.client_id }}&invoice_id={{ inv.id }}">Record payment…</a>
-    <form method="post" action="/sales/invoices/{{ inv.id }}/xero-paid" style="display:inline"
-          onsubmit="return confirm('Finalise {{ inv.number }} and record full payment of {{ (inv.balance or inv.total or 0)|money2 }} as paid in Xero?');">
-      <button class="btn btn-secondary wc-touch" type="submit">Paid in Xero (full)</button>
-    </form>
     {% endif %}
     <form method="post" action="/sales/invoices/{{ inv.id }}/status" class="actions" style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.35rem"
           onsubmit="return confirm('Discard this draft and mark the job as not billed? The invoice will be voided and will not be sent.');">
@@ -129,15 +116,61 @@
 </div>
 {% endif %}
 
+{% if inv.balance > 0.001 and inv_st not in ('void', 'written_off') %}
+<div class="card no-print" style="margin-bottom:1rem;border-left:4px solid #0369a1">
+  <h2 style="margin-top:0;font-size:1.05rem">Paid in Xero (mirror to CRM)</h2>
+  <p class="small muted" style="margin:0 0 0.65rem">
+    Finalises a draft if needed (no email) and records a full receipt on this invoice.
+    <strong>Bank ledger:</strong> left off by default so dual-run does not double-count cash already in Xero.
+  </p>
+  <form method="post" action="/sales/invoices/{{ inv.id }}/xero-paid" class="form-grid" style="align-items:end;gap:0.65rem"
+        onsubmit="return confirm('Record full payment of {{ (inv.balance or inv.total or 0)|money2 }} on {{ inv.number }} (Xero mirror)?');">
+    <div>
+      <label class="small" for="xero_pay_date">Payment date *</label>
+      <input id="xero_pay_date" type="date" name="payment_date" required value="{{ yesterday }}">
+    </div>
+    <div>
+      <label class="small" for="xero_ref">Reference</label>
+      <input id="xero_ref" name="reference" placeholder="e.g. Xero / bank ref" value="Xero paid · {{ inv.number }}">
+    </div>
+    <div>
+      <label class="small" style="display:flex;align-items:center;gap:0.35rem;margin-top:1.4rem">
+        <input type="checkbox" name="post_to_bank" value="yes">
+        Also post to CRM bank ledger
+      </label>
+    </div>
+    <div>
+      <button class="btn wc-touch" type="submit">Paid in Xero (full)</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
 {# ========== Invoice document ========== #}
+{% set pays = (inv.issuer or '') == 'accology_pays' %}
 <article class="invoice-doc" aria-label="Invoice {{ inv.number }}">
-  {% if practice_letterhead_image_ready and practice_letterhead_image_url %}
+  {% if pays and pays_letterhead_ready and pays_letterhead_url %}
+  <div class="invoice-doc-letterhead">
+    <img src="{{ pays_letterhead_url }}" alt="Accology Pays letterhead">
+  </div>
+  {% elif not pays and practice_letterhead_image_ready and practice_letterhead_image_url %}
   <div class="invoice-doc-letterhead">
     <img src="{{ practice_letterhead_image_url }}" alt="{{ practice_name }} letterhead">
   </div>
   {% endif %}
-  <header class="invoice-doc-header {% if practice_letterhead_image_ready %}invoice-doc-header-under-lh{% endif %}">
+  <header class="invoice-doc-header {% if pays or practice_letterhead_image_ready %}invoice-doc-header-under-lh{% endif %}">
     <div class="invoice-doc-brand">
+      {% if pays %}
+      <div class="invoice-doc-practice">
+        {% if not pays_letterhead_ready %}
+        <div class="invoice-doc-practice-name">{{ pays_name or 'Accology Pays Limited' }}</div>
+        {% endif %}
+        {% if pays_address %}<div class="muted small">{{ pays_address }}</div>{% endif %}
+        {% if pays_company_number %}<div class="muted small">Company {{ pays_company_number }}</div>{% endif %}
+        <div class="muted small">{{ pays_email or 'payroll@accology.co' }}</div>
+        {% if pays_phone %}<div class="muted small">{{ pays_phone }}</div>{% endif %}
+      </div>
+      {% else %}
       {% if not practice_letterhead_image_ready %}
         {% if practice_logo_url %}
         <img class="invoice-doc-logo" src="{{ practice_logo_url }}" alt="{{ practice_name }} logo">
@@ -155,14 +188,14 @@
         {% if practice_phone %}<div class="muted small">{{ practice_phone }}</div>{% endif %}
         {% endif %}
       </div>
+      {% endif %}
     </div>
     <div class="invoice-doc-meta">
-      <div class="invoice-doc-title">INVOICE</div>
+      <div class="invoice-doc-title">{% if pays %}PRO FORMA INVOICE{% else %}INVOICE{% endif %}</div>
       <div class="invoice-doc-number">{{ inv.number }}</div>
       <dl class="invoice-doc-dates">
         <div><dt>Issue date</dt><dd>{{ inv.issue_date|uk_date }}</dd></div>
         <div><dt>Due date</dt><dd>{{ inv.due_date|uk_date if inv.due_date else '—' }}</dd></div>
-        <div><dt>Status</dt><dd>{{ inv.status }}</dd></div>
       </dl>
     </div>
   </header>
@@ -184,22 +217,16 @@
       <p class="muted">No client linked</p>
       {% endif %}
     </div>
-    <div>
-      {% if job %}
-      <h2 class="invoice-doc-label">Job</h2>
-      <p class="small">
-        <a href="/jobs/{{ job.id }}">{{ job.title or job.type or ('Job #' ~ job.id) }}</a>
-        {% if job.period_end %}<br><span class="muted">Period end {{ job.period_end|uk_date }}</span>{% endif %}
-      </p>
-      {% endif %}
-    </div>
   </section>
 
+  {# Job still drives service / period end / status — not shown as a separate block #}
   <div class="table-wrap invoice-doc-lines-wrap">
     <table class="invoice-doc-lines">
       <thead>
         <tr>
-          <th>Description</th>
+          <th>Service</th>
+          <th>Period end</th>
+          <th>Status</th>
           <th class="num">Qty</th>
           <th class="num">Unit price</th>
           <th class="num">VAT</th>
@@ -209,14 +236,30 @@
       <tbody>
         {% for ln in inv.lines %}
         <tr>
-          <td>{{ ln.description }}</td>
+          <td>
+            {% if ln.service %}{{ ln.service.name }}
+            {% elif job and job.type %}{{ job.type }}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if ln.period_end %}{{ ln.period_end|uk_date }}
+            {% elif job and job.period_end %}{{ job.period_end|uk_date }}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if job and (job.status or '')|lower in ('completed', 'complete', 'done', 'filed', 'submitted') %}
+              Submitted
+            {% elif job and job.status %}
+              {{ job.status }}
+            {% else %}—{% endif %}
+          </td>
           <td class="num">{{ '%.2f'|format(ln.qty or 0) }}</td>
           <td class="num">{{(ln.unit_price or 0)|money2}}</td>
           <td class="num">{% if ln.vat_rate %}{{ '%.0f'|format((ln.vat_rate or 0) * 100) }}%{% else %}—{% endif %}</td>
           <td class="num">{{(ln.line_total or 0)|money2}}</td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="muted">No lines</td></tr>
+        <tr><td colspan="7" class="muted">No lines</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -226,7 +269,7 @@
     <div class="invoice-doc-notes">
       {% if inv.notes %}
       <h2 class="invoice-doc-label">Notes</h2>
-      <p>{{ inv.notes }}</p>
+      <p style="white-space:pre-wrap">{{ inv.notes }}</p>
       {% endif %}
     </div>
     <dl class="invoice-doc-sum">
@@ -238,19 +281,18 @@
     </dl>
   </section>
 
-  <footer class="invoice-doc-footer muted small">
-    Thank you for your business.
-    <span class="no-print">
-      · Branding:
-      <a href="/settings#settings-branding">Settings → Letterhead &amp; logo</a>
-      {% if practice_letterhead_pdf_ready %}
-      · <a href="{{ practice_letterhead_pdf_url }}" target="_blank" rel="noopener">Letterhead PDF</a>
-      {% endif %}
-    </span>
+  <footer class="invoice-doc-footer">
+    Thanks for coming, please call again
   </footer>
 </article>
 
 {# ========== Admin / chase (screen only) ========== #}
+{% if inv.internal_notes %}
+<div class="card no-print" style="margin-top:1.25rem;border-left:4px solid #64748b">
+  <h2 style="margin-top:0;font-size:1rem">Internal notes <span class="muted small">(not on invoice)</span></h2>
+  <pre class="small" style="white-space:pre-wrap;margin:0">{{ inv.internal_notes }}</pre>
+</div>
+{% endif %}
 <div class="grid-2 no-print" style="margin-top:1.25rem">
   <div class="card">
     <h2 style="margin-top:0">Status</h2>
@@ -267,6 +309,14 @@
     <p class="small muted" style="margin:0.5rem 0 0">
       <strong>Discard — do not bill</strong> voids the invoice and marks the linked job as not billed (e.g. retainer).
     </p>
+    {% if job %}
+    <p class="small" style="margin:0.65rem 0 0">
+      Linked job:
+      <a href="/jobs/{{ job.id }}">{{ (job.title or job.type or ('Job #' ~ job.id))|uk_text }}</a>
+      · {{ job.status or '—' }}
+      {% if job.period_end %} · PE {{ job.period_end|uk_date }}{% endif %}
+    </p>
+    {% endif %}
   </div>
   <div class="card" id="debt-chase">
     <h2 style="margin-top:0">Debt chase</h2>

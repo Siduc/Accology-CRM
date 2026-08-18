@@ -54,6 +54,9 @@ Add a **PostgreSQL** database and link `DATABASE_URL` to the web service.
 | `AUTH_USERNAME` | Yes | Login username |
 | `AUTH_PASSWORD` | Yes | Login password |
 | `SESSION_SECRET` | Yes | Long random string (session cookie signing) |
+| `XERO_CLIENT_ID` | No | Xero app client id (practice OAuth) |
+| `XERO_CLIENT_SECRET` | No | Xero app secret |
+| `XERO_REDIRECT_URI` | No | e.g. `http://localhost:8000/oauth/xero/callback` (must match the Xero app) |
 | `COMPANIES_HOUSE_API_KEY` | No | REST API key for CH public data |
 | `CH_OAUTH_CLIENT_ID` | No | Developer Hub **web** client id (API Filing OAuth; not API-key-only) |
 | `CH_OAUTH_CLIENT_SECRET` | No | Web client secret |

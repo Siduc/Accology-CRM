@@ -871,6 +871,7 @@ async def campaign_create(
     fee_renewal: str = Form("0"),
     email_subject: str = Form(""),
     email_body: str = Form(""),
+    reply_to_email: str = Form(""),
     db: Session = Depends(get_db),
 ):
     from app.services.prospecting import add_clients_to_campaign
@@ -891,6 +892,10 @@ async def campaign_create(
         email_subject=email_subject,
         email_body=email_body,
     )
+    rt = (reply_to_email or "").strip()
+    if rt:
+        c.reply_to_email = rt
+        db.commit()
     form = await request.form()
     raw_ids = form.getlist("client_ids")
     client_ids = []
@@ -951,12 +956,22 @@ async def campaign_detail(
 
     graph_connected = False
     try:
-        from app.services.ms_graph_oauth import connection_status
+        from app.services.ms_graph_oauth import connection_status, get_valid_access_token
 
         graph = connection_status(db) or {}
         graph_connected = bool(graph.get("connected") and graph.get("fresh"))
+        if graph_connected:
+            token, _terr = get_valid_access_token(db)
+            if token:
+                from app.services.campaign_replies import ingest_payroll_replies
+
+                pulled = ingest_payroll_replies(db, token, campaign_id=c.id)
+                n = int(pulled.get("logged") or 0)
+                if n:
+                    extra = f"{n} new payroll@ reply logged on the prospect."
+                    banner = f"{banner} {extra}".strip() if banner else extra
     except Exception:
-        graph_connected = False
+        graph_connected = graph_connected or False
 
     try:
         pipeline_value = float(c.pipeline_value_per_prospect() or 0)
@@ -988,6 +1003,7 @@ async def campaign_update_fees(
     fee_renewal: str = Form("0"),
     email_subject: str = Form(""),
     email_body: str = Form(""),
+    reply_to_email: str = Form(""),
     apply_to_members: str = Form("yes"),
     db: Session = Depends(get_db),
 ):
@@ -1007,6 +1023,7 @@ async def campaign_update_fees(
     )
     c.email_subject = (email_subject or "").strip() or None
     c.email_body = (email_body or "").strip() or None
+    c.reply_to_email = (reply_to_email or "").strip() or None
     c.updated_at = __import__("datetime").datetime.utcnow()
     db.commit()
     return RedirectResponse(
@@ -1024,6 +1041,7 @@ async def campaign_push_email_drafts(
     Create Outlook drafts for campaign members (review & send in Outlook).
     Does not send immediately — drafts land in the signed-in mailbox.
     """
+    from app.services.campaign_replies import MELISSA_MAILBOX, default_reply_to
     from app.services.ms_graph_mail import create_outlook_draft
     from app.services.ms_graph_oauth import get_valid_access_token
     from app.services.prospecting import log_activity
@@ -1101,7 +1119,14 @@ async def campaign_push_email_drafts(
             continue
         subj = render_tpl(subject_tmpl, p)
         body = render_tpl(body_tmpl, p)
-        draft, derr = create_outlook_draft(token, to=to, subject=subj, body=body)
+        draft, derr = create_outlook_draft(
+            token,
+            to=to,
+            subject=subj,
+            body=body,
+            reply_to=default_reply_to(c),
+            cc=[MELISSA_MAILBOX],
+        )
         if draft:
             created += 1
             link = draft.get("webLink") or ""
@@ -1134,6 +1159,42 @@ async def campaign_push_email_drafts(
     return RedirectResponse(
         f"/prospecting/campaigns/{campaign_id}?msg="
         + uq(f"Outlook drafts: {created} created, {skipped} skipped (no email), {failed} failed"),
+        status_code=303,
+    )
+
+
+@router.post("/campaigns/{campaign_id:int}/pull-replies")
+async def campaign_pull_replies(campaign_id: int, db: Session = Depends(get_db)):
+    from urllib.parse import quote as uq
+
+    from app.services.campaign_replies import ingest_payroll_replies
+    from app.services.ms_graph_oauth import get_valid_access_token
+
+    c = db.query(ProspectCampaign).filter(ProspectCampaign.id == campaign_id).first()
+    if not c:
+        return RedirectResponse("/prospecting/campaigns", status_code=303)
+    token, err = get_valid_access_token(db)
+    if not token:
+        return RedirectResponse(
+            f"/prospecting/campaigns/{campaign_id}?msg="
+            + uq(err or "Connect Microsoft to pull payroll replies"),
+            status_code=303,
+        )
+    res = ingest_payroll_replies(db, token, campaign_id=c.id)
+    if not res.get("ok"):
+        return RedirectResponse(
+            f"/prospecting/campaigns/{campaign_id}?msg="
+            + uq((res.get("error") or "Reply pull failed")[:300]),
+            status_code=303,
+        )
+    unmatched = res.get("unmatched") or 0
+    extra = f", {unmatched} unmatched" if unmatched else ""
+    return RedirectResponse(
+        f"/prospecting/campaigns/{campaign_id}?msg="
+        + uq(
+            f"Replies: {res.get('logged', 0)} logged, "
+            f"{res.get('skipped', 0)} skipped{extra}."
+        ),
         status_code=303,
     )
 

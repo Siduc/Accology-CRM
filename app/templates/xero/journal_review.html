@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Review Xero journal · {{ client.display_name() }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted" style="margin:0 0 0.35rem">
+      <a href="/clients/{{ client.id }}?tab=playbook">← {{ client.display_name() }} playbook</a>
+    </p>
+    <h1 class="desk-page-title">Review journals</h1>
+    <p class="desk-page-sub muted small"><code>{{ filename }}</code></p>
+  </div>
+</div>
+
+{% if request.query_params.get('err') %}
+<div class="alert alert-error">{{ request.query_params.get('err') }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if journals %}
+{% for j in journals %}
+<div class="card" style="margin-bottom:1rem">
+  <div class="page-header" style="margin-bottom:0.5rem">
+    <h2 style="margin:0">{{ j.Narration }}</h2>
+    <span class="badge {% if j.Balanced %}badge-active{% else %}badge-overdue{% endif %}">
+      {% if j.Balanced %}Balances{% else %}Out by {{ '%.2f'|format(j.Net) }}{% endif %}
+    </span>
+  </div>
+  <p class="small muted">Date {{ j.Date }} · {{ j.LineCount }} line{{ 's' if j.LineCount != 1 else '' }}</p>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Account</th><th>Description</th><th class="num">Debit</th><th class="num">Credit</th></tr>
+      </thead>
+      <tbody>
+        {% for ln in j.Lines %}
+        <tr>
+          <td><code>{{ ln.AccountCode }}</code></td>
+          <td>{{ ln.Description or '—' }}</td>
+          <td class="num">{% if ln.LineAmount > 0 %}{{ '%.2f'|format(ln.LineAmount) }}{% endif %}</td>
+          <td class="num">{% if ln.LineAmount < 0 %}{{ '%.2f'|format(-ln.LineAmount) }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+
+<form class="card stack" method="post" action="{{ post_action or ('/clients/' ~ client.id ~ '/xero/journals/' ~ filename ~ '/post') }}">
+  <h2>Post to Xero</h2>
+  <p class="muted small">Nothing is sent until you confirm. Draft first unless you are sure.</p>
+  <label>Status
+    <select name="status">
+      <option value="DRAFT" selected>Draft (recommended)</option>
+      <option value="POSTED" {% if not all_balanced %}disabled{% endif %}>Posted</option>
+    </select>
+  </label>
+  <label class="settings-radio">
+    <input type="checkbox" name="confirm" value="yes" {% if not all_balanced %}disabled{% endif %}>
+    <span>I have reviewed these journals and want them written to Xero</span>
+  </label>
+  <div class="form-actions">
+    <button class="btn wc-touch" type="submit" {% if not all_balanced %}disabled{% endif %}>Post to Xero</button>
+    <a class="btn btn-outline" href="/clients/{{ client.id }}?tab=playbook">Cancel</a>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

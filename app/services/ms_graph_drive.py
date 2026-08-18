@@ -78,10 +78,14 @@ def job_folder_slug(job) -> str:
     pe = getattr(job, "period_end", None)
 
     # Prefer full title when it already carries type + period
+    from app.services.dates import uk_dates_in_text
+
     if title and (not jtype or jtype.lower() in title.lower() or "—" in title or "-" in title):
-        base = title
+        base = uk_dates_in_text(title)
     elif jtype and pe is not None and hasattr(pe, "isoformat"):
-        base = f"{jtype} — {pe.isoformat()}"
+        from app.services.dates import uk_date, uk_dates_in_text
+
+        base = f"{jtype} — {uk_date(pe)}"
     elif jtype:
         base = jtype
     elif title:

@@ -315,6 +315,28 @@ def _default_post_inbox_path() -> str:
 
 POST_INBOX_PATH = _env("POST_INBOX_PATH", _default_post_inbox_path()) or _default_post_inbox_path()
 
+
+def _default_practice_files_root() -> str:
+    """Local OneDrive practice tree (X1). Render cannot see this path."""
+    from pathlib import Path
+
+    home = Path.home()
+    candidates = [
+        home / "OneDrive - Accology" / "Accologise Documents",
+        home / "OneDrive" / "Accologise Documents",
+        Path(r"C:\Users\User\OneDrive - Accology\Accologise Documents"),
+    ]
+    for p in candidates:
+        if p.is_dir():
+            return str(p)
+    return str(candidates[0])
+
+
+PRACTICE_FILES_ROOT = (
+    _env("PRACTICE_FILES_ROOT", _default_practice_files_root())
+    or _default_practice_files_root()
+)
+
 # Brother ADF often feeds from the back of the stack and may save pages upside-down.
 # Applied on import before split/OCR. Override with POST_SCAN_REVERSE_ORDER=0 / POST_SCAN_ROTATE_180=0.
 POST_SCAN_REVERSE_ORDER = _env_bool_early("POST_SCAN_REVERSE_ORDER", True)
@@ -547,6 +569,175 @@ logger.info(
     MS_GRAPH_REDIRECT_URI or "(default)",
     ms_graph_configured(refresh=False),
 )
+
+
+# Xero Accounting API (practice OAuth — pull books, post journals)
+XERO_CLIENT_ID = _env("XERO_CLIENT_ID")
+XERO_CLIENT_SECRET = _env("XERO_CLIENT_SECRET")
+XERO_REDIRECT_URI = _env(
+    "XERO_REDIRECT_URI",
+    "http://localhost:8000/oauth/xero/callback",
+)
+XERO_AUTHORISE_URL = (
+    _env("XERO_AUTHORISE_URL", "https://login.xero.com/identity/connect/authorize")
+    or "https://login.xero.com/identity/connect/authorize"
+)
+XERO_TOKEN_URL = (
+    _env("XERO_TOKEN_URL", "https://identity.xero.com/connect/token")
+    or "https://identity.xero.com/connect/token"
+)
+XERO_CONNECTIONS_URL = (
+    _env("XERO_CONNECTIONS_URL", "https://api.xero.com/connections")
+    or "https://api.xero.com/connections"
+)
+XERO_API_BASE = (
+    _env("XERO_API_BASE", "https://api.xero.com/api.xro/2.0")
+    or "https://api.xero.com/api.xro/2.0"
+)
+# Broad scopes still work until Sep 2027; override with XERO_SCOPES for granular apps.
+XERO_SCOPES = _env(
+    "XERO_SCOPES",
+    "offline_access openid profile email accounting.transactions "
+    "accounting.reports.read accounting.settings.read accounting.journals.read",
+) or (
+    "offline_access openid profile email accounting.transactions "
+    "accounting.reports.read accounting.settings.read accounting.journals.read"
+)
+
+
+def refresh_xero_settings(*, force_dotenv: bool = False) -> dict:
+    """Re-read Xero env (same pattern as Microsoft Graph)."""
+    global XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI
+    global XERO_AUTHORISE_URL, XERO_TOKEN_URL, XERO_CONNECTIONS_URL
+    global XERO_API_BASE, XERO_SCOPES
+    if force_dotenv:
+        try:
+            bootstrap_environment()
+        except Exception:
+            pass
+    XERO_CLIENT_ID = _env("XERO_CLIENT_ID")
+    XERO_CLIENT_SECRET = _env("XERO_CLIENT_SECRET")
+    XERO_REDIRECT_URI = _env(
+        "XERO_REDIRECT_URI",
+        "http://localhost:8000/oauth/xero/callback",
+    )
+    XERO_AUTHORISE_URL = (
+        _env("XERO_AUTHORISE_URL", "https://login.xero.com/identity/connect/authorize")
+        or "https://login.xero.com/identity/connect/authorize"
+    )
+    XERO_TOKEN_URL = (
+        _env("XERO_TOKEN_URL", "https://identity.xero.com/connect/token")
+        or "https://identity.xero.com/connect/token"
+    )
+    XERO_CONNECTIONS_URL = (
+        _env("XERO_CONNECTIONS_URL", "https://api.xero.com/connections")
+        or "https://api.xero.com/connections"
+    )
+    XERO_API_BASE = (
+        _env("XERO_API_BASE", "https://api.xero.com/api.xro/2.0")
+        or "https://api.xero.com/api.xro/2.0"
+    )
+    XERO_SCOPES = _env(
+        "XERO_SCOPES",
+        "offline_access openid profile email accounting.transactions "
+        "accounting.reports.read accounting.settings.read accounting.journals.read",
+    ) or XERO_SCOPES
+    return {
+        "client_id_set": bool((XERO_CLIENT_ID or "").strip()),
+        "secret_set": bool((XERO_CLIENT_SECRET or "").strip()),
+        "redirect_uri": (XERO_REDIRECT_URI or "").strip(),
+        "configured": xero_configured(refresh=False),
+    }
+
+
+def xero_configured(*, refresh: bool = True) -> bool:
+    if refresh:
+        refresh_xero_settings(force_dotenv=True)
+    return bool(
+        (XERO_CLIENT_ID or "").strip() and (XERO_CLIENT_SECRET or "").strip()
+    )
+
+
+# Sage Business Cloud Accounting (UK)
+SAGE_CLIENT_ID = _env("SAGE_CLIENT_ID")
+SAGE_CLIENT_SECRET = _env("SAGE_CLIENT_SECRET")
+SAGE_REDIRECT_URI = _env(
+    "SAGE_REDIRECT_URI",
+    "http://localhost:8000/oauth/sage/callback",
+)
+SAGE_AUTHORISE_URL = (
+    _env("SAGE_AUTHORISE_URL", "https://www.sageone.com/oauth2/auth/central")
+    or "https://www.sageone.com/oauth2/auth/central"
+)
+SAGE_TOKEN_URL = (
+    _env("SAGE_TOKEN_URL", "https://oauth.accounting.sage.com/token")
+    or "https://oauth.accounting.sage.com/token"
+)
+SAGE_API_BASE = (
+    _env("SAGE_API_BASE", "https://api.accounting.sage.com/v3.1")
+    or "https://api.accounting.sage.com/v3.1"
+)
+SAGE_SCOPES = _env("SAGE_SCOPES", "full_access") or "full_access"
+SAGE_COUNTRY = _env("SAGE_COUNTRY", "GB") or "GB"
+
+
+def sage_configured(*, refresh: bool = True) -> bool:
+    if refresh:
+        try:
+            bootstrap_environment()
+        except Exception:
+            pass
+        global SAGE_CLIENT_ID, SAGE_CLIENT_SECRET, SAGE_REDIRECT_URI
+        SAGE_CLIENT_ID = _env("SAGE_CLIENT_ID")
+        SAGE_CLIENT_SECRET = _env("SAGE_CLIENT_SECRET")
+        SAGE_REDIRECT_URI = _env(
+            "SAGE_REDIRECT_URI",
+            "http://localhost:8000/oauth/sage/callback",
+        )
+    return bool((SAGE_CLIENT_ID or "").strip() and (SAGE_CLIENT_SECRET or "").strip())
+
+
+# QuickBooks Online
+QBO_CLIENT_ID = _env("QBO_CLIENT_ID")
+QBO_CLIENT_SECRET = _env("QBO_CLIENT_SECRET")
+QBO_REDIRECT_URI = _env(
+    "QBO_REDIRECT_URI",
+    "http://localhost:8000/oauth/qbo/callback",
+)
+QBO_AUTHORISE_URL = (
+    _env("QBO_AUTHORISE_URL", "https://appcenter.intuit.com/connect/oauth2")
+    or "https://appcenter.intuit.com/connect/oauth2"
+)
+QBO_TOKEN_URL = (
+    _env("QBO_TOKEN_URL", "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer")
+    or "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
+)
+QBO_API_BASE = (
+    _env("QBO_API_BASE", "https://quickbooks.api.intuit.com/v3")
+    or "https://quickbooks.api.intuit.com/v3"
+)
+QBO_SCOPES = (
+    _env("QBO_SCOPES", "com.intuit.quickbooks.accounting")
+    or "com.intuit.quickbooks.accounting"
+)
+QBO_MINOR_VERSION = _env("QBO_MINOR_VERSION", "75") or "75"
+QBO_ENVIRONMENT = (_env("QBO_ENVIRONMENT", "production") or "production").lower()
+
+
+def qbo_configured(*, refresh: bool = True) -> bool:
+    if refresh:
+        try:
+            bootstrap_environment()
+        except Exception:
+            pass
+        global QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI
+        QBO_CLIENT_ID = _env("QBO_CLIENT_ID")
+        QBO_CLIENT_SECRET = _env("QBO_CLIENT_SECRET")
+        QBO_REDIRECT_URI = _env(
+            "QBO_REDIRECT_URI",
+            "http://localhost:8000/oauth/qbo/callback",
+        )
+    return bool((QBO_CLIENT_ID or "").strip() and (QBO_CLIENT_SECRET or "").strip())
 
 
 # Asana (PAT — single user “me”)

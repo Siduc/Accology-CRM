@@ -363,7 +363,7 @@
             {% elif r.client %}
             <a href="/clients/{{ r.client.id }}">{{ r.client.display_name() }}</a>
             {% else %}
-            {{ r.title or '—' }}
+            {{ (r.title or '—')|uk_text }}
             {% endif %}
             {% if r.is_retainer %}<span class="badge badge-retainer" style="margin-left:0.25rem">Retainer</span>{% endif %}
           </td>

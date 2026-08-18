@@ -1,0 +1,78 @@
+{% extends "website/base_public.html" %}
+{% block title %}PAYE registration · Accology Pays{% endblock %}
+{% block content %}
+<section class="site-section site-section-top">
+  <div class="site-section-inner" style="max-width:40rem">
+    <p class="site-eyebrow">Accology Pays</p>
+    <h1 class="site-h1">PAYE registration details</h1>
+    {% if error and not client %}
+    <div class="site-alert" role="alert">{{ error }}</div>
+    {% elif client %}
+    <p class="site-section-intro">
+      For <strong>{{ client.display_name() }}</strong>
+      {% if client.company_number %}(company {{ client.company_number }}){% endif %}.
+      We use this to register the company as an employer with HMRC.
+    </p>
+    {% if error %}<div class="site-alert" role="alert">{{ error }}</div>{% endif %}
+    <div class="site-form-card">
+      <form class="site-form" method="post" action="/payroll/paye/{{ token }}">
+        <label for="contact_name">Your name</label>
+        <input id="contact_name" name="contact_name" value="{{ client.contact_name or '' }}">
+
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" value="{{ client.email or '' }}">
+
+        <label for="phone">Phone / mobile</label>
+        <input id="phone" name="phone" type="tel" value="{{ client.phone or '' }}">
+
+        <label for="director_name">Director to put on payroll</label>
+        <input id="director_name" name="director_name" value="{{ client.contact_name or '' }}">
+
+        <label for="ni_number">National Insurance number</label>
+        <input id="ni_number" name="ni_number" autocomplete="off">
+
+        <label for="date_of_birth">Date of birth</label>
+        <input id="date_of_birth" name="date_of_birth" type="date">
+
+        <label for="home_address">Home address</label>
+        <textarea id="home_address" name="home_address" rows="3"></textarea>
+
+        <label for="trading_name">Trading name (if different)</label>
+        <input id="trading_name" name="trading_name">
+
+        <label for="trading_address">Trading address (if different from registered office)</label>
+        <textarea id="trading_address" name="trading_address" rows="3"
+          placeholder="{{ client.address_block() }}"></textarea>
+
+        <label for="nature_of_business">Nature of business</label>
+        <input id="nature_of_business" name="nature_of_business" placeholder="e.g. bathroom fitting">
+
+        <label for="first_pay_date">First payday / when you want payroll to start</label>
+        <input id="first_pay_date" name="first_pay_date" type="date">
+
+        <label for="staff_count">How many people on this payroll (including you)</label>
+        <input id="staff_count" name="staff_count" inputmode="numeric" value="1">
+
+        <label for="already_paye">Already have a PAYE scheme?</label>
+        <select id="already_paye" name="already_paye">
+          <option value="no" selected>No — please register one</option>
+          <option value="yes">Yes — I will give the references below</option>
+        </select>
+
+        <label for="existing_paye_ref">Existing PAYE reference (if any)</label>
+        <input id="existing_paye_ref" name="existing_paye_ref" value="{{ client.paye_reference or '' }}">
+
+        <label for="existing_ao_ref">Accounts Office reference (if any)</label>
+        <input id="existing_ao_ref" name="existing_ao_ref" value="{{ client.accounts_office_reference or '' }}">
+
+        <label for="gg_username">Government Gateway user ID (if you have one)</label>
+        <input id="gg_username" name="gg_username" value="{{ client.gov_gateway_username or '' }}" autocomplete="off">
+
+        <button class="site-btn site-btn-primary site-btn-block" type="submit">Send details</button>
+        <p class="site-form-note">Accology Pays Limited will use these details only to register PAYE and run payroll.</p>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

@@ -157,9 +157,14 @@ class Invoice(Base):
     total = Column(Float, default=0.0)
     amount_paid = Column(Float, default=0.0)
     balance = Column(Float, default=0.0)
+    # Client-facing notes only (shown on printed invoice)
     notes = Column(Text, nullable=True)
+    # Staff / dual-run / system notes — never printed on the invoice document
+    internal_notes = Column(Text, nullable=True)
     source = Column(String, nullable=True)  # job | manual | import | quote
     import_key = Column(String, unique=True, nullable=True, index=True)
+    # accology | accology_pays — who bills (Accology Limited vs Accology Pays Limited)
+    issuer = Column(String, nullable=True, default="accology")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -176,12 +181,15 @@ class InvoiceLine(Base):
     invoice_id = Column(Integer, ForeignKey("invoices.id"), index=True)
     service_id = Column(Integer, ForeignKey("services.id"), nullable=True)
     description = Column(String)
+    # Accounting period for this line (shown as its own column on the invoice)
+    period_end = Column(Date, nullable=True)
     qty = Column(Float, default=1.0)
     unit_price = Column(Float, default=0.0)
     vat_rate = Column(Float, default=0.0)
     line_total = Column(Float, default=0.0)
 
     invoice = relationship("Invoice", back_populates="lines")
+    service = relationship("Service", foreign_keys=[service_id])
 
 
 class Payment(Base):

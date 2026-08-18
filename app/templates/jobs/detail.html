@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}{{ job.title or job.type }} · Jobs{% endblock %}
+{% block title %}{{ (job.title or job.type)|uk_text }} · Jobs{% endblock %}
 {% block content %}
 {% set list_back = return_to if return_to else '/jobs' %}
 {% set ret_q = ('?return_to=' ~ return_to|urlquote) if return_to else '' %}
 <div class="page-header">
   <div>
     <p class="small muted"><a href="{{ list_back }}">← Back to list</a></p>
-    <h1>{{ job.title or job.type }}</h1>
+    <h1>{{ (job.title or job.type)|uk_text }}</h1>
     <p class="muted">
       {% if job.client %}
       <a href="/clients/{{ job.client_id }}">{{ job.client.display_name() }}</a> ·
@@ -83,7 +83,7 @@
 {% if job_billing_pattern %}
 <div class="chase-banner chase-banner-info" role="status">
   <strong>Client billing pattern</strong> for {{ job.type or 'this type' }}:
-  {% if job_billing_pattern.fee is none %}standard fee{% elif job_billing_pattern.fee == 0 %}£0 (no fee){% else %}{{job_billing_pattern.fee|money2}}{% endif %}
+  {% if job_billing_pattern.fee is none %}standard fee{% elif job_billing_pattern.fee == 0 %}£0.00 (no fee){% else %}{{job_billing_pattern.fee|money2}}{% endif %}
   · Done → {% if (job_billing_pattern.on_done or '') == 'none' %}no invoice{% elif (job_billing_pattern.on_done or '') == 'draft' %}draft invoice{% elif (job_billing_pattern.on_done or '') == 'sent' %}sent invoice{% else %}standard{% endif %}.
   You can still change the fee on Edit or override Done below.
   {% if job.client_id %}<a href="/clients/{{ job.client_id }}?tab=details#client-billing-patterns">Edit patterns</a>{% endif %}
@@ -169,7 +169,7 @@
       <p class="muted small" style="margin:0.35rem 0 0">
         OneDrive · Accologise / Clients /
         {% if job.client %}{{ job.client.display_name() }}{% else %}…{% endif %} /
-        {{ job.type or job.title or 'Job' }}{% if job.period_end %} — {{ job.period_end|uk_date }}{% endif %}
+        {{ (job.type or job.title or 'Job')|uk_text }}{% if job.period_end %} — {{ job.period_end|uk_date }}{% endif %}
       </p>
     </div>
     <div class="actions">

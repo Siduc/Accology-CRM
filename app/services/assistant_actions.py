@@ -425,7 +425,9 @@ def _op_create_job(
         if suggested is not None:
             fee = float(suggested)
 
-    pe_label = pe.isoformat() if pe else ""
+    from app.services.dates import uk_date
+
+    pe_label = uk_date(pe) if pe else ""
     title = (params.get("title") or "").strip()
     if not title:
         title = f"{jtype}" + (f" — {pe_label}" if pe_label else "")
@@ -556,7 +558,9 @@ def _op_update_job(
     if params.get("title"):
         job.title = str(params["title"]).strip()
     elif job.period_end and job.type:
-        job.title = f"{job.type} — {job.period_end.isoformat()}"
+        from app.services.dates import uk_date
+
+        job.title = f"{job.type} — {uk_date(job.period_end)}"
 
     if params.get("fee") is not None:
         try:

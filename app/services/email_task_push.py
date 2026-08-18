@@ -326,7 +326,7 @@ def _build_description(payload: EmailTaskPayload) -> str:
     if payload.to:
         parts.append(f"To: {payload.to}")
     if payload.received_at:
-        parts.append(f"Received: {payload.received_at.strftime('%Y-%m-%d %H:%M')}")
+        parts.append(f"Received: {payload.received_at.strftime('%d/%m/%Y %H:%M')}")
     body = (payload.body or payload.body_preview or "").strip()
     if body:
         parts.append("")
@@ -384,6 +384,10 @@ def create_task_from_email(db: Session, payload: EmailTaskPayload) -> EmailTaskR
         notes=None,
         commit=True,
     )
+    if not (task.outlook_web_link or "").startswith("http"):
+        from app.services.practice_tasks import ensure_outlook_web_link
+
+        ensure_outlook_web_link(db, task)
 
     msg = "Task created from email"
     if client_id:

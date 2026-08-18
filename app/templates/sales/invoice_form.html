@@ -5,7 +5,7 @@
   <div>
     <p class="small muted"><a href="/sales/invoices">← Invoices</a></p>
     <h1>Raise invoice</h1>
-    {% if job %}<p class="muted small">From job #{{ job.id }} · {{ job.title or job.type }}</p>{% endif %}
+    {% if job %}<p class="muted small">From job #{{ job.id }} · {{ (job.title or job.type)|uk_text }}</p>{% endif %}
   </div>
 </div>
 <div class="card">
@@ -44,7 +44,7 @@
       </div>
       <div>
         <label>Description</label>
-        <input name="line_desc_{{ n }}" value="{% if n==1 and job %}{{ job.title or job.type }}{% endif %}">
+        <input name="line_desc_{{ n }}" value="{% if n==1 and job %}{{ (job.title or job.type)|uk_text }}{% endif %}">
       </div>
       <div>
         <label>Qty</label>

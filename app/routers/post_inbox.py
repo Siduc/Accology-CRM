@@ -36,6 +36,7 @@ async def post_hub(request: Request, db: Session = Depends(get_db)):
     recent = post_svc.list_recent_items(db, limit=30)
     dirs = post_svc.ensure_inbox_dirs()
     pending_files = post_svc.count_pending_scan_files()
+    split_batches = post_svc.list_open_split_batches(db)
     return render(
         request,
         "post/hub.html",
@@ -43,6 +44,7 @@ async def post_hub(request: Request, db: Session = Depends(get_db)):
             "counts": counts,
             "items": items,
             "holding": holding,
+            "split_batches": split_batches,
             "recent": recent,
             "inbox_path": str(dirs["inbox"]),
             "root_path": str(dirs["root"]),
@@ -289,19 +291,34 @@ async def post_item_detail(
             .limit(80)
             .all()
         )
-    # Other open docs in this batch (for quick "go attach there" from holding)
+    # Other open docs in this batch
     siblings = []
+    letter_counts: list[int] = []
+    suggested_counts = None
+    scan_pages = 0
     if item.batch_id:
         siblings = [
             it
             for it in post_svc.list_open_items(db, limit=80)
             if it.batch_id == item.batch_id and it.id != item.id
         ]
+        letter_counts = post_svc.current_batch_page_counts(db, item.batch_id)
+        scan_pages = int(item.batch.page_count or 0) if item.batch else 0
+        if scan_pages:
+            suggested_counts = post_svc.suggest_split_counts(db, scan_pages)
+    linked_task = None
+    if getattr(item, "task_id", None):
+        from app.models.practice_task import PracticeTask
+
+        linked_task = (
+            db.query(PracticeTask).filter(PracticeTask.id == item.task_id).first()
+        )
     return render(
         request,
         "post/review.html",
         {
             "item": item,
+            "linked_task": linked_task,
             "clients": clients,
             "jobs": jobs,
             "categories": POST_CATEGORIES,
@@ -310,6 +327,9 @@ async def post_item_detail(
             "holding": holding,
             "page_count": page_count,
             "siblings": siblings,
+            "letter_counts": letter_counts,
+            "suggested_counts": suggested_counts,
+            "scan_pages": scan_pages,
             "msg": request.query_params.get("msg", ""),
             "error": request.query_params.get("error", ""),
         },
@@ -392,6 +412,11 @@ async def post_item_action(
     notes: str = Form(""),
     learn: str = Form(""),
     learn_keywords: str = Form(""),
+    task_title: str = Form(""),
+    task_due: str = Form(""),
+    task_priority: str = Form("Medium"),
+    email_to: str = Form(""),
+    email_subject: str = Form(""),
     db: Session = Depends(get_db),
 ):
     cid = int(client_id) if (client_id or "").isdigit() else None
@@ -407,10 +432,20 @@ async def post_item_action(
         learn=(learn or "").lower() in ("1", "yes", "on", "true"),
         learn_keywords=learn_keywords,
         reviewed_by=_user(request),
+        task_title=task_title,
+        task_due=task_due,
+        task_priority=task_priority,
+        email_to=email_to,
+        email_subject=email_subject,
     )
     if not ok:
         return RedirectResponse(
             f"/post/items/{item_id}?error={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    if action == "create_task":
+        return RedirectResponse(
+            f"/post/items/{item_id}?msg={url_quote(msg[:300])}",
             status_code=303,
         )
     return RedirectResponse(
@@ -574,6 +609,34 @@ async def post_item_page_order(
         )
     return RedirectResponse(
         f"/post/items/{item_id}?msg={url_quote(msg[:300])}",
+        status_code=303,
+    )
+
+
+@router.post("/post/batches/{batch_id:int}/letters")
+async def post_batch_letter_list(
+    batch_id: int,
+    request: Request,
+    pages: str = Form(""),
+    compact: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Cut a scan by letter list: how many letters, pages each.
+    compact e.g. '8x2, 2x1, 4, 2' wins if filled.
+    """
+    spec = (compact or "").strip() or (pages or "").strip()
+    ok, msg = post_svc.apply_letter_list_split(db, batch_id, spec)
+    if not ok:
+        referer = (request.headers.get("referer") or "").split("?")[0]
+        dest = referer if "/post" in referer else "/post"
+        sep = "&" if "?" in dest else "?"
+        return RedirectResponse(
+            f"{dest}{sep}error={url_quote(msg[:300])}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/post?msg={url_quote(msg[:400])}",
         status_code=303,
     )
 

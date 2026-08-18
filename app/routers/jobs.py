@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import Client, Job
-from app.services.dates import calculate_dates, JOB_TYPES, JOB_STATUSES
+from app.services.dates import JOB_STATUSES, JOB_TYPES, calculate_dates, uk_date
 from app.services.fees import get_suggested_fee
 from app.templating import render
 
@@ -479,7 +479,7 @@ async def create_job(
     if act_c and status_val not in ("Completed", "Cancelled", "On hold"):
         status_val = "Completed"
 
-    job_title = title or f"{type}" + (f" — {pe.isoformat()}" if pe else "")
+    job_title = title or f"{type}" + (f" — {uk_date(pe)}" if pe else "")
     job = Job(
         title=job_title,
         type=type,
@@ -970,7 +970,7 @@ def _spawn_next_recurring_job(db: Session, job: Job) -> Optional[Job]:
             db.flush()
 
     next_job = Job(
-        title=f"{'VAT Return' if is_vat else (job.type or 'Job')} — {next_pe.isoformat()}",
+        title=f"{'VAT Return' if is_vat else (job.type or 'Job')} — {uk_date(next_pe)}",
         type="VAT Return" if is_vat else job.type,
         client_id=job.client_id,
         period_end=next_pe,
@@ -1154,7 +1154,7 @@ async def job_done(
 
     spawn_note = ""
     if next_spawned is not None and getattr(next_spawned, "period_end", None):
-        spawn_note = f" Next period {next_spawned.period_end.isoformat()} opened."
+        spawn_note = f" Next period {uk_date(next_spawned.period_end)} opened."
     elif spawn_err:
         spawn_note = f" (next period not opened: {spawn_err})"
 

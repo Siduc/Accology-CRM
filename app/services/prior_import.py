@@ -230,7 +230,9 @@ def import_prior_job_analysis(
         if row.get("Billing Notes"):
             notes_parts.append(str(row.get("Billing Notes")))
 
-        pe_label = period_end.isoformat() if period_end else "TBC"
+        from app.services.dates import uk_date
+
+        pe_label = uk_date(period_end, empty="TBC")
         title = f"{job_type} — {pe_label} (historical)"
 
         job = Job(

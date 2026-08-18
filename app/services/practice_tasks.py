@@ -169,6 +169,8 @@ def create_task(
     outlook_message_id: Optional[str] = None,
     outlook_conversation_id: Optional[str] = None,
     outlook_web_link: Optional[str] = None,
+    post_item_id: Optional[int] = None,
+    document_id: Optional[int] = None,
     commit: bool = True,
 ) -> PracticeTask:
     pri = (priority or "").strip()
@@ -202,6 +204,8 @@ def create_task(
         outlook_conversation_id=(outlook_conversation_id or "").strip() or None,
         outlook_web_link=(outlook_web_link or "").strip() or None,
         outlook_archive_status="none" if oid else None,
+        post_item_id=post_item_id,
+        document_id=document_id,
     )
     db.add(task)
     if commit:
@@ -210,6 +214,51 @@ def create_task(
     else:
         db.flush()
     return task
+
+
+def outlook_open_url(task: PracticeTask) -> str:
+    """URL that opens the original Outlook message, if we can build one."""
+    link = (getattr(task, "outlook_web_link", None) or "").strip()
+    if link.startswith("http"):
+        return link
+    mid = (getattr(task, "outlook_message_id", None) or "").strip()
+    if not mid:
+        return ""
+    from app.services.ms_graph_mail import outlook_deeplink_from_id
+
+    if "@" in mid:
+        return ""
+    return outlook_deeplink_from_id(mid)
+
+
+def ensure_outlook_web_link(db: Session, task: PracticeTask) -> str:
+    """
+    Persist a real Outlook web link when we only have a message id.
+    Uses Graph if Microsoft is connected; otherwise a deeplink.
+    """
+    existing = outlook_open_url(task)
+    stored = (task.outlook_web_link or "").strip()
+    if stored.startswith("http"):
+        return stored
+    mid = (task.outlook_message_id or "").strip()
+    if not mid:
+        return existing
+    try:
+        from app.services.ms_graph_oauth import get_valid_access_token
+        from app.services.ms_graph_mail import get_message_web_link
+
+        token, _ = get_valid_access_token(db)
+        link, _err = get_message_web_link(token or "", mid)
+    except Exception:
+        link = existing
+    link = (link or existing or "").strip()
+    if link.startswith("http") and link != stored:
+        task.outlook_web_link = link
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+    return link or existing
 
 
 def complete_task(

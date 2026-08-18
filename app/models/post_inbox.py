@@ -45,6 +45,11 @@ POST_ACTIONS = (
     "file_hmrc",
     "email_client",
     "file_and_email",
+    "email_other",
+    "file_and_email_other",
+    "file_email_and_task",
+    "file_and_task",
+    "create_task",
     "dismiss",
 )
 
@@ -123,6 +128,7 @@ class PostItem(Base):
     reviewed_at = Column(DateTime, nullable=True)
     # Which rule was applied / learned from
     rule_id = Column(Integer, ForeignKey("post_rules.id"), nullable=True)
+    task_id = Column(Integer, ForeignKey("practice_tasks.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -161,3 +167,35 @@ class PostRule(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     client = relationship("Client", foreign_keys=[client_id])
+
+
+class PostSplitLesson(Base):
+    """Unused page-count memory (kept so the old table does not break)."""
+
+    __tablename__ = "post_split_lessons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    total_pages = Column(Integer, nullable=False, index=True)
+    letter_count = Column(Integer, nullable=False)
+    page_counts = Column(String, nullable=False, index=True)
+    hit_count = Column(Integer, default=1)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PostSplitCue(Base):
+    """What a human cut taught us: a letterhead / logo / typeface that starts a letter."""
+
+    __tablename__ = "post_split_cues"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # start = front page of a letter · continue = reverse / page 2+
+    kind = Column(String, nullable=False, index=True)
+    sender_key = Column(String, nullable=True, index=True)
+    header_phrase = Column(String, nullable=True)
+    top_sig = Column(String, nullable=True)
+    hit_count = Column(Integer, default=1)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

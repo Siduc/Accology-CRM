@@ -107,8 +107,23 @@ class Job(Base):
             title = (self.title or "").strip()
             jtype = (self.type or "").strip()
             pe = ""
-            if self.period_end is not None and hasattr(self.period_end, "isoformat"):
-                pe = self.period_end.isoformat()
+            if self.period_end is not None:
+                try:
+                    from app.services.dates import uk_date
+
+                    pe = uk_date(self.period_end)
+                except Exception:
+                    pe = (
+                        self.period_end.strftime("%d/%m/%Y")
+                        if hasattr(self.period_end, "strftime")
+                        else ""
+                    )
+            try:
+                from app.services.dates import uk_dates_in_text
+
+                title = uk_dates_in_text(title)
+            except Exception:
+                pass
             # Prefer full title when it already carries type
             if title and (not jtype or jtype.lower() in title.lower() or "—" in title):
                 core = title

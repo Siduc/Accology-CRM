@@ -89,6 +89,9 @@
     <label>Email subject</label>
     <input name="email_subject" value="{{ campaign.email_subject if campaign and campaign.email_subject else '' }}"
            placeholder="e.g. Personal Allowance Payroll — proposal">
+    <label>Reply-to</label>
+    <input name="reply_to_email" value="{{ campaign.reply_to_email if campaign and campaign.reply_to_email else 'payroll@accology.co' }}"
+           placeholder="payroll@accology.co">
     <label>Email body</label>
     <textarea name="email_body" rows="6" placeholder="Dear Sir/Madam, …">{{ campaign.email_body if campaign and campaign.email_body else '' }}</textarea>
 

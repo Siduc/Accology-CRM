@@ -65,6 +65,9 @@ from app.routers import (
     notifications,
     api_prospecting,
     post_inbox,
+    xero,
+    book_sources,
+    payroll_onboarding,
 )
 
 app = FastAPI(
@@ -91,10 +94,13 @@ _PUBLIC_EXACT = frozenset(
         "/sw.js",
         "/oauth/companies-house/callback",
         "/oauth/microsoft/callback",
+        "/oauth/xero/callback",
+        "/oauth/sage/callback",
+        "/oauth/qbo/callback",
         "/demo/tour",
     }
 )
-_PUBLIC_PREFIXES = ("/static/",)
+_PUBLIC_PREFIXES = ("/static/", "/payroll/")
 
 
 def _is_public_path(path: str) -> bool:
@@ -291,6 +297,7 @@ app.add_middleware(
 
 # Public Accology site at / ; CRM login at /login
 app.include_router(website.router)
+app.include_router(payroll_onboarding.router)
 app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(lost.router)
@@ -311,6 +318,8 @@ app.include_router(notes.router)
 app.include_router(cs.router)
 app.include_router(ch_oauth.router)
 app.include_router(ms_graph_oauth.router)
+app.include_router(xero.router)
+app.include_router(book_sources.router)
 app.include_router(documents.router)
 app.include_router(post_inbox.router)
 app.include_router(notifications.router)

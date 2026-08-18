@@ -41,12 +41,24 @@ from app.models.document import Document, DocumentVersion
 from app.models.email_message import EmailTemplate, EmailMessage
 from app.models.notification import Notification
 from app.models.share_register import ShareClass, Shareholding
-from app.models.post_inbox import PostBatch, PostItem, PostRule
+from app.models.post_inbox import (
+    PostBatch,
+    PostItem,
+    PostRule,
+    PostSplitCue,
+    PostSplitLesson,
+)
 from app.models.client_billing import ClientJobPattern
+from app.models.client_playbook import ClientPlaybook
+from app.models.xero_token import XeroToken
+from app.models.book_oauth_token import BookOauthToken
 
 __all__ = [
     "Client",
     "ClientJobPattern",
+    "ClientPlaybook",
+    "XeroToken",
+    "BookOauthToken",
     "ClientConnection",
     "PracticeGroup",
     "PracticeGroupMember",
@@ -92,5 +104,7 @@ __all__ = [
     "PostBatch",
     "PostItem",
     "PostRule",
+    "PostSplitLesson",
+    "PostSplitCue",
     "ClientJobPattern",
 ]

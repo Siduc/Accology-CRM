@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}{{ status.label }} · Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted" style="margin:0 0 0.35rem"><a href="/settings">← Settings</a></p>
+    <h1 class="desk-page-title">{{ status.label }}</h1>
+    <p class="desk-page-sub muted small">{{ help }}</p>
+  </div>
+</div>
+
+{% if oauth_error %}<div class="alert alert-error">{{ oauth_error }}</div>{% endif %}
+{% if oauth_msg == 'connected' %}
+<div class="chase-banner chase-banner-info">Connected.</div>
+{% elif oauth_msg == 'disconnected' %}
+<div class="chase-banner chase-banner-info">Disconnected on this CRM.</div>
+{% elif oauth_msg == 'orgs' %}
+<div class="chase-banner chase-banner-info">Organisation list refreshed.</div>
+{% endif %}
+
+<div class="card settings-card">
+  <h3>Connection</h3>
+  {% if status.connected and status.fresh %}
+  <p class="chase-banner chase-banner-info">
+    Connected{% if status.email %} as <strong>{{ status.email }}</strong>{% endif %}
+    · {{ status.tenant_count }} organisation{{ 's' if status.tenant_count != 1 else '' }}
+  </p>
+  {% elif status.connected %}
+  <p class="alert alert-error">Token expired — reconnect.</p>
+  {% elif status.configured %}
+  <p class="muted">App credentials are set. Connect the practice login next.</p>
+  {% else %}
+  <p class="muted">Add client id, secret and redirect URI to <code>.env</code>, then restart.</p>
+  {% endif %}
+
+  <dl class="dl-grid">
+    <dt>Client ID</dt><dd><code>{{ status.client_mask or '—' }}</code></dd>
+    <dt>Secret</dt><dd>{% if status.secret_set %}set{% else %}<em>missing</em>{% endif %}</dd>
+    <dt>Redirect URI</dt><dd><code class="small">{{ status.redirect_uri }}</code></dd>
+    <dt>Scopes</dt><dd class="small"><code>{{ status.scopes }}</code></dd>
+  </dl>
+
+  <div class="actions" style="margin-top:1rem">
+    {% if status.configured %}
+    <a class="btn wc-touch" href="/oauth/{{ status.provider }}/start?return_to={{ ('/settings/' ~ status.provider)|urlquote }}">
+      {% if status.connected %}Reconnect{% else %}Connect {{ status.label }}{% endif %}
+    </a>
+    {% endif %}
+    {% if status.connected %}
+    <form method="post" action="/settings/{{ status.provider }}/refresh-orgs" style="display:inline">
+      <button class="btn btn-outline wc-touch" type="submit">Refresh organisations</button>
+    </form>
+    <form method="post" action="/oauth/{{ status.provider }}/disconnect" style="display:inline">
+      <button class="btn btn-outline wc-touch" type="submit">Disconnect</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if status.tenants %}
+<div class="card settings-card">
+  <h3>Organisations</h3>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Name</th><th>Id</th></tr></thead>
+      <tbody>
+        {% for t in status.tenants %}
+        <tr>
+          <td>{{ t.tenantName or '—' }}</td>
+          <td class="small"><code>{{ t.tenantId }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

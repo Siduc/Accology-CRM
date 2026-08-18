@@ -75,9 +75,9 @@
           <td>{{ b.category or 'supplier' }}</td>
           <td>
             {% if b.due_date and b.status == 'outstanding' and b.due_date < today %}
-            <span class="badge badge-overdue">{{ b.due_date }}</span>
+            <span class="badge badge-overdue">{{ b.due_date|uk_date }}</span>
             {% else %}
-            {{ b.due_date or '—' }}
+            {{ b.due_date|uk_date }}
             {% endif %}
           </td>
           <td>{{(b.amount or 0)|money2}}</td>

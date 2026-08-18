@@ -148,6 +148,7 @@ def _add_missing_columns():
             ("vat_frequency", "VARCHAR"),
             ("vat_quarterly_pattern", "VARCHAR"),
             ("vat_year_end_month", "INTEGER"),
+            ("payroll_onboarding_json", "TEXT" if not IS_SQLITE else "TEXT"),
         ],
         "shareholdings": [
             ("is_director", "BOOLEAN DEFAULT FALSE" if not IS_SQLITE else "INTEGER DEFAULT 0"),
@@ -253,6 +254,7 @@ def _add_missing_columns():
             ("fee_renewal", "FLOAT" if IS_SQLITE else "DOUBLE PRECISION"),
             ("email_subject", "VARCHAR"),
             ("email_body", "TEXT" if not IS_SQLITE else "TEXT"),
+            ("reply_to_email", "VARCHAR"),
         ],
         "practice_tasks": [
             ("priority", "VARCHAR"),
@@ -272,6 +274,11 @@ def _add_missing_columns():
             ("prospect_id", "INTEGER"),
             ("alert_on", "DATE"),
             ("alert_note", "VARCHAR"),
+            ("post_item_id", "INTEGER"),
+            ("document_id", "INTEGER"),
+        ],
+        "post_items": [
+            ("task_id", "INTEGER"),
         ],
         "documents": [
             ("prospect_id", "INTEGER"),
@@ -279,6 +286,13 @@ def _add_missing_columns():
         "services": [
             ("recurrence", "VARCHAR"),
             ("quarterly_pattern", "VARCHAR"),
+        ],
+        "invoices": [
+            ("internal_notes", "TEXT" if not IS_SQLITE else "TEXT"),
+            ("issuer", "VARCHAR"),
+        ],
+        "invoice_lines": [
+            ("period_end", "DATE"),
         ],
     }
 

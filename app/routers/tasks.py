@@ -396,6 +396,10 @@ async def task_edit_form(
     task = db.query(PracticeTask).filter(PracticeTask.id == task_id).first()
     if not task:
         return RedirectResponse("/tasks", status_code=303)
+    if task.is_from_email() and not (task.outlook_web_link or "").strip().startswith("http"):
+        from app.services.practice_tasks import ensure_outlook_web_link
+
+        ensure_outlook_web_link(db, task)
     clients = _active_clients(db)
     jobs = []
     if task.client_id:

@@ -489,7 +489,9 @@ def create_vat_jobs_for_client(
 
             statutory, t_start, t_comp = calculate_dates(JOB_TYPE, pe)
             fee = _resolve_vat_job_fee(db, client, pe)
-            title = f"{JOB_TYPE} — {pe.isoformat()}"
+            from app.services.dates import uk_date
+
+            title = f"{JOB_TYPE} — {uk_date(pe)}"
             # SINGLE job only — never loop periods
             job = Job(
                 title=title,
@@ -514,7 +516,7 @@ def create_vat_jobs_for_client(
             db.flush()
             result.created = 1  # hard-set, never increment in a loop
             result.created_jobs.append(
-                f"{title} · due {statutory.isoformat() if statutory else '—'} · £{fee:.2f}"
+                f"{title} · due {uk_date(statutory, empty='—')} · £{fee:.2f}"
             )
             logger.info(
                 "VAT single-create client=%s pe=%s job_id=%s",

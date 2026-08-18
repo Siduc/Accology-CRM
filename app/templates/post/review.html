@@ -228,7 +228,8 @@
 
 {% if item.status == 'holding' %}
 <div class="chase-banner chase-banner-info" style="margin-bottom:0.75rem">
-  <strong>Holding area page</strong> — drag this onto a document’s page strip, or open that document and drop from its holding tray.
+  <strong>Leftover holding page</strong> — delete it from the inbox if you no longer need it.
+  Prefer <strong>Cut into letters</strong> on the inbox to recut the whole scan.
 </div>
 {% endif %}
 
@@ -248,33 +249,6 @@
     <p class="muted">No preview file.</p>
     {% endif %}
 
-    {% if item.status != 'holding' and item.local_path %}
-    <div class="page-order-wrap">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap">
-        <strong class="small">Page order</strong>
-        <span class="muted small">Drag to reorder · drop holding pages here</span>
-      </div>
-      <form id="page-order-form" method="post" action="/post/items/{{ item.id }}/page-order">
-        <input type="hidden" name="order" id="page-order-input" value="">
-        <div id="page-order-strip" class="page-order-strip"
-             data-item-id="{{ item.id }}"
-             title="Drop holding pages here to attach">
-          {% for p in range(1, (page_count|default(1)) + 1) %}
-          <div class="page-chip" draggable="true" data-token="p{{ p }}" data-kind="page" data-page="{{ p }}">
-            <span class="chip-badge">{{ p }}</span>
-            <img src="/post/items/{{ item.id }}/thumb?page={{ p }}&amp;v={{ file_v }}" alt="Page {{ p }}" loading="lazy">
-            <div class="chip-label">Page {{ p }}</div>
-          </div>
-          {% endfor %}
-        </div>
-        <div class="actions" style="flex-wrap:wrap;margin-top:0.25rem">
-          <button class="btn btn-sm wc-touch" type="submit" id="btn-apply-order">Apply page order</button>
-          <span class="muted small" id="order-hint">Changes apply when you drop a holding page or click Apply.</span>
-        </div>
-      </form>
-    </div>
-    {% endif %}
-
     {% if item.text_excerpt %}
     <details style="margin-top:0.5rem;flex:0 0 auto">
       <summary class="small">Extracted text (for matching)</summary>
@@ -285,79 +259,20 @@
 
   <div class="post-review-side">
 
-    {% if item.status != 'holding' and (page_count|default(0)) > 1 %}
-    <div class="card" style="border-left:4px solid #f59e0b">
-      <h2 style="margin-top:0;font-size:1rem">Wrong pages here?</h2>
-      <p class="small muted" style="margin:0 0 0.5rem">
-        Tick pages that do <strong>not</strong> belong, then move them to holding.
+    {% if item.status != 'holding' and item.batch_id and (scan_pages|default(0)) > 1 %}
+    <div class="card letter-list-card" style="border-left:4px solid #0944F4">
+      <h2 style="margin-top:0;font-size:1rem">Cut this scan into letters</h2>
+      <p class="small muted" style="margin:0 0 0.65rem">
+        Whole {{ scan_pages }}-page pile — say how many letters, then pages for each.
       </p>
-      <form method="post" action="/post/items/{{ item.id }}/detach-to-holding"
-            onsubmit="return document.querySelectorAll('input[name=page]:checked').length > 0 || (alert('Tick at least one page'), false);">
-        <div class="post-page-grid">
-          {% for p in range(1, (page_count|default(1)) + 1) %}
-          <label>
-            <input type="checkbox" name="page" value="{{ p }}">
-            Page {{ p }}
-          </label>
-          {% endfor %}
-        </div>
-        <button class="btn btn-sm wc-touch" type="submit" style="background:#b45309;border-color:#b45309">
-          Move selected → holding
-        </button>
+      {% with batch_id=item.batch_id, scan_pages=scan_pages, suggested_counts=suggested_counts, seed_counts=(letter_counts if letter_counts else suggested_counts) %}
+        {% include "post/_letter_list.html" %}
+      {% endwith %}
+      {% if item.batch_id %}
+      <form method="post" action="/post/batches/{{ item.batch_id }}/keep-together" style="margin-top:0.75rem"
+            onsubmit="return confirm('Keep the whole scan as one document?');">
+        <button class="btn btn-sm btn-outline wc-touch" type="submit">Keep as one document</button>
       </form>
-    </div>
-    {% endif %}
-
-    {% if item.status != 'holding' %}
-    <div class="card" style="border-left:4px solid #0944F4">
-      <h2 style="margin-top:0;font-size:1rem">
-        Holding area
-        {% if holding %}<span class="badge">{{ holding|length }}</span>{% endif %}
-      </h2>
-      {% if holding %}
-      <p class="small muted" style="margin:0 0 0.5rem">
-        Drag a thumbnail onto the <strong>Page order</strong> strip (left) to attach it at that position.
-        Or tick and use the buttons.
-      </p>
-      <div id="holding-tray" class="holding-tray">
-        {% for h in holding %}
-        {% set hv = h.updated_at.strftime('%Y%m%d%H%M%S') if h.updated_at else h.id %}
-        <div class="holding-chip" draggable="true"
-             data-token="h{{ h.id }}" data-kind="holding" data-holding-id="{{ h.id }}"
-             title="Drag onto page order strip">
-          <img src="/post/items/{{ h.id }}/thumb?page=1&amp;v={{ hv }}" alt="Holding {{ h.id }}" loading="lazy">
-          <div class="chip-label">
-            <strong>{{ h.title or ('Holding #' ~ h.id) }}</strong>
-            {% if h.page_start %}<br><span class="muted">scan p{{ h.page_start }}</span>{% endif %}
-          </div>
-          <div class="chip-actions">
-            <a class="btn btn-sm btn-outline" href="/post/items/{{ h.id }}/file?v={{ hv }}" target="_blank" rel="noopener">PDF</a>
-            <form method="post" action="/post/items/{{ h.id }}/delete" style="display:inline"
-                  onsubmit="return confirm('Delete this holding page?');">
-              <button class="btn btn-sm btn-outline" type="submit" style="border-color:#b91c1c;color:#b91c1c">×</button>
-            </form>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-      <form method="post" action="/post/items/{{ item.id }}/attach-holding" style="margin-top:0.65rem"
-            onsubmit="return document.querySelectorAll('#holding-checkboxes input:checked').length > 0 || (alert('Select holding page(s) first'), false);">
-        <div id="holding-checkboxes" class="small" style="margin-bottom:0.4rem">
-          {% for h in holding %}
-          <label style="display:inline-flex;align-items:center;gap:0.25rem;margin-right:0.65rem">
-            <input type="checkbox" name="holding_id" value="{{ h.id }}"> #{{ h.id }}
-          </label>
-          {% endfor %}
-        </div>
-        <div class="actions" style="flex-wrap:wrap;gap:0.35rem">
-          <button class="btn btn-sm wc-touch" type="submit" name="position" value="end">Attach to end</button>
-          <button class="btn btn-sm btn-outline wc-touch" type="submit" name="position" value="start">Attach to start</button>
-        </div>
-      </form>
-      {% else %}
-      <p class="small muted" style="margin:0">
-        Empty. Move stray pages here with <strong>Wrong pages here?</strong>, then drag them onto the correct document’s page strip.
-      </p>
       {% endif %}
     </div>
     {% endif %}
@@ -403,14 +318,25 @@
         </dd>
         <dt>Confidence</dt>
         <dd>{% if item.confidence %}{{ '%.0f'|format(item.confidence * 100) }}%{% else %}—{% endif %}</dd>
+        {% if item.suggested_action == 'file_and_task' or item.category == 'Personal / practice' %}
+        <dt>For</dt>
+        <dd><strong>You</strong> — practice / agent work (file + task)</dd>
+        {% endif %}
       </dl>
+      {% if linked_task %}
+      <p class="small" style="margin:0.65rem 0 0">
+        Task already created:
+        <a href="/tasks/{{ linked_task.id }}/edit"><strong>{{ linked_task.title }}</strong></a>
+        · {{ linked_task.status }}
+      </p>
+      {% endif %}
     </div>
 
     <div class="card">
       <h2 style="margin-top:0">Action</h2>
       <form class="stack" method="post" action="/post/items/{{ item.id }}/action">
-        <label>Client *</label>
-        <select name="client_id" required>
+        <label>Client {% if item.category != 'Personal / practice' %}(needed to file){% endif %}</label>
+        <select name="client_id">
           <option value="">— Select —</option>
           {% for c in clients %}
           <option value="{{ c.id }}"
@@ -438,7 +364,42 @@
         </select>
 
         <label>Notes (optional)</label>
-        <textarea name="notes" rows="2" placeholder="Shown on file note / email">{{ item.review_notes or '' }}</textarea>
+        <textarea name="notes" rows="2" placeholder="Shown on file note / email / task">{{ item.review_notes or '' }}</textarea>
+
+        <div style="padding:0.65rem 0.75rem;border:1px solid var(--border,#d0d8e4);border-radius:8px;background:#f8fafc">
+          <strong class="small">Email someone else</strong>
+          <p class="muted small" style="margin:0.2rem 0 0.5rem">
+            Solicitor, HMRC, bank, colleague — not the client. PDF is attached. Client (if selected) is only for the file note.
+          </p>
+          <label class="small">To</label>
+          <input name="email_to" type="text" placeholder="name@firm.co.uk"
+                 autocomplete="email" style="width:100%">
+          <label class="small" style="margin-top:0.4rem">Subject (optional)</label>
+          <input name="email_subject" value="{{ item.title or '' }}" placeholder="Subject">
+        </div>
+
+        <div style="padding:0.65rem 0.75rem;border:1px solid var(--border,#d0d8e4);border-radius:8px;background:#f8fafc">
+          <strong class="small">Task for you</strong>
+          <p class="muted small" style="margin:0.2rem 0 0.5rem">
+            Practice mail (Accology Limited / Accology Pays) and client post you deal with as agent.
+          </p>
+          <label class="small">Task title</label>
+          <input name="task_title" value="{{ item.title or '' }}" placeholder="What you need to do">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-top:0.45rem">
+            <div>
+              <label class="small">Due</label>
+              <input type="date" name="task_due" style="width:100%">
+            </div>
+            <div>
+              <label class="small">Priority</label>
+              <select name="task_priority" style="width:100%">
+                <option>High</option>
+                <option selected>Medium</option>
+                <option>Low</option>
+              </select>
+            </div>
+          </div>
+        </div>
 
         <label class="small">
           <input type="checkbox" name="learn" value="yes">
@@ -447,11 +408,21 @@
         <input name="learn_keywords" placeholder="Optional keywords (else taken from text)" style="width:100%">
 
         <div class="actions" style="flex-wrap:wrap;margin-top:0.5rem">
-          <button class="btn wc-touch" type="submit" name="action" value="file_hmrc">File as HMRC</button>
+          <button class="btn wc-touch" type="submit" name="action" value="file_email_and_task">File + email + task</button>
+          <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_and_task">File + create task</button>
+          <button class="btn btn-outline wc-touch" type="submit" name="action" value="create_task">Create task only</button>
+          <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_hmrc" title="Saves into the client Tax Return folder on OneDrive (HMRC letters, coding notices, SA302s). Not a filing to HMRC itself.">File as HMRC</button>
           <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_client">File to client</button>
+          <button class="btn wc-touch" type="submit" name="action" value="email_other" style="background:#0f766e;border-color:#0f766e">Email this address</button>
+          <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_and_email_other">File + email this address</button>
           <button class="btn btn-secondary wc-touch" type="submit" name="action" value="email_client">Email client</button>
-          <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_and_email">File + email</button>
+          <button class="btn btn-outline wc-touch" type="submit" name="action" value="file_and_email">File + email client</button>
         </div>
+        <p class="muted small" style="margin:0.5rem 0 0">
+          <strong>File as HMRC</strong> puts the PDF in the client’s <em>Tax Return</em> folder on OneDrive
+          (coding notices, SA302s, PAYE letters). It does not submit anything to HMRC.
+          <strong>File to client</strong> goes in general Correspondence.
+        </p>
       </form>
       <div class="actions" style="flex-wrap:wrap;margin-top:0.75rem;padding-top:0.65rem;border-top:1px solid var(--border,#e2e8f0)">
         <form method="post" action="/post/items/{{ item.id }}/action" style="display:inline"
@@ -467,228 +438,6 @@
     </div>
     {% endif %}
 
-    {% set multi = item.page_end and item.page_start and (item.page_end - item.page_start) >= 1 %}
-    {% if item.status != 'holding' and (multi or (item.batch and item.batch.page_count and item.batch.page_count > 1)) %}
-    <div class="card">
-      <h2 style="margin-top:0;font-size:1rem">Fix page splits (whole scan)</h2>
-      <p class="small muted" style="margin-top:0">
-        Re-cut the original {{ item.batch.page_count if item.batch else '?' }}-page scan.
-        Example: <code>1-5, 6-7, 8-11</code>
-      </p>
-      {% if item.batch_id %}
-      <form method="post" action="/post/batches/{{ item.batch_id }}/keep-together" style="margin-bottom:0.65rem"
-            onsubmit="return confirm('Merge this whole scan into one document (keeps blank pages inside)? Keywords will be learned for similar court/legal packs.');">
-        <button class="btn btn-sm wc-touch" type="submit" style="background:#0f766e;border-color:#0f766e">
-          Keep as one document (court / pack)
-        </button>
-        <p class="small muted" style="margin:0.35rem 0 0">
-          Use for court forms and multipage packs that leave a page blank on purpose.
-        </p>
-      </form>
-      <form method="post" action="/post/batches/{{ item.batch_id }}/reprocess" class="stack" style="gap:0.5rem"
-            onsubmit="return confirm('Replace open items for this scan with the new splits? (Filed/emailed/holding kept.)');">
-        <label class="small muted" for="ranges">Page ranges</label>
-        <input id="ranges" name="ranges" placeholder="e.g. 1-8, 9-12, 13-20"
-               style="width:100%;font-family:ui-monospace,monospace">
-        <div class="actions" style="flex-wrap:wrap">
-          <button class="btn btn-sm" type="submit">Apply page ranges</button>
-          <button class="btn btn-sm btn-outline" type="submit" name="ranges" value=""
-                  onclick="return confirm('Auto re-split (court packs keep blanks; only strong new letters split)?');">
-            Auto re-split
-          </button>
-        </div>
-      </form>
-      {% endif %}
-      <hr style="border:none;border-top:1px solid var(--border,#e2e8f0);margin:0.85rem 0">
-      <p class="small muted" style="margin:0 0 0.35rem">
-        Or split <em>only this item</em> after page numbers (e.g. <code>3,7</code>):
-      </p>
-      <form method="post" action="/post/items/{{ item.id }}/split" class="actions" style="flex-wrap:wrap">
-        <input name="breaks" placeholder="e.g. 3,7,12" style="min-width:10rem">
-        <button class="btn btn-sm btn-outline" type="submit">Split this item</button>
-      </form>
-    </div>
-    {% endif %}
   </div>
 </div>
-
-{% if item.status != 'holding' and item.local_path %}
-<script>
-(function () {
-  const strip = document.getElementById('page-order-strip');
-  const form = document.getElementById('page-order-form');
-  const orderInput = document.getElementById('page-order-input');
-  const hint = document.getElementById('order-hint');
-  if (!strip || !form || !orderInput) return;
-
-  let dragEl = null;
-  let dirty = false;
-
-  function tokens() {
-    return Array.from(strip.querySelectorAll('.page-chip')).map(function (el) {
-      return el.dataset.token;
-    });
-  }
-
-  function syncInput() {
-    orderInput.value = tokens().join(',');
-  }
-
-  function markDirty() {
-    dirty = true;
-    if (hint) hint.textContent = 'Order changed — click Apply page order, or drop a holding page to save now.';
-  }
-
-  function submitOrder() {
-    syncInput();
-    if (!orderInput.value) return;
-    form.submit();
-  }
-
-  function clearDropMarks() {
-    strip.querySelectorAll('.page-chip').forEach(function (c) {
-      c.classList.remove('drop-before', 'drop-after');
-    });
-  }
-
-  function insertAt(el, target, before) {
-    if (!el || !target || el === target) return;
-    if (before) {
-      strip.insertBefore(el, target);
-    } else if (target.nextSibling) {
-      strip.insertBefore(el, target.nextSibling);
-    } else {
-      strip.appendChild(el);
-    }
-  }
-
-  function placeFromEvent(el, clientX) {
-    const chips = Array.from(strip.querySelectorAll('.page-chip')).filter(function (c) {
-      return c !== el;
-    });
-    if (!chips.length) {
-      strip.appendChild(el);
-      return;
-    }
-    let placed = false;
-    for (var i = 0; i < chips.length; i++) {
-      var rect = chips[i].getBoundingClientRect();
-      var mid = rect.left + rect.width / 2;
-      if (clientX < mid) {
-        strip.insertBefore(el, chips[i]);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) strip.appendChild(el);
-  }
-
-  // Drag from page strip (reorder)
-  strip.addEventListener('dragstart', function (e) {
-    var chip = e.target.closest('.page-chip');
-    if (!chip) return;
-    dragEl = chip;
-    chip.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', chip.dataset.token || '');
-    e.dataTransfer.setData('application/x-post-token', chip.dataset.token || '');
-    e.dataTransfer.setData('application/x-post-source', 'strip');
-  });
-
-  strip.addEventListener('dragend', function (e) {
-    var chip = e.target.closest('.page-chip');
-    if (chip) chip.classList.remove('dragging');
-    strip.classList.remove('drag-over');
-    clearDropMarks();
-    dragEl = null;
-  });
-
-  strip.addEventListener('dragover', function (e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    strip.classList.add('drag-over');
-    clearDropMarks();
-    var over = e.target.closest('.page-chip');
-    if (over && over !== dragEl) {
-      var rect = over.getBoundingClientRect();
-      if (e.clientX < rect.left + rect.width / 2) over.classList.add('drop-before');
-      else over.classList.add('drop-after');
-    }
-  });
-
-  strip.addEventListener('dragleave', function (e) {
-    if (!strip.contains(e.relatedTarget)) {
-      strip.classList.remove('drag-over');
-      clearDropMarks();
-    }
-  });
-
-  strip.addEventListener('drop', function (e) {
-    e.preventDefault();
-    strip.classList.remove('drag-over');
-    clearDropMarks();
-
-    var token = e.dataTransfer.getData('application/x-post-token')
-      || e.dataTransfer.getData('text/plain');
-    var source = e.dataTransfer.getData('application/x-post-source') || '';
-
-    // Reorder existing chip
-    if (dragEl && source === 'strip' && dragEl.parentElement === strip) {
-      placeFromEvent(dragEl, e.clientX);
-      dragEl.classList.remove('dragging');
-      markDirty();
-      syncInput();
-      return;
-    }
-
-    // Holding dropped onto strip → insert + auto-apply (merge + reorder procedure)
-    if (token && token.indexOf('h') === 0) {
-      // Avoid duplicate if already in strip
-      if (strip.querySelector('.page-chip[data-token="' + token + '"]')) {
-        placeFromEvent(strip.querySelector('.page-chip[data-token="' + token + '"]'), e.clientX);
-      } else {
-        var chip = document.createElement('div');
-        chip.className = 'page-chip is-holding';
-        chip.draggable = true;
-        chip.dataset.token = token;
-        chip.dataset.kind = 'holding';
-        var hid = token.slice(1);
-        chip.innerHTML =
-          '<span class="chip-badge">+</span>' +
-          '<img src="/post/items/' + hid + '/thumb?page=1" alt="Holding">' +
-          '<div class="chip-label">Holding #' + hid + '</div>';
-        placeFromEvent(chip, e.clientX);
-      }
-      // Remove from tray visually
-      var trayChip = document.querySelector('.holding-chip[data-token="' + token + '"]');
-      if (trayChip) trayChip.remove();
-      if (hint) hint.textContent = 'Saving new page order…';
-      submitOrder();
-      return;
-    }
-  });
-
-  // Holding tray → start drag
-  document.querySelectorAll('.holding-chip').forEach(function (chip) {
-    chip.addEventListener('dragstart', function (e) {
-      dragEl = null;
-      chip.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'copyMove';
-      e.dataTransfer.setData('text/plain', chip.dataset.token || '');
-      e.dataTransfer.setData('application/x-post-token', chip.dataset.token || '');
-      e.dataTransfer.setData('application/x-post-source', 'holding');
-    });
-    chip.addEventListener('dragend', function () {
-      chip.classList.remove('dragging');
-    });
-  });
-
-  form.addEventListener('submit', function () {
-    syncInput();
-  });
-
-  syncInput();
-})();
-</script>
-{% endif %}
 {% endblock %}

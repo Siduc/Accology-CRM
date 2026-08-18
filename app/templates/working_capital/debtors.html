@@ -34,7 +34,7 @@
           <td>{% if j.client %}{{ j.client.display_name() }}{% else %}—{% endif %}</td>
           <td>
             <a href="/jobs/{{ j.id }}" onclick="event.stopPropagation()">
-              {{ j.invoice_reference or j.title or j.type }}
+              {{ (j.invoice_reference or j.title or j.type)|uk_text }}
             </a>
           </td>
           <td>{{ r.inv_date or '—' }}</td>

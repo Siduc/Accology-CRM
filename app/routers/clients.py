@@ -727,6 +727,10 @@ async def client_detail(
     message = None
     if saved == "connections":
         message = "Connections saved."
+    elif saved == "playbook":
+        message = "Playbook saved. Current folder and AGENTS.md updated."
+    elif saved == "pack":
+        message = request.query_params.get("pack_msg") or "Client pack folders checked."
     elif saved == "pattern":
         n = request.query_params.get("pattern_jobs", "")
         message = "Billing pattern saved. New jobs of that type will use it (you can still override the fee on each job)."
@@ -755,10 +759,31 @@ async def client_detail(
     # vat_self_heal is set later in this handler when multi-open VAT is collapsed
 
     from app.services.client_connections import list_connections_for_client
+    from app.services.client_playbook import playbook_summary as playbook_summary_for
     from app.services.cs_automation import latest_pack_for_client
     from app.services.ch_oauth import latest_token_for_client, token_is_fresh
 
     connections = list_connections_for_client(db, client_id)
+    try:
+        playbook_summary = playbook_summary_for(db, client)
+    except Exception:
+        from app.models.client_playbook import BOOKKEEPING_SOURCES
+
+        playbook_summary = {
+            "playbook": None,
+            "sources": BOOKKEEPING_SOURCES,
+            "current_year": None,
+            "client_dir": "",
+            "agents_md": "",
+            "current_dir": "",
+            "xero_connected": False,
+            "xero_tenants": [],
+            "sage_status": {},
+            "qbo_status": {},
+            "as_at": "",
+            "journal_drafts": [],
+            "sales_ledger_only": False,
+        }
     asana_on = any(c["provider"] == "asana" and c["enabled"] for c in connections)
     try:
         latest_cs_pack = latest_pack_for_client(db, client_id)
@@ -943,6 +968,7 @@ async def client_detail(
             "today": date.today(),
             "connections": connections,
             "asana_on": asana_on,
+            "playbook_summary": playbook_summary,
             "active_tab": tab or "overview",
             "latest_cs_pack": latest_cs_pack,
             "ch_oauth_connected": ch_oauth_connected,
@@ -1098,6 +1124,95 @@ async def update_client_connections(
     save_connection_toggles(db, client_id, enabled_map)
     return RedirectResponse(
         f"/clients/{client_id}?tab=connections&saved=connections",
+        status_code=303,
+    )
+
+
+def _opt_int(value: str) -> Optional[int]:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+@router.post("/{client_id:int}/playbook")
+async def update_client_playbook(
+    client_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    bookkeeping_source: str = Form("xero"),
+    source_org_id: str = Form(""),
+    source_notes: str = Form(""),
+    iris_client_code: str = Form(""),
+    iris_notes: str = Form(""),
+    year_end_month: str = Form(""),
+    year_end_day: str = Form(""),
+    current_year: str = Form(""),
+    approver_name: str = Form(""),
+    approver_email: str = Form(""),
+    approval_notes: str = Form(""),
+    quirks: str = Form(""),
+    sales_ledger_only: str = Form(""),
+):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    from app.services.client_playbook import apply_sales_ledger_only_flag, save_playbook
+
+    src = (bookkeeping_source or "").strip().lower()
+    source_notes, quirks = apply_sales_ledger_only_flag(
+        source_notes,
+        quirks,
+        bool((sales_ledger_only or "").strip()) and src in ("sage_cloud", "sage50"),
+    )
+    save_playbook(
+        db,
+        client,
+        bookkeeping_source=bookkeeping_source,
+        source_org_id=source_org_id,
+        source_notes=source_notes,
+        iris_client_code=iris_client_code,
+        iris_notes=iris_notes,
+        year_end_month=_opt_int(year_end_month),
+        year_end_day=_opt_int(year_end_day),
+        current_year=_opt_int(current_year),
+        approver_name=approver_name,
+        approver_email=approver_email,
+        approval_notes=approval_notes,
+        quirks=quirks,
+        write_pack=True,
+    )
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=playbook&saved=playbook",
+        status_code=303,
+    )
+
+
+@router.post("/{client_id:int}/ensure-pack")
+async def ensure_client_pack_route(
+    client_id: int,
+    db: Session = Depends(get_db),
+):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    from app.services.client_playbook import ensure_client_pack
+
+    res = ensure_client_pack(db, client, move_prior_years=True)
+    if res.get("ok"):
+        n = len(res.get("moved") or [])
+        extra = f" Moved {n} prior-year paper(s)." if n else ""
+        skip = res.get("skipped_move") or ""
+        if skip:
+            extra += f" {skip}"
+        msg = url_quote(f"Current pack ready.{extra}"[:400])
+    else:
+        msg = url_quote((res.get("error") or "Could not create pack.")[:400])
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=playbook&saved=pack&pack_msg={msg}",
         status_code=303,
     )
 

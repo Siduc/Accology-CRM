@@ -1,9 +1,9 @@
 /* Accologise CRM — basic service worker (shell + offline fallback) */
 /* Bump CACHE_NAME when shipping static asset changes. */
 /* Bump this whenever dashboard/WIP UI or CSS changes ship. */
-const CACHE_NAME = "accologise-v2-wip-horizons";
+const CACHE_NAME = "accologise-v2-client-labels1";
 const PRECACHE = [
-  "/static/style.css?v=wip-horizons2",
+  "/static/style.css?v=client-labels1",
   "/static/dashboard_view.js?v=dual1",
   "/static/pwa.js?v=2",
   "/static/offline.html",

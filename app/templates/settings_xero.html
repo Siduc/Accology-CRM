@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Xero · Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted" style="margin:0 0 0.35rem"><a href="/settings">← Settings</a></p>
+    <h1 class="desk-page-title">Xero</h1>
+    <p class="desk-page-sub muted small">
+      Practice connection. Pull trial balance, bank and journals into each client’s
+      <code>Current/Source</code>. Post reviewed journals back after confirm.
+    </p>
+  </div>
+</div>
+
+{% if oauth_error %}<div class="alert alert-error">{{ oauth_error }}</div>{% endif %}
+{% if oauth_msg == 'connected' %}
+<div class="chase-banner chase-banner-info">Xero connected.</div>
+{% elif oauth_msg == 'disconnected' %}
+<div class="chase-banner chase-banner-info">Xero connection removed on this CRM (Xero app consent is unchanged).</div>
+{% elif oauth_msg == 'orgs' %}
+<div class="chase-banner chase-banner-info">Organisation list refreshed.</div>
+{% endif %}
+
+<div class="card settings-card">
+  <h3>Connection</h3>
+  {% if status.connected and status.fresh %}
+  <p class="chase-banner chase-banner-info" style="margin:0 0 0.75rem">
+    Connected{% if status.email %} as <strong>{{ status.email }}</strong>{% endif %}
+    · {{ status.tenant_count }} organisation{{ 's' if status.tenant_count != 1 else '' }}
+  </p>
+  {% elif status.connected %}
+  <p class="alert alert-error" style="margin:0 0 0.75rem">Token expired — reconnect.</p>
+  {% elif configured %}
+  <p class="muted">App credentials are set. Connect the practice Xero login next.</p>
+  {% else %}
+  <p class="muted">
+    Create a <strong>Web app</strong> at
+    <a href="https://developer.xero.com/app/manage" target="_blank" rel="noopener">developer.xero.com</a>,
+    then add <code>XERO_CLIENT_ID</code>, <code>XERO_CLIENT_SECRET</code> and
+    <code>XERO_REDIRECT_URI</code> to <code>.env</code> and restart.
+  </p>
+  {% endif %}
+
+  <dl class="dl-grid">
+    <dt>Client ID</dt><dd><code>{{ client_mask or '—' }}</code></dd>
+    <dt>Secret</dt><dd>{% if secret_set %}set{% else %}<em>missing</em>{% endif %}</dd>
+    <dt>Redirect URI</dt>
+    <dd>
+      <code class="small">{{ redirect_uri }}</code>
+      <p class="small muted" style="margin:0.35rem 0 0">
+        Must match the Xero app OAuth 2.0 redirect URI exactly
+        (local: <code>http://localhost:8000/oauth/xero/callback</code>).
+      </p>
+    </dd>
+    <dt>Scopes</dt><dd class="small"><code>{{ scopes }}</code></dd>
+    <dt>Expires</dt><dd class="small">{{ status.expires_at or '—' }}</dd>
+  </dl>
+
+  <div class="actions" style="margin-top:1rem">
+    {% if configured %}
+    <a class="btn wc-touch" href="/oauth/xero/start?return_to=%2Fsettings%2Fxero">
+      {% if status.connected %}Reconnect Xero{% else %}Connect Xero{% endif %}
+    </a>
+    {% endif %}
+    {% if status.connected %}
+    <form method="post" action="/settings/xero/refresh-orgs" style="display:inline">
+      <button class="btn btn-outline wc-touch" type="submit">Refresh organisations</button>
+    </form>
+    <form method="post" action="/oauth/xero/disconnect" style="display:inline">
+      <input type="hidden" name="return_to" value="/settings/xero">
+      <button class="btn btn-outline wc-touch" type="submit">Disconnect</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if status.tenants %}
+<div class="card settings-card">
+  <h3>Organisations this login can see</h3>
+  <p class="muted small">Assign an organisation on each client’s Playbook tab.</p>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Organisation</th><th>Type</th><th>Tenant id</th></tr>
+      </thead>
+      <tbody>
+        {% for t in status.tenants %}
+        <tr>
+          <td>{{ t.tenantName or '—' }}</td>
+          <td>{{ t.tenantType or '—' }}</td>
+          <td class="small"><code>{{ t.tenantId }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

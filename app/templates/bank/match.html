@@ -59,7 +59,7 @@
     <select name="bill_id" required>
       <option value="">Select…</option>
       {% for b in open_bills %}
-      <option value="{{ b.id }}">{{ b.supplier_name }} · {{ b.number or b.id }} · bal {{(b.balance or b.amount or 0)|money2}} · due {{ b.due_date or '—' }}</option>
+      <option value="{{ b.id }}">{{ b.supplier_name }} · {{ b.number or b.id }} · bal {{(b.balance or b.amount or 0)|money2}} · due {{ b.due_date|uk_date }}</option>
       {% endfor %}
     </select>
     <button class="btn wc-touch" type="submit">Match to creditor</button>

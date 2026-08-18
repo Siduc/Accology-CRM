@@ -62,6 +62,14 @@ _HEADER_MAP = {
     "urgency": "priority",
     "fee": "fee",
     "amount": "fee",
+    "outlook": "web_link",
+    "outlook link": "web_link",
+    "web link": "web_link",
+    "weblink": "web_link",
+    "outlook_web_link": "web_link",
+    "message id": "message_id",
+    "message_id": "message_id",
+    "outlook_message_id": "message_id",
 }
 
 

@@ -48,12 +48,24 @@ class PracticeTask(Base):
     # Staff alert (surfaces in top notify banner when due)
     alert_on = Column(Date, nullable=True, index=True)
     alert_note = Column(String, nullable=True)
+    post_item_id = Column(Integer, nullable=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=True, index=True)
 
     def is_from_email(self) -> bool:
         src = (self.import_source or "").strip().lower()
         if src in ("outlook_push", "outlook_email", "email_push", "outlook_grok"):
             return True
         return bool((self.outlook_message_id or "").strip() or (self.email_from or "").strip())
+
+    def outlook_open_url(self) -> str:
+        """Open-in-Outlook href, or empty."""
+        try:
+            from app.services.practice_tasks import outlook_open_url as _url
+
+            return _url(self) or ""
+        except Exception:
+            link = (self.outlook_web_link or "").strip()
+            return link if link.startswith("http") else ""
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -92,9 +92,21 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
     )
     from app.services.demo_mode import is_demo_locked, is_demo_request
     from app.services.branding import branding_status
+    from app.services.client_playbook import practice_files_root as practice_files_root_fn
+    from app.services.xero_oauth import connection_status as xero_connection_status
+    from app.services.xero_oauth import mask_client_id as xero_mask_client_id
+    from app.config import xero_configured as xero_is_configured, XERO_CLIENT_ID
 
     ms_ok = ms_graph_configured(refresh=True)
     branding = branding_status()
+    try:
+        practice_files_root = str(practice_files_root_fn())
+    except Exception:
+        practice_files_root = ""
+    try:
+        xero_status = xero_connection_status(db)
+    except Exception:
+        xero_status = {"configured": False, "connected": False, "fresh": False, "tenant_count": 0}
 
     return render(
         request,
@@ -155,7 +167,32 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "backlog_msg": request.query_params.get("backlog_msg", ""),
             "demo_mode_on": is_demo_request(request),
             "demo_msg": request.query_params.get("demo_msg", ""),
+            "practice_files_root": practice_files_root,
+            "pack_msg": request.query_params.get("pack_msg", ""),
+            "xero_configured": xero_is_configured(refresh=True),
+            "xero_status": xero_status,
+            "xero_client_mask": xero_mask_client_id(XERO_CLIENT_ID),
         },
+    )
+
+
+@router.post("/settings/ensure-client-packs")
+async def settings_ensure_client_packs(db: Session = Depends(get_db)):
+    """Create Current packs + AGENTS.md for every live client on this machine."""
+    from urllib.parse import quote as url_quote
+
+    from app.services.client_playbook import ensure_live_client_packs
+
+    res = ensure_live_client_packs(db, move_prior_years=True)
+    msg = (
+        f"Packs: {res['ok']} ok, {res['failed']} failed, "
+        f"{res['moved']} papers filed. Root {res['root']}"
+    )
+    if res.get("errors"):
+        msg += " — " + "; ".join(res["errors"][:3])
+    return RedirectResponse(
+        f"/settings?pack_msg={url_quote(msg[:400])}#settings-playbooks",
+        status_code=303,
     )
 
 

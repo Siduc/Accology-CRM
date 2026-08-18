@@ -132,6 +132,12 @@
             {% if t.is_from_email() %}
             <span class="badge task-email-badge">Email</span>
             {% endif %}
+            {% set olink = t.outlook_open_url() %}
+            {% if olink %}
+            <div class="small" style="margin-top:0.2rem">
+              <a href="{{ olink }}" target="_blank" rel="noopener">Open in Outlook</a>
+            </div>
+            {% endif %}
           </td>
           <td class="small task-client-cell">
             {% if t.client %}<a href="/clients/{{ t.client_id }}">{{ t.client.display_name() }}</a>

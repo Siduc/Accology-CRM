@@ -97,7 +97,7 @@
         {% if job %}
         <h2 class="invoice-doc-label">Job</h2>
         <p class="small">
-          <a href="/jobs/{{ job.id }}">{{ job.title or job.type or ('Job #' ~ job.id) }}</a>
+          <a href="/jobs/{{ job.id }}">{{ (job.title or job.type or ('Job #' ~ job.id))|uk_text }}</a>
           {% if job.period_end %}<br><span class="muted">Period end {{ job.period_end|uk_date }}</span>{% endif %}
         </p>
         {% endif %}
@@ -108,7 +108,9 @@
       <table class="invoice-doc-lines invoice-doc-lines-edit">
         <thead>
           <tr>
+            <th>Service id</th>
             <th>Description</th>
+            <th>Period end</th>
             <th class="num">Qty</th>
             <th class="num">Unit £</th>
             <th class="num">VAT rate</th>
@@ -119,9 +121,17 @@
           {% set n = loop.index %}
           <tr>
             <td>
+              <input name="line_service_{{ n }}" value="{{ ln.service_id if ln and ln.service_id else '' }}"
+                placeholder="id" class="invoice-line-input num-input" title="Service catalogue id (optional)">
+            </td>
+            <td>
               <input name="line_desc_{{ n }}" value="{{ ln.description if ln else '' }}"
                 placeholder="Description" class="invoice-line-input">
-              <input type="hidden" name="line_service_{{ n }}" value="{{ ln.service_id if ln and ln.service_id else '' }}">
+            </td>
+            <td>
+              <input type="date" name="line_period_{{ n }}"
+                value="{{ ln.period_end.isoformat() if ln and ln.period_end else (job.period_end.isoformat() if job and job.period_end else '') }}"
+                class="invoice-line-input" title="Period end (shown as DD/MM/YYYY on invoice)">
             </td>
             <td class="num">
               <input name="line_qty_{{ n }}" value="{{ '%.2f'|format(ln.qty) if ln else '1' }}"
@@ -139,13 +149,17 @@
           {% endfor %}
         </tbody>
       </table>
-      <p class="muted small" style="margin:0.5rem 0 0">Leave blank rows empty. VAT rate as decimal (0.2 = 20%).</p>
+      <p class="muted small" style="margin:0.5rem 0 0">
+        Service + period end print as columns. Client notes only below — Xero/system text goes under Internal.
+      </p>
     </div>
 
     <section class="invoice-doc-totals">
       <div class="invoice-doc-notes">
-        <label class="invoice-doc-label" for="notes">Notes</label>
-        <textarea id="notes" name="notes" rows="3" class="invoice-notes-input">{{ inv.notes or '' }}</textarea>
+        <label class="invoice-doc-label" for="notes">Client notes (on invoice)</label>
+        <textarea id="notes" name="notes" rows="2" class="invoice-notes-input" placeholder="Optional note for the client">{{ inv.notes or '' }}</textarea>
+        <label class="invoice-doc-label" for="internal_notes" style="margin-top:0.5rem">Internal notes (not printed)</label>
+        <textarea id="internal_notes" name="internal_notes" rows="2" class="invoice-notes-input" placeholder="Xero dual-run, staff comments…">{{ inv.internal_notes or '' }}</textarea>
       </div>
       <dl class="invoice-doc-sum">
         <div><dt>Subtotal</dt><dd>{{(inv.subtotal or 0)|money2}}</dd></div>

@@ -1,0 +1,156 @@
+{#
+  Letter-list split control.
+  Expects: batch_id, scan_pages, seed_counts (list of ints), suggested_counts (optional)
+#}
+{% set seed = seed_counts if seed_counts else (suggested_counts if suggested_counts else [2]) %}
+{% set fid = 'll-' ~ batch_id %}
+<form id="{{ fid }}" class="letter-list-form" method="post"
+      action="/post/batches/{{ batch_id }}/letters"
+      data-pages="{{ scan_pages }}"
+      onsubmit="return letterListSubmit(this);">
+  <input type="hidden" name="pages" id="{{ fid }}-pages" value="">
+  <div class="letter-list-head">
+    <label class="letter-list-count-label">
+      How many letters?
+      <input class="letter-list-n" id="{{ fid }}-n" type="number" min="1" max="80"
+             value="{{ seed|length }}" inputmode="numeric">
+    </label>
+    <span class="letter-list-sum" id="{{ fid }}-sum"></span>
+  </div>
+  <div class="letter-list-rows" id="{{ fid }}-rows"></div>
+  <label class="letter-list-compact-label">
+    Or type a list
+    <input class="letter-list-compact" name="compact" id="{{ fid }}-compact"
+           placeholder="e.g. 8x2, 2x1, 4, 2"
+           value="{% if seed|length > 4 %}{{ seed|join(',') }}{% endif %}"
+           autocomplete="off">
+  </label>
+  <p class="muted small letter-list-hint" style="margin:0.35rem 0 0.6rem">
+    {{ scan_pages }}-page scan · <code>8x2</code> means eight 2-page letters.
+    Logos and typefaces at each break are remembered — not yesterday’s page counts.
+  </p>
+  <button class="btn wc-touch" type="submit" id="{{ fid }}-go">Split into letters</button>
+</form>
+<script>
+(function () {
+  var form = document.getElementById({{ fid|tojson }});
+  if (!form || form.dataset.bound) return;
+  form.dataset.bound = "1";
+  var total = parseInt(form.dataset.pages, 10) || 0;
+  var nInput = document.getElementById({{ (fid ~ '-n')|tojson }});
+  var rows = document.getElementById({{ (fid ~ '-rows')|tojson }});
+  var sumEl = document.getElementById({{ (fid ~ '-sum')|tojson }});
+  var pagesHidden = document.getElementById({{ (fid ~ '-pages')|tojson }});
+  var compact = document.getElementById({{ (fid ~ '-compact')|tojson }});
+  var go = document.getElementById({{ (fid ~ '-go')|tojson }});
+  var seed = {{ seed|tojson }};
+
+  function parseCompact(s) {
+    var out = [];
+    String(s || "").split(/[,;\n]+/).forEach(function (part) {
+      part = part.trim().toLowerCase().replace(/\s+/g, "").replace(/[×*]/g, "x");
+      if (!part) return;
+      if (part.indexOf("x") >= 0) {
+        var bits = part.split("x");
+        var n = parseInt(bits[0], 10);
+        var sz = parseInt(bits[1], 10);
+        if (n > 0 && sz > 0) {
+          for (var i = 0; i < n && out.length < 80; i++) out.push(sz);
+        }
+      } else if (/^\d+$/.test(part)) {
+        var v = parseInt(part, 10);
+        if (v > 0) out.push(v);
+      }
+    });
+    return out;
+  }
+
+  function values() {
+    return Array.from(rows.querySelectorAll("input[data-letter]")).map(function (el) {
+      return parseInt(el.value, 10) || 0;
+    });
+  }
+
+  function paintSum() {
+    var vals = values();
+    var used = vals.reduce(function (a, b) { return a + b; }, 0);
+    var ok = used === total && vals.length > 0 && vals.every(function (v) { return v > 0; });
+    sumEl.textContent = used + " of " + total + " pages";
+    sumEl.className = "letter-list-sum " + (ok ? "ok" : (used > total ? "over" : "short"));
+    if (go) go.disabled = !ok;
+    if (pagesHidden) pagesHidden.value = vals.join(",");
+    return ok;
+  }
+
+  function render(counts) {
+    var n = Math.max(1, Math.min(80, parseInt(nInput.value, 10) || counts.length || 1));
+    nInput.value = n;
+    var prev = values();
+    var src = counts && counts.length ? counts : prev;
+    rows.innerHTML = "";
+    for (var i = 0; i < n; i++) {
+      var row = document.createElement("div");
+      row.className = "letter-list-row";
+      var lab = document.createElement("span");
+      lab.className = "letter-list-lab";
+      lab.textContent = "Letter " + (i + 1);
+      var inp = document.createElement("input");
+      inp.type = "number";
+      inp.min = "1";
+      inp.max = String(total);
+      inp.inputMode = "numeric";
+      inp.dataset.letter = String(i + 1);
+      inp.value = String(src[i] || 2);
+      inp.setAttribute("aria-label", "Pages in letter " + (i + 1));
+      var pg = document.createElement("span");
+      pg.className = "muted small";
+      pg.textContent = "pages";
+      row.appendChild(lab);
+      row.appendChild(inp);
+      row.appendChild(pg);
+      inp.addEventListener("input", paintSum);
+      rows.appendChild(row);
+    }
+    paintSum();
+  }
+
+  nInput.addEventListener("input", function () { render(); });
+  compact.addEventListener("change", function () {
+    var parsed = parseCompact(compact.value);
+    if (parsed.length) {
+      nInput.value = String(parsed.length);
+      render(parsed);
+    }
+  });
+  compact.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      var parsed = parseCompact(compact.value);
+      if (parsed.length) {
+        nInput.value = String(parsed.length);
+        render(parsed);
+      }
+    }
+  });
+
+  form._llOk = function () {
+    var parsed = parseCompact(compact.value);
+    if (parsed.length && parsed.reduce(function (a, b) { return a + b; }, 0) === total) {
+      pagesHidden.value = parsed.join(",");
+      return true;
+    }
+    if (!paintSum()) {
+      alert("Pages must add up to " + total + " (this scan).");
+      return false;
+    }
+    compact.value = "";
+    return true;
+  };
+  window.letterListSubmit = function (el) {
+    if (el && typeof el._llOk === "function") return el._llOk();
+    return true;
+  };
+
+  render(seed);
+})();
+</script>

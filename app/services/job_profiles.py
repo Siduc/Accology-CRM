@@ -114,7 +114,9 @@ class AccountsProfile(JobProfile):
             target_start = statutory - timedelta(days=30)
 
         overdue = bool(next_accounts.get("overdue") or accounts.get("overdue"))
-        pe_label = period_end.isoformat() if period_end else "TBC"
+        from app.services.dates import uk_date
+
+        pe_label = uk_date(period_end, empty="TBC")
         title = f"Accounts — {pe_label}"
         if company_name:
             title = f"Accounts — {company_name} — {pe_label}"
@@ -124,7 +126,7 @@ class AccountsProfile(JobProfile):
             notes_parts.append("CH flags accounts as OVERDUE.")
         last = (accounts.get("last_accounts") or {}).get("made_up_to")
         if last:
-            notes_parts.append(f"Last accounts made up to: {last}.")
+            notes_parts.append(f"Last accounts made up to: {uk_date(last, empty=str(last))}.")
 
         return JobDraft(
             type=self.job_type,
@@ -180,7 +182,9 @@ class ConfirmationStatementProfile(JobProfile):
         target_completion = statutory
 
         overdue = bool(cs.get("overdue"))
-        pe_label = period_end.isoformat() if period_end else "TBC"
+        from app.services.dates import uk_date
+
+        pe_label = uk_date(period_end, empty="TBC")
         title = f"Confirmation Statement — {pe_label}"
         if company_name:
             title = f"CS — {company_name} — {pe_label}"

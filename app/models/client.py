@@ -63,6 +63,7 @@ class Client(Base):
     retainer_frequency = Column(String, nullable=True)  # Monthly | Quarterly | Annual
     retainer_notes = Column(Text, nullable=True)  # what the retainer covers
     notes = Column(Text)
+    payroll_onboarding_json = Column(Text, nullable=True)
     source = Column(String, nullable=True, default="manual")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

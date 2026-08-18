@@ -33,7 +33,7 @@
       <tbody>
         {% for ln in summary.output_lines %}
         <tr>
-          <td>{{ ln.issue_date }}</td>
+          <td>{{ ln.issue_date|uk_date }}</td>
           <td><a href="{{ ln.href }}">{{ ln.number }}</a></td>
           <td>{{ ln.party }}</td>
           <td>{{ln.net|money2}}</td>
@@ -58,7 +58,7 @@
       <tbody>
         {% for ln in summary.input_lines %}
         <tr>
-          <td>{{ ln.issue_date }}</td>
+          <td>{{ ln.issue_date|uk_date }}</td>
           <td><a href="{{ ln.href }}">{{ ln.number }}</a></td>
           <td>{{ ln.party }}</td>
           <td>{{ln.net|money2}}</td>

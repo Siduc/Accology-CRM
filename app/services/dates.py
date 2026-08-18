@@ -1,5 +1,45 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, Tuple
+import re
+
+_ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+
+
+def uk_date(value, *, empty: str = "") -> str:
+    """Format a date as DD/MM/YYYY. Returns *empty* if missing."""
+    if value is None or value == "":
+        return empty
+    if hasattr(value, "strftime"):
+        try:
+            return value.strftime("%d/%m/%Y")
+        except Exception:
+            return empty or str(value)
+    s = str(value).strip()
+    if not s:
+        return empty
+    try:
+        if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+            return date.fromisoformat(s[:10]).strftime("%d/%m/%Y")
+        if len(s) >= 10 and s[2] == "/" and s[5] == "/":
+            return s[:10]
+    except Exception:
+        pass
+    return s
+
+
+def uk_dates_in_text(text: str) -> str:
+    """Rewrite YYYY-MM-DD inside titles/notes as DD/MM/YYYY."""
+    if not text:
+        return text or ""
+
+    def _repl(m: re.Match) -> str:
+        try:
+            d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return m.group(0)
+        return d.strftime("%d/%m/%Y")
+
+    return _ISO_DATE.sub(_repl, str(text))
 
 
 def default_period_end(

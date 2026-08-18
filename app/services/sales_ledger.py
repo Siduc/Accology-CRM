@@ -27,6 +27,89 @@ from app.services.working_capital import AgeBucket
 # Standard UK VAT for practice sales / Xero sync (0.20 = 20%)
 DEFAULT_SALES_VAT_RATE = 0.20
 
+# Patterns that must never appear on the client-facing invoice notes
+_INTERNAL_NOTE_MARKERS = (
+    "finalised in crm",
+    "issued via xero",
+    "no accology email",
+    "mirrored from xero",
+    "dual-run",
+    "xero mirror",
+    "raised from job",
+    "held as draft",
+    "backfilled from job",
+    "from quote ",
+)
+
+
+def format_uk_date(value) -> str:
+    """Always DD/MM/YYYY for invoice text and notes."""
+    if value is None or value == "":
+        return ""
+    if hasattr(value, "strftime"):
+        try:
+            return value.strftime("%d/%m/%Y")
+        except Exception:
+            return str(value)
+    s = str(value).strip()
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        try:
+            return date.fromisoformat(s[:10]).strftime("%d/%m/%Y")
+        except Exception:
+            pass
+    return s
+
+
+def is_internal_note_line(line: str) -> bool:
+    low = (line or "").strip().lower()
+    if not low:
+        return False
+    return any(m in low for m in _INTERNAL_NOTE_MARKERS)
+
+
+def split_invoice_notes(raw: Optional[str]) -> Tuple[str, str]:
+    """Split mixed notes into (client_facing, internal)."""
+    client_lines: List[str] = []
+    internal_lines: List[str] = []
+    for ln in (raw or "").splitlines():
+        if is_internal_note_line(ln):
+            internal_lines.append(ln.strip())
+        elif ln.strip():
+            client_lines.append(ln.strip())
+    return "\n".join(client_lines).strip(), "\n".join(internal_lines).strip()
+
+
+def append_internal_note(invoice: Invoice, text: str) -> None:
+    """Append staff/system note — never shown on the printed invoice."""
+    bit = (text or "").strip()
+    if not bit:
+        return
+    cur = (invoice.internal_notes or "").strip()
+    if bit in cur:
+        return
+    invoice.internal_notes = (cur + "\n" + bit).strip() if cur else bit
+
+
+def scrub_invoice_client_notes(db: Session) -> int:
+    """
+    Move system/Xero dual-run text out of client-facing notes into internal_notes.
+    Returns number of invoices updated.
+    """
+    n = 0
+    for inv in db.query(Invoice).all():
+        client, internal = split_invoice_notes(inv.notes)
+        if not internal and client == (inv.notes or "").strip():
+            continue
+        # Also move pure-internal existing notes field content
+        if internal or client != (inv.notes or "").strip():
+            if internal:
+                append_internal_note(inv, internal)
+            inv.notes = client or None
+            n += 1
+    if n:
+        db.commit()
+    return n
+
 PAID_JOB_STATUSES = {
     "paid",
     "written off",
@@ -339,7 +422,7 @@ def next_invoice_number(db: Session) -> str:
     used = {
         invoice_number_seq(row[0])
         for row in db.query(Invoice.number).all()
-        if invoice_number_seq(row[0]) > 0
+        if str(row[0] or "").upper().startswith("INV") and invoice_number_seq(row[0]) > 0
     }
     if not used:
         return format_invoice_number(1)
@@ -348,6 +431,19 @@ def next_invoice_number(db: Session) -> str:
         if i not in used:
             return format_invoice_number(i)
     return format_invoice_number(max_n + 1)
+
+
+def next_pays_invoice_number(db: Session) -> str:
+    """Accology Pays Limited sequence: AP-0001, AP-0002, …"""
+    used = {
+        invoice_number_seq(row[0])
+        for row in db.query(Invoice.number).all()
+        if str(row[0] or "").upper().startswith("AP-") and invoice_number_seq(row[0]) > 0
+    }
+    n = 1
+    while n in used:
+        n += 1
+    return f"AP-{n:04d}"
 
 
 def normalise_invoice_number(raw: str) -> str:
@@ -445,12 +541,19 @@ def create_invoice(
     status: str = "sent",
     number: Optional[str] = None,
     import_key: Optional[str] = None,
+    issuer: str = "accology",
 ) -> Invoice:
     inv_number = number
+    issuer_key = (issuer or "accology").strip().lower() or "accology"
     if inv_number:
-        inv_number = normalise_invoice_number(inv_number)
+        inv_number = inv_number.strip()
+        if issuer_key != "accology_pays":
+            inv_number = normalise_invoice_number(inv_number)
+    elif issuer_key == "accology_pays":
+        inv_number = next_pays_invoice_number(db)
     else:
         inv_number = next_invoice_number(db)
+    client_notes, internal_from_notes = split_invoice_notes(notes)
     inv = Invoice(
         number=inv_number,
         client_id=client_id,
@@ -460,9 +563,11 @@ def create_invoice(
         # Credit terms: 0 days (due on issue date)
         due_date=due_date if due_date is not None else (issue_date or date.today()),
         status=status,
-        notes=notes,
+        notes=client_notes or None,
+        internal_notes=internal_from_notes or None,
         source=source,
         import_key=import_key,
+        issuer=issuer_key,
     )
     db.add(inv)
     db.flush()
@@ -474,11 +579,20 @@ def create_invoice(
         else:
             vat_rate = DEFAULT_SALES_VAT_RATE
         net, vat, gross = line_amounts(qty, price, vat_rate)
+        pe = row.get("period_end")
+        if isinstance(pe, str) and pe.strip():
+            try:
+                pe = date.fromisoformat(pe.strip()[:10])
+            except Exception:
+                pe = None
+        elif pe is not None and not hasattr(pe, "strftime"):
+            pe = None
         db.add(
             InvoiceLine(
                 invoice_id=inv.id,
                 service_id=row.get("service_id"),
                 description=row.get("description") or "Service",
+                period_end=pe,
                 qty=qty,
                 unit_price=price,
                 vat_rate=vat_rate,
@@ -543,7 +657,10 @@ def update_invoice(
     if due_date is not None:
         invoice.due_date = due_date
     if notes is not None:
-        invoice.notes = notes or None
+        client_n, internal_n = split_invoice_notes(notes)
+        invoice.notes = client_n or None
+        if internal_n:
+            append_internal_note(invoice, internal_n)
     if status is not None and status in (
         "draft",
         "sent",
@@ -567,11 +684,20 @@ def update_invoice(
             else:
                 vat_rate = DEFAULT_SALES_VAT_RATE
             _net, _vat, gross = line_amounts(qty, price, vat_rate)
+            pe = row.get("period_end")
+            if isinstance(pe, str) and pe.strip():
+                try:
+                    pe = date.fromisoformat(pe.strip()[:10])
+                except Exception:
+                    pe = None
+            elif pe is not None and not hasattr(pe, "strftime"):
+                pe = None
             db.add(
                 InvoiceLine(
                     invoice_id=invoice.id,
                     service_id=row.get("service_id"),
                     description=row.get("description") or "Service",
+                    period_end=pe,
                     qty=qty,
                     unit_price=price,
                     vat_rate=vat_rate,
@@ -1808,16 +1934,21 @@ def invoice_from_job(
         vat_rate = DEFAULT_SALES_VAT_RATE
 
     pe = job.period_end
+    # Description stays clean — Service + Period end are separate invoice columns
     desc = (job.title or job.type or "Professional services").strip()
-    if pe and job.type and job.type not in desc:
-        desc = f"{job.type} — period end {pe.isoformat()}"
-    elif pe and "—" not in desc and pe.isoformat() not in desc:
-        desc = f"{desc} — {pe.isoformat()}"
+    # Strip accidental "period end YYYY-MM-DD" from titles for display cleanliness
+    desc = re.sub(
+        r"\s*[—\-–]\s*period end\s+\d{4}-\d{2}-\d{2}\s*$",
+        "",
+        desc,
+        flags=re.I,
+    ).strip() or (job.type or "Professional services")
 
     issue = date.today()
-    note = f"Raised from job #{job.id}"
+    # System context → internal notes only (markers route off the printed invoice)
+    internal = f"Raised from job #{job.id}"
     if inv_status == "draft":
-        note += " (held as draft)"
+        internal += " (held as draft)"
     inv = create_invoice(
         db,
         client_id=int(job.client_id),
@@ -1827,11 +1958,12 @@ def invoice_from_job(
         source=source,
         status=inv_status,
         import_key=f"job-{job.id}",
-        notes=note,
+        notes=internal,
         lines=[
             {
                 "service_id": svc.id if svc else None,
                 "description": desc,
+                "period_end": pe,
                 "qty": 1,
                 "unit_price": amount,
                 "vat_rate": vat_rate,

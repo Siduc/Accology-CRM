@@ -404,12 +404,21 @@ def archive_outlook_for_task(db: Session, task) -> Tuple[bool, str]:
     task.outlook_archive_status = "pending"
     db.commit()
 
-    ok, aerr = gmail.archive_message(token, mid)
+    ok, aerr, extra = gmail.archive_message(token, mid)
     if ok:
+        # Graph gives the message a new id + webLink in the destination folder
+        new_id = (extra.get("id") or "").strip()
+        new_link = (extra.get("webLink") or "").strip()
+        if new_id:
+            task.outlook_message_id = new_id
+        if new_link.startswith("http"):
+            task.outlook_web_link = new_link
+        elif new_id:
+            task.outlook_web_link = gmail.outlook_deeplink_from_id(new_id)
         task.outlook_archive_status = "archived"
         task.outlook_archived_at = datetime.utcnow()
         db.commit()
-        return True, "Outlook message moved to Archive."
+        return True, "Outlook message moved to Archive — Open in Outlook still follows it."
     task.outlook_archive_status = "failed"
     db.commit()
     return False, aerr or "Archive failed"

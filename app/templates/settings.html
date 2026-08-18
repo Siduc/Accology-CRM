@@ -16,6 +16,11 @@
   <a href="#settings-branding">Letterhead &amp; logo</a>
   <a href="#settings-demo">Demo mode</a>
   <a href="#settings-system">System</a>
+  <a href="#settings-xero">Xero</a>
+  <a href="/settings/sage">Sage</a>
+  <a href="/settings/qbo">QuickBooks</a>
+  <a href="#settings-playbooks">Playbooks</a>
+  <a href="/settings/book-sources">Books sources</a>
   <a href="#settings-wip">WIP</a>
   <a href="#settings-debtors">Debtors</a>
   <a href="#settings-cash">Cash</a>
@@ -454,6 +459,29 @@
 </section>
 
 {# ========== WIP ========== #}
+<section class="settings-section" id="settings-playbooks">
+  <h2 class="settings-section-title">Playbooks</h2>
+  <div class="card settings-card">
+    <h3>Current folders + AGENTS.md</h3>
+    <p class="muted small">
+      For every live client, create <code>Current/Source</code>, <code>Working Papers</code>,
+      <code>Journals</code>, <code>IRIS Import</code>, write <code>AGENTS.md</code>,
+      and file year-tagged working papers into <code>Current/YYYY</code>.
+      Lost clients stay in <code>Lost Clients</code>. Runs on this machine’s OneDrive, not Render.
+    </p>
+    <p class="small">Root: <code>{{ practice_files_root or '—' }}</code></p>
+    {% if pack_msg %}
+    <p class="small">{{ pack_msg }}</p>
+    {% endif %}
+    <form method="post" action="/settings/ensure-client-packs">
+      <button class="btn wc-touch" type="submit">Create packs for all live clients</button>
+    </form>
+    <p style="margin-top:0.75rem">
+      <a class="btn btn-outline wc-touch" href="/settings/book-sources">Review / correct books sources</a>
+    </p>
+  </div>
+</section>
+
 <section class="settings-section" id="settings-wip">
   <h2 class="settings-section-title">WIP</h2>
   <div class="card settings-card">
@@ -713,6 +741,57 @@
       {% endif %}
       <a class="btn btn-outline wc-touch" href="/settings/microsoft-graph">Manage</a>
       <a class="btn btn-outline wc-touch" href="/documents">Documents</a>
+    </div>
+  </div>
+
+  <div class="card settings-card" id="settings-xero">
+    <h3>Xero</h3>
+    <p class="muted small">
+      Practice OAuth. Pull trial balance, bank and journals into
+      <code>Current/Source</code>. Post reviewed journals back after confirm.
+    </p>
+    {% if xero_configured %}
+    <div class="chase-banner chase-banner-info" role="status">
+      {% if xero_status.connected and xero_status.fresh %}
+      <strong>Connected</strong>
+      {% if xero_status.email %} · {{ xero_status.email }}{% endif %}
+      · {{ xero_status.tenant_count or 0 }} organisation{{ 's' if xero_status.tenant_count != 1 else '' }}
+      {% elif xero_status.connected %}
+      <strong>Reconnect required</strong> · token expired
+      {% else %}
+      <strong>Configured</strong> · not connected yet
+      · client <code>{{ xero_client_mask or '…' }}</code>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="chase-banner chase-banner-practice" role="status">
+      <strong>Not configured</strong> — add <code>XERO_CLIENT_ID</code>,
+      <code>XERO_CLIENT_SECRET</code>, <code>XERO_REDIRECT_URI</code> to <code>.env</code>, then restart.
+    </div>
+    {% endif %}
+    <div class="actions">
+      {% if xero_configured %}
+      <a class="btn wc-touch" href="/oauth/xero/start?return_to=%2Fsettings%2Fxero">
+        {% if xero_status.connected %}Reconnect Xero{% else %}Connect Xero{% endif %}
+      </a>
+      {% endif %}
+      <a class="btn btn-outline wc-touch" href="/settings/xero">Manage</a>
+    </div>
+  </div>
+
+  <div class="card settings-card">
+    <h3>Sage Business Cloud</h3>
+    <p class="muted small">Same pull / journal path as Xero. Sage 50 desktop cannot log in here — use a CSV export.</p>
+    <div class="actions">
+      <a class="btn wc-touch" href="/settings/sage">Manage Sage</a>
+    </div>
+  </div>
+
+  <div class="card settings-card">
+    <h3>QuickBooks Online</h3>
+    <p class="muted small">Connect the practice Intuit app, then link each QBO company on the client Playbook tab.</p>
+    <div class="actions">
+      <a class="btn wc-touch" href="/settings/qbo">Manage QuickBooks</a>
     </div>
   </div>
 

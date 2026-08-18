@@ -14,7 +14,7 @@ from app.models import Client, Job
 from app.models.cs_pack import CsPack
 from app.services.companies_house import download_cs_bundle
 from app.services.company_numbers import normalize_company_number
-from app.services.dates import calculate_dates
+from app.services.dates import calculate_dates, uk_date
 
 
 def _parse_date(value: Any) -> Optional[date]:
@@ -256,7 +256,7 @@ def _find_or_create_cs_job(
     if due:
         statutory = due
     job = Job(
-        title=f"Confirmation Statement — {client.display_name()} — {pe or 'pending'}",
+        title=f"Confirmation Statement — {client.display_name()} — {uk_date(pe, empty='pending')}",
         type="Confirmation Statement",
         client_id=client.id,
         period_end=pe,
@@ -675,7 +675,7 @@ def sync_accounts_job_from_ch(
         statutory = due
     if not job:
         job = Job(
-            title=f"Accounts — {client.display_name()} — {pe}",
+            title=f"Accounts — {client.display_name()} — {uk_date(pe)}",
             type="Accounts",
             client_id=client.id,
             period_end=pe,
@@ -695,7 +695,7 @@ def sync_accounts_job_from_ch(
             job.target_start = ts
         if tc or statutory:
             job.target_completion = tc or statutory
-        job.title = f"Accounts — {client.display_name()} — {pe}"
+        job.title = f"Accounts — {client.display_name()} — {uk_date(pe)}"
         job.updated_at = datetime.utcnow()
         note = (job.notes or "").strip()
         stamp = f"Accounts dates synced from CH via CS compare ({datetime.utcnow().date().isoformat()})."
@@ -711,7 +711,7 @@ def fix_cs_job_title(db: Session, client: Client, pack: CsPack, job: Optional[Jo
     form = form_dict(pack)
     name = form.get("company_name") or client.display_name()
     pe = pack.made_up_to or _parse_date(form.get("cs_made_up_to")) or job.period_end
-    job.title = f"Confirmation Statement — {name} — {pe or 'pending'}"
+    job.title = f"Confirmation Statement — {name} — {uk_date(pe, empty='pending')}"
     if pe:
         job.period_end = pe
     due = pack.due_on or _parse_date(form.get("cs_due"))

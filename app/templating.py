@@ -82,7 +82,9 @@ def _job_label(job, with_client: bool = False) -> str:
             return job.label(with_client=bool(with_client)) or "—"
     except Exception:
         pass
-    title = (getattr(job, "title", None) or "").strip()
+    from app.services.dates import uk_dates_in_text
+
+    title = uk_dates_in_text((getattr(job, "title", None) or "").strip())
     jtype = (getattr(job, "type", None) or "").strip()
     pe = getattr(job, "period_end", None)
     pe_s = _fmt_uk_date(pe) if pe is not None else ""
@@ -206,15 +208,15 @@ def _fmt_num(value, decimals: int = 0) -> str:
     return f"{v:,.{d}f}"
 
 
-def _fmt_money(value, decimals: int = 0) -> str:
-    """Sterling with thousands separators: £1,234 or £1,234.56."""
+def _fmt_money(value, decimals: int = 2) -> str:
+    """Sterling with thousands separators and pence: £1,234.56."""
     if value is None or value == "":
         return "—"
     try:
         v = float(value)
     except (TypeError, ValueError):
         return str(value)
-    d = int(decimals) if decimals is not None else 0
+    d = int(decimals) if decimals is not None else 2
     if d <= 0:
         return f"£{v:,.0f}"
     return f"£{v:,.{d}f}"
@@ -225,7 +227,17 @@ def _fmt_money2(value) -> str:
     return _fmt_money(value, 2)
 
 
+def _fmt_uk_text(value) -> str:
+    """Rewrite ISO dates inside a string (job titles, notes) as DD/MM/YYYY."""
+    if value is None:
+        return ""
+    from app.services.dates import uk_dates_in_text
+
+    return uk_dates_in_text(str(value))
+
+
 templates.env.filters["uk_date"] = _fmt_uk_date
+templates.env.filters["uk_text"] = _fmt_uk_text
 templates.env.filters["job_overdue"] = _job_is_overdue
 templates.env.filters["job_status"] = _job_display_status
 templates.env.filters["job_label"] = _job_label
@@ -249,6 +261,7 @@ def render(request, name: str, context: dict | None = None, status_code: int = 2
 
     # Ensure filters are always registered (safe if module was partially reloaded)
     templates.env.filters.setdefault("uk_date", _fmt_uk_date)
+    templates.env.filters["uk_text"] = _fmt_uk_text
     templates.env.filters.setdefault("job_overdue", _job_is_overdue)
     templates.env.filters.setdefault("job_status", _job_display_status)
     templates.env.filters.setdefault("job_label", _job_label)

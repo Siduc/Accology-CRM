@@ -63,6 +63,10 @@
     </p>
     <label>Subject</label>
     <input name="email_subject" value="{{ c.email_subject or '' }}" style="width:100%">
+    <label>Reply-to</label>
+    <input name="reply_to_email" value="{{ c.reply_to_email or 'payroll@accology.co' }}"
+           placeholder="payroll@accology.co" style="width:100%">
+    <p class="small muted">Replies go here (shared mailbox). Melissa is copied on outbound drafts.</p>
     <label>Body</label>
     <textarea name="email_body" rows="8" style="width:100%;font-family:ui-monospace,monospace;font-size:0.88rem">{{ c.email_body or '' }}</textarea>
     <label style="display:flex;align-items:center;gap:0.4rem;font-weight:500">
@@ -90,6 +94,16 @@
       Create Outlook drafts for all members with email
     </button>
   </form>
+  <form method="post" action="/prospecting/campaigns/{{ c.id }}/pull-replies" style="margin-top:0.75rem">
+    <button class="btn btn-outline {% if not graph_connected %}btn-outline{% endif %}" type="submit"
+      {% if not graph_connected %}disabled title="Connect Microsoft first"{% endif %}>
+      Pull payroll@ replies into CRM
+    </button>
+  </form>
+  <p class="small muted">
+    Inbound mail to <code>payroll@accology.co</code> is matched to the prospect by from-address,
+    logged on the activity timeline, and the member is marked responded.
+  </p>
 </div>
 
 {% if c.sequence_json %}

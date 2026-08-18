@@ -28,6 +28,10 @@
         <tr class="{% if t.is_overdue() %}row-overdue{% endif %}">
           <td>
             <a href="/tasks/{{ t.id }}/edit?next={{ (next_url|default('/tasks'))|urlencode }}"><strong>{{ t.title }}</strong></a>
+            {% set olink = t.outlook_open_url() %}
+            {% if olink %}
+            <div class="small"><a href="{{ olink }}" target="_blank" rel="noopener">Open in Outlook</a></div>
+            {% endif %}
           </td>
           <td>
             {% set p = t.display_priority() %}
@@ -35,8 +39,8 @@
           </td>
           <td class="small">
             {% if t.due_on %}
-              {% if t.is_overdue() %}<span class="badge badge-overdue">{{ t.due_on }}</span>
-              {% else %}{{ t.due_on }}{% endif %}
+              {% if t.is_overdue() %}<span class="badge badge-overdue">{{ t.due_on|uk_date }}</span>
+              {% else %}{{ t.due_on|uk_date }}{% endif %}
             {% else %}—{% endif %}
           </td>
           <td class="small">

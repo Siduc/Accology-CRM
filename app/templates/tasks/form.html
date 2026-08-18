@@ -37,13 +37,15 @@
   <p class="small" style="margin:0.75rem 0 0;padding:0.65rem 0.75rem;background:#f8fafc;border-radius:8px;border:1px solid var(--border);white-space:pre-wrap">{{ task.email_preview }}</p>
   {% endif %}
   <div class="actions" style="margin-top:0.75rem;flex-wrap:wrap">
-    {% if task.outlook_web_link %}
-    <a class="btn btn-sm" href="{{ task.outlook_web_link }}" target="_blank" rel="noopener">Open in Outlook</a>
+    {% set olink = task.outlook_open_url() %}
+    {% if olink %}
+    <a class="btn btn-sm" href="{{ olink }}" target="_blank" rel="noopener">Open original email in Outlook</a>
+    {% elif task.outlook_message_id %}
+    <span class="small muted">Outlook id is on file but the mailbox link could not be built — reconnect Microsoft in Settings.</span>
     {% endif %}
-    {% if task.outlook_message_id and not task.outlook_web_link %}
-    <span class="small muted">Message id on file — open from Outlook (web link not supplied).</span>
-    {% endif %}
-    {% if task.outlook_archive_status %}
+    {% if task.outlook_archive_status == 'archived' %}
+    <span class="small muted">Mail is in Archive — the Outlook link should still open the same message.</span>
+    {% elif task.outlook_archive_status %}
     <span class="small muted">Archive: <strong>{{ task.outlook_archive_status }}</strong>
       {% if task.outlook_archived_at %} · {{ task.outlook_archived_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}
     </span>

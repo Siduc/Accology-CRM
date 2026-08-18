@@ -289,6 +289,7 @@ class ProspectCampaign(Base):
     # Default outbound email draft for this campaign
     email_subject = Column(String, nullable=True)
     email_body = Column(Text, nullable=True)
+    reply_to_email = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -41,7 +41,7 @@
         <tr class="row-link" onclick="window.location='/sales/invoices/{{ r.inv.id }}'">
           <td><a href="/sales/invoices/{{ r.inv.id }}" onclick="event.stopPropagation()">{{ r.inv.number }}</a></td>
           <td>{% if r.client %}{{ r.client.display_name() }}{% else %}#{{ r.inv.client_id }}{% endif %}</td>
-          <td>{{ r.inv.issue_date }}</td>
+          <td>{{ r.inv.issue_date|uk_date }}</td>
           <td>{% if r.age > 30 and r.inv.balance > 0 %}<span class="badge badge-overdue">{{ r.age }}d</span>{% else %}{{ r.age }}d{% endif %}</td>
           <td>{{(r.inv.total or 0)|money2}}</td>
           <td>{{(r.inv.balance or 0)|money2}}</td>

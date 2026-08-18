@@ -15,6 +15,7 @@ from app.models import Client, Job
 from app.models.sales import (
     DebtChaseAction,
     Invoice,
+    InvoiceLine,
     Payment,
     Quote,
     Service,
@@ -102,6 +103,7 @@ def _parse_invoice_lines_from_form(form) -> list[dict]:
         svc = (form.get(f"line_service_{n}") or "").strip()
         qty = form.get(f"line_qty_{n}") or "1"
         price = form.get(f"line_price_{n}") or "0"
+        pe_raw = (form.get(f"line_period_{n}") or "").strip()
         # Blank VAT field → practice default 20%; explicit 0 stays zero-rated
         vat_raw = form.get(f"line_vat_{n}")
         if vat_raw is None or str(vat_raw).strip() == "":
@@ -116,10 +118,12 @@ def _parse_invoice_lines_from_form(form) -> list[dict]:
         if sid and not desc:
             # filled later by caller if needed
             pass
+        pe = pe_raw if pe_raw else None
         lines.append(
             {
                 "service_id": sid,
                 "description": desc or "Service",
+                "period_end": pe,
                 "qty": _money(qty) or 1,
                 "unit_price": _money(price),
                 "vat_rate": vat_val,
@@ -419,14 +423,45 @@ async def invoice_detail(
 ):
     inv = (
         db.query(Invoice)
-        .options(joinedload(Invoice.lines))
+        .options(joinedload(Invoice.lines).joinedload(InvoiceLine.service))
         .filter(Invoice.id == invoice_id)
         .first()
     )
     if not inv:
         return RedirectResponse("/sales/invoices", status_code=303)
+    # Move Xero/system text off the printed notes field
+    try:
+        from app.services.sales_ledger import (
+            append_internal_note,
+            split_invoice_notes,
+        )
+
+        client_n, internal_n = split_invoice_notes(inv.notes)
+        dirty_notes = False
+        if internal_n:
+            append_internal_note(inv, internal_n)
+            inv.notes = client_n or None
+            dirty_notes = True
+        elif client_n != (inv.notes or "").strip() and client_n is not None:
+            inv.notes = client_n or None
+            dirty_notes = True
+        if dirty_notes:
+            db.commit()
+            db.refresh(inv)
+    except Exception:
+        pass
     client = db.query(Client).filter(Client.id == inv.client_id).first()
     job = db.query(Job).filter(Job.id == inv.job_id).first() if inv.job_id else None
+    # Backfill period_end on lines from job when missing
+    if job and job.period_end:
+        dirty = False
+        for ln in inv.lines or []:
+            if not ln.period_end:
+                ln.period_end = job.period_end
+                dirty = True
+        if dirty:
+            db.commit()
+            db.refresh(inv)
     chase = (
         db.query(DebtChaseAction)
         .filter(DebtChaseAction.invoice_id == inv.id)
@@ -448,6 +483,7 @@ async def invoice_detail(
         "stage_labels": STAGE_LABELS,
         "suggest": suggest,
         "today": today,
+        "yesterday": (today - timedelta(days=1)).isoformat(),
         "chase_live": CHASE_LIVE_MODE,
         "smtp_ok": smtp_configured(),
         "client_email": _client_email(client),
@@ -455,6 +491,17 @@ async def invoice_detail(
         "error": request.query_params.get("error", ""),
     }
     ctx.update(_practice_branding())
+    if (inv.issuer or "") == "accology_pays":
+        pays = db.query(Client).filter(Client.company_name.ilike("%accology pays%")).first()
+        ctx.update(
+            {
+                "pays_name": (pays.company_name if pays else None) or "Accology Pays Limited",
+                "pays_company_number": (pays.company_number if pays else None) or "",
+                "pays_address": pays.address_block() if pays else "",
+                "pays_email": (pays.email if pays else None) or "payroll@accology.co",
+                "pays_phone": (pays.phone if pays else None) or "",
+            }
+        )
     return render(request, "sales/invoice_detail.html", ctx)
 
 
@@ -514,6 +561,7 @@ async def invoice_edit_save(
     issue_date: str = Form(""),
     due_date: str = Form(""),
     notes: str = Form(""),
+    internal_notes: str = Form(""),
     status: str = Form("sent"),
     db: Session = Depends(get_db),
 ):
@@ -543,6 +591,9 @@ async def invoice_edit_save(
         )
 
     try:
+        from app.services.sales_ledger import append_internal_note, split_invoice_notes
+
+        client_n, internal_from_client = split_invoice_notes(notes)
         update_invoice(
             db,
             inv,
@@ -550,10 +601,18 @@ async def invoice_edit_save(
             number=number or inv.number,
             issue_date=_parse_date(issue_date) or inv.issue_date,
             due_date=_parse_date(due_date),
-            notes=notes,
+            notes=client_n,
             status=status,
             lines=lines,
         )
+        # Staff notes field (replace with form content)
+        inv2 = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+        if inv2 is not None:
+            staff = (internal_notes or "").strip()
+            if internal_from_client:
+                staff = (staff + "\n" + internal_from_client).strip() if staff else internal_from_client
+            inv2.internal_notes = staff or None
+            db.commit()
     except ValueError as e:
         return RedirectResponse(
             f"/sales/invoices/{invoice_id}/edit?error={url_quote(str(e))}",
@@ -653,10 +712,12 @@ async def invoice_status(
         if st == "sent":
             # Dual-run with Xero: finalise without emailing the client
             if (xero_note or "").strip() in ("1", "yes", "on", "true"):
-                tag = "Finalised in CRM (issued via Xero — no Accology email)"
-                notes = (inv.notes or "").strip()
-                if tag not in notes:
-                    inv.notes = (notes + "\n" + tag).strip() if notes else tag
+                from app.services.sales_ledger import append_internal_note
+
+                append_internal_note(
+                    inv,
+                    "Finalised in CRM (issued via Xero — no Accology email)",
+                )
             if inv.job_id:
                 job = db.query(Job).filter(Job.id == inv.job_id).first()
                 if job:
@@ -678,6 +739,7 @@ async def invoice_mark_paid_in_xero(
     request: Request,
     payment_date: str = Form(""),
     reference: str = Form(""),
+    post_to_bank: str = Form(""),
     db: Session = Depends(get_db),
 ):
     """
@@ -701,10 +763,11 @@ async def invoice_mark_paid_in_xero(
     # Finalise draft without email
     if (inv.status or "").lower() == "draft":
         inv.status = "sent"
-        tag = "Finalised in CRM (issued via Xero — no Accology email)"
-        notes = (inv.notes or "").strip()
-        if tag not in notes:
-            inv.notes = (notes + "\n" + tag).strip() if notes else tag
+        from app.services.sales_ledger import append_internal_note
+
+        append_internal_note(
+            inv, "Finalised in CRM (issued via Xero — no Accology email)"
+        )
         if inv.job_id:
             job = db.query(Job).filter(Job.id == inv.job_id).first()
             if job:
@@ -728,8 +791,14 @@ async def invoice_mark_paid_in_xero(
             status_code=303,
         )
 
-    pdate = _parse_date(payment_date) or date.today()
+    pdate = _parse_date(payment_date)
+    if not pdate:
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}?error={url_quote('Choose the payment date (e.g. when it cleared in Xero)')}",
+            status_code=303,
+        )
     ref = (reference or "").strip() or f"Xero paid · {inv.number}"
+    to_bank = (post_to_bank or "").strip().lower() in ("1", "yes", "on", "true")
     record_payment(
         db,
         client_id=int(inv.client_id),
@@ -739,10 +808,15 @@ async def invoice_mark_paid_in_xero(
         reference=ref,
         notes=f"Mirrored from Xero for {inv.number} (dual-run — no Accology email)",
         invoice_allocations=[(inv.id, bal)],
-        post_to_bank=False,  # cash already in Xero bank; avoid double bank entry
+        # Default off: dual-run cash already lives in Xero bank
+        post_to_bank=to_bank,
     )
+    bank_bit = " · CRM bank updated" if to_bank else " · not posted to CRM bank"
     return RedirectResponse(
-        f"/sales/invoices/{invoice_id}?msg={url_quote(f'Finalised and paid {bal:.2f} (Xero mirror)')}",
+        f"/sales/invoices/{invoice_id}?msg="
+        + url_quote(
+            f"Finalised and paid {bal:.2f} on {pdate.isoformat()} (Xero mirror){bank_bit}"
+        ),
         status_code=303,
     )
 

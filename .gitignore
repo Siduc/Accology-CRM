@@ -27,6 +27,7 @@ env/
 Thumbs.db
 
 # Logs / coverage
+logs/
 *.log
 .coverage
 htmlcov/

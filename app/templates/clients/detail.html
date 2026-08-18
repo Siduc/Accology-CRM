@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ client.display_name() }} · Clients{% endblock %}
+{% block body_extra_class %}page-client{% endblock %}
 {% block content %}
 {% set cur = client.overall_status or 'Active' %}
 {% set cn = (client.company_number or '')|upper %}
@@ -78,6 +79,7 @@
   <button type="button" class="tab-btn {% if active_tab == 'tasks' %}active{% endif %}" data-tab="tasks" role="tab">Tasks{% if client_tasks %} ({{ client_tasks|length }}){% endif %}</button>
   <button type="button" class="tab-btn {% if active_tab == 'email' %}active{% endif %}" data-tab="email" role="tab">Email{% if client_emails %} ({{ client_emails|length }}){% endif %}</button>
   <button type="button" class="tab-btn {% if active_tab == 'connections' %}active{% endif %}" data-tab="connections" role="tab">Connections</button>
+  <button type="button" class="tab-btn {% if active_tab == 'playbook' %}active{% endif %}" data-tab="playbook" role="tab">Playbook</button>
   <button type="button" class="tab-btn {% if active_tab == 'fees' %}active{% endif %}" data-tab="fees" role="tab">Fees</button>
 </nav>
 
@@ -231,24 +233,44 @@
       <h2 style="margin:0">Key details</h2>
       <button type="button" class="btn btn-sm btn-outline" data-goto-tab="details">Full details</button>
     </div>
-    <dl class="dl-grid">
-      <dt>Company number</dt><dd>{{ client.company_number or '—' }}</dd>
-      <dt>UTR</dt><dd>{{ client.utr or '—' }}</dd>
-      <dt>VAT number</dt>
-      <dd>
-        {{ client.vat_number or '—' }}
-        {% if vat_scheme_label and vat_scheme_label != '—' %}
-        <span class="small muted"> · {{ vat_scheme_label }}</span>
-        {% endif %}
-      </dd>
-      <dt>PAYE ref</dt><dd>{{ client.paye_reference or '—' }}</dd>
-      <dt>Accounts Office ref</dt><dd>{{ client.accounts_office_reference or '—' }}</dd>
-      <dt>Phone</dt><dd>{{ client.phone or '—' }}</dd>
-      <dt>Email</dt><dd>
-        {% if client.email %}
-        <a href="mailto:{{ client.email }}">{{ client.email }}</a>
-        {% else %}—{% endif %}
-      </dd>
+    <dl class="fact-grid">
+      <div class="fact">
+        <dt>Company number</dt>
+        <dd>{{ client.company_number or '—' }}</dd>
+      </div>
+      <div class="fact">
+        <dt>UTR</dt>
+        <dd>{{ client.utr or '—' }}</dd>
+      </div>
+      <div class="fact">
+        <dt>VAT number</dt>
+        <dd>
+          {{ client.vat_number or '—' }}
+          {% if vat_scheme_label and vat_scheme_label != '—' %}
+          <span class="small muted"> · {{ vat_scheme_label }}</span>
+          {% endif %}
+        </dd>
+      </div>
+      <div class="fact">
+        <dt>PAYE ref</dt>
+        <dd>{{ client.paye_reference or '—' }}</dd>
+      </div>
+      <div class="fact">
+        <dt>Accounts Office ref</dt>
+        <dd>{{ client.accounts_office_reference or '—' }}</dd>
+      </div>
+      <div class="fact">
+        <dt>Phone</dt>
+        <dd>{{ client.phone or '—' }}</dd>
+      </div>
+      <div class="fact">
+        <dt>Email</dt>
+        <dd>
+          {% if client.email %}
+          <a href="mailto:{{ client.email }}">{{ client.email }}</a>
+          {% else %}—{% endif %}
+        </dd>
+      </div>
     </dl>
   </div>
 </div>
@@ -294,6 +316,238 @@
   </div>
 </div>
 
+{% set pb = playbook_summary.playbook if playbook_summary else None %}
+<div class="tab-panel {% if active_tab == 'playbook' %}active{% endif %}" id="tab-playbook" role="tabpanel" {% if active_tab != 'playbook' %}hidden{% endif %}>
+  <div class="card">
+    <div class="page-header" style="margin-bottom:1rem">
+      <h2 style="margin:0">Accounts playbook</h2>
+      <form method="post" action="/clients/{{ client.id }}/ensure-pack">
+        <button class="btn btn-sm btn-outline wc-touch" type="submit">Create Current folders</button>
+      </form>
+    </div>
+    <p class="muted small">
+      How this client's year-end is done. Saves an <code>AGENTS.md</code> in the client folder
+      so Si / Grok can run the job without asking the same questions again.
+    </p>
+    <p class="small">
+      Current accounts year: <strong>{{ playbook_summary.current_year or '—' }}</strong>
+      {% if playbook_summary.current_dir %}
+      · pack: <code>Current/</code>
+      {% endif %}
+      {% if playbook_summary.agents_md %}
+      · AGENTS.md written
+      {% endif %}
+    </p>
+    <form class="stack" method="post" action="/clients/{{ client.id }}/playbook">
+      <div class="form-grid">
+        <label>Books
+          <select name="bookkeeping_source">
+            {% for code, label in playbook_summary.sources %}
+            <option value="{{ code }}" {% if (pb.bookkeeping_source if pb else 'xero') == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Source org / tenant id
+          <input type="text" name="source_org_id" value="{{ pb.source_org_id or '' if pb else '' }}" placeholder="Xero org / Sage company">
+        </label>
+        <label>Year-end month
+          <input type="number" name="year_end_month" min="1" max="12" value="{{ pb.year_end_month or '' if pb else '' }}" placeholder="12">
+        </label>
+        <label>Year-end day
+          <input type="number" name="year_end_day" min="1" max="31" value="{{ pb.year_end_day or '' if pb else '' }}" placeholder="31">
+        </label>
+        <label>Current year override
+          <input type="number" name="current_year" min="2010" max="2100" value="{{ pb.current_year or '' if pb else '' }}" placeholder="{{ playbook_summary.current_year or '' }}">
+        </label>
+        <label>IRIS client code
+          <input type="text" name="iris_client_code" value="{{ pb.iris_client_code or '' if pb else '' }}">
+        </label>
+        <label>Approver
+          <input type="text" name="approver_name" value="{{ pb.approver_name or '' if pb else '' }}" placeholder="{{ client.contact_name or '' }}">
+        </label>
+        <label>Approver email
+          <input type="email" name="approver_email" value="{{ pb.approver_email or '' if pb else '' }}" placeholder="{{ client.email or '' }}">
+        </label>
+      </div>
+      <label>Source notes
+        <textarea name="source_notes" rows="2" placeholder="How to pull books, login caveats, which Xero org if several.">{{ pb.source_notes or '' if pb else '' }}</textarea>
+      </label>
+      <label>IRIS notes
+        <textarea name="iris_notes" rows="2" placeholder="Chart mapping, entity type, what IRIS already holds.">{{ pb.iris_notes or '' if pb else '' }}</textarea>
+      </label>
+      <label>Approval notes
+        <textarea name="approval_notes" rows="2" placeholder="Who signs, how they prefer the pack (email / portal).">{{ pb.approval_notes or '' if pb else '' }}</textarea>
+      </label>
+      <label>Quirks
+        <textarea name="quirks" rows="3" placeholder="Recurring journals, related parties, stock, directors' loans, what last year's papers got wrong.">{{ pb.quirks or '' if pb else '' }}</textarea>
+      </label>
+      <label style="display:flex;gap:0.5rem;align-items:flex-start;margin-top:0.5rem">
+        <input type="checkbox" name="sales_ledger_only" value="1" {% if playbook_summary.sales_ledger_only %}checked{% endif %} style="margin-top:0.25rem">
+        <span>Sage is sales ledger only (invoices and debtors — not full books, bank or year-end journals)</span>
+      </label>
+      <div class="form-actions">
+        <button class="btn wc-touch" type="submit">Save playbook</button>
+      </div>
+    </form>
+    {% if playbook_summary.client_dir %}
+    <p class="small muted" style="margin-top:1rem">Folder: <code>{{ playbook_summary.client_dir }}</code></p>
+    {% endif %}
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <h2>Books pull (Xero / Sage / QuickBooks)</h2>
+    <p class="small muted">This client’s playbook source is <strong>{{ playbook_summary.source_label }}</strong>.</p>
+    {% if pb and pb.bookkeeping_source == 'client_tb' %}
+    <p class="small">
+      Ready-made trial balance (Outlook <strong>Holding</strong>). Recode to IRIS, send drafts for approval, submit through IRIS, send finals. No Xero/Sage/QBO pull.
+    </p>
+    {% endif %}
+
+  <div style="margin-top:0.75rem">
+    <h3>Xero</h3>
+    {% if not playbook_summary.xero_connected %}
+    <p class="muted small">
+      Connect the practice Xero login first —
+      <a href="/settings/xero">Settings → Xero</a>.
+    </p>
+    {% else %}
+    <form class="stack" method="post" action="/clients/{{ client.id }}/xero/assign">
+      <label>Organisation
+        <select name="tenant_id">
+          <option value="">— choose —</option>
+          {% for t in playbook_summary.xero_tenants %}
+          <option value="{{ t.tenantId }}" {% if pb and pb.source_org_id == t.tenantId %}selected{% endif %}>
+            {{ t.tenantName or t.tenantId }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-sm wc-touch" type="submit">Link organisation</button>
+    </form>
+    <form class="stack" method="post" action="/clients/{{ client.id }}/xero/pull" style="margin-top:1rem">
+      <label>Pull books as at
+        <input type="date" name="as_at" value="{{ playbook_summary.as_at or '' }}">
+      </label>
+      <p class="small muted">Writes trial balance, P&amp;L, balance sheet, chart, bank and existing manuals into <code>Current/Source</code>.</p>
+      <button class="btn wc-touch" type="submit">Pull from Xero</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div style="margin-top:1.25rem">
+    <h3>Sage Business Cloud</h3>
+    {% if playbook_summary.sales_ledger_only %}
+    <p class="small">
+      This client uses Sage for the <strong>sales ledger only</strong> — invoices, credit notes, customers and debtors.
+      Bank and year-end journals stay off Sage (statements or screenshots in <code>Current/Source</code>).
+    </p>
+    {% endif %}
+    {% if not playbook_summary.sage_status or not playbook_summary.sage_status.connected %}
+    <p class="muted small">Connect Sage first — <a href="/settings/sage">Settings → Sage</a>. Sage 50 desktop cannot connect; drop a trial balance CSV into <code>Current/Source</code>.</p>
+    {% else %}
+    <form class="stack" method="post" action="/clients/{{ client.id }}/sage/assign">
+      <label>Sage business
+        <select name="tenant_id">
+          <option value="">— choose —</option>
+          {% for t in playbook_summary.sage_status.tenants or [] %}
+          <option value="{{ t.tenantId }}" {% if pb and pb.source_org_id == t.tenantId %}selected{% endif %}>{{ t.tenantName or t.tenantId }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-sm wc-touch" type="submit">Link Sage business</button>
+    </form>
+    <form class="stack" method="post" action="/clients/{{ client.id }}/sage/pull" style="margin-top:0.75rem">
+      <label>Pull as at
+        <input type="date" name="as_at" value="{{ playbook_summary.as_at or '' }}">
+      </label>
+      <p class="small muted">
+        {% if playbook_summary.sales_ledger_only %}
+        Writes sales invoices, credit notes, customers, receipts and aged debtors into <code>Current/Source</code>. Does not pull a Sage trial balance.
+        {% else %}
+        Writes trial balance, ledger, bank and sales invoices into <code>Current/Source</code>.
+        {% endif %}
+      </p>
+      <button class="btn wc-touch" type="submit">{% if playbook_summary.sales_ledger_only %}Pull Sage sales ledger{% else %}Pull from Sage{% endif %}</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div style="margin-top:1.25rem">
+    <h3>QuickBooks Online</h3>
+    {% if not playbook_summary.qbo_status or not playbook_summary.qbo_status.connected %}
+    <p class="muted small">Connect QuickBooks first — <a href="/settings/qbo">Settings → QuickBooks</a>.</p>
+    {% else %}
+    <form class="stack" method="post" action="/clients/{{ client.id }}/qbo/assign">
+      <label>QuickBooks company
+        <select name="tenant_id">
+          <option value="">— choose —</option>
+          {% for t in playbook_summary.qbo_status.tenants or [] %}
+          <option value="{{ t.tenantId }}" {% if pb and pb.source_org_id == t.tenantId %}selected{% endif %}>{{ t.tenantName or t.tenantId }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-sm wc-touch" type="submit">Link QuickBooks company</button>
+    </form>
+    <form class="stack" method="post" action="/clients/{{ client.id }}/qbo/pull" style="margin-top:0.75rem">
+      <input type="date" name="as_at" value="{{ playbook_summary.as_at or '' }}">
+      <button class="btn wc-touch" type="submit">Pull from QuickBooks</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div style="margin-top:1.25rem">
+    <h3>Upload source file (Sage 50 / bank CSV / any export)</h3>
+    <p class="muted small">
+      Drops the file into <code>Current/Source</code>. Use this when there is no cloud login
+      (Sage 50, bank download, a trial balance IRIS can import).
+    </p>
+    <form method="post" action="/clients/{{ client.id }}/source/upload" enctype="multipart/form-data" class="stack">
+      <input type="file" name="file" required>
+      <button class="btn btn-sm wc-touch" type="submit">Save to Current/Source</button>
+    </form>
+  </div>
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <h2>Journals to post back</h2>
+    {% set journal_provider = 'qbo' if (pb and pb.bookkeeping_source == 'qbo') else ('sage' if (pb and pb.bookkeeping_source == 'sage_cloud') else 'xero') %}
+    {% if playbook_summary.sales_ledger_only %}
+    <p class="small">
+      Sage is the sales ledger only. Do not post year-end journals to Sage —
+      keep them in <code>Current/Journals</code> for the working papers and IRIS.
+    </p>
+    {% else %}
+    <p class="muted small">
+      CSV in <code>Current/Journals</code> with columns
+      <code>Date, Narration, AccountCode, Description, Debit, Credit</code>
+      (or <code>LineAmount</code> signed). Same Date + Narration = one journal.
+    </p>
+    <form method="post" action="/clients/{{ client.id }}/{{ journal_provider }}/journals/upload" enctype="multipart/form-data" class="stack">
+      <input type="file" name="file" accept=".csv,text/csv" required>
+      <button class="btn btn-sm wc-touch" type="submit">Upload journal CSV</button>
+    </form>
+    {% endif %}
+    {% if playbook_summary.journal_drafts and not playbook_summary.sales_ledger_only %}
+    <div class="table-wrap" style="margin-top:1rem">
+      <table class="data">
+        <thead>
+          <tr><th>File</th><th>Updated</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for d in playbook_summary.journal_drafts %}
+          <tr>
+            <td>{{ d.name }}{% if d.posted %} <span class="badge badge-active">posted</span>{% endif %}</td>
+            <td class="small">{{ d.modified }}</td>
+            <td><a class="btn btn-sm" href="/clients/{{ client.id }}/{{ journal_provider }}/journals/{{ d.name|urlquote }}">Review</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
 <div class="tab-panel {% if active_tab == 'details' %}active{% endif %}" id="tab-details" role="tabpanel" {% if active_tab != 'details' %}hidden{% endif %}>
   <div class="card">
     <div class="page-header" style="margin-bottom:1rem">
@@ -316,19 +570,19 @@
       </p>
 
       <h3>Core</h3>
-      <dl class="dl-grid">
-        <dt>Name</dt><dd>{{ client.display_name() if client.company_name or client.company_number else '—' }}</dd>
-        <dt>Company number</dt><dd>{{ client.company_number or '—' }}</dd>
-        <dt>Type</dt><dd>{{ client.client_type or '—' }}</dd>
-        <dt>Date of engagement</dt><dd>{{ client.engagement_date|uk_date }}</dd>
-        <dt>Date of disengagement</dt><dd>{{ client.disengagement_date|uk_date }}</dd>
-        <dt>Contact</dt><dd>{{ (client.contact_name or '—')|norm_person }}</dd>
-        <dt>Email</dt><dd>{{ client.email or '—' }}</dd>
-        <dt>Phone</dt><dd>{{ client.phone or '—' }}</dd>
-        <dt>Address</dt><dd>{{ client.address_block() or '—' }}</dd>
-        <dt>UTR</dt><dd>{{ client.utr or '—' }}</dd>
-        <dt>PAYE reference</dt><dd>{{ client.paye_reference or '—' }}</dd>
-        <dt>Accounts Office Reference</dt><dd>{{ client.accounts_office_reference or '—' }}</dd>
+      <dl class="fact-grid">
+        <div class="fact"><dt>Name</dt><dd>{{ client.display_name() if client.company_name or client.company_number else '—' }}</dd></div>
+        <div class="fact"><dt>Company number</dt><dd>{{ client.company_number or '—' }}</dd></div>
+        <div class="fact"><dt>Type</dt><dd>{{ client.client_type or '—' }}</dd></div>
+        <div class="fact"><dt>Date of engagement</dt><dd>{{ client.engagement_date|uk_date }}</dd></div>
+        <div class="fact"><dt>Date of disengagement</dt><dd>{{ client.disengagement_date|uk_date }}</dd></div>
+        <div class="fact"><dt>Contact</dt><dd>{{ (client.contact_name or '—')|norm_person }}</dd></div>
+        <div class="fact"><dt>Email</dt><dd>{{ client.email or '—' }}</dd></div>
+        <div class="fact"><dt>Phone</dt><dd>{{ client.phone or '—' }}</dd></div>
+        <div class="fact"><dt>Address</dt><dd>{{ client.address_block() or '—' }}</dd></div>
+        <div class="fact"><dt>UTR</dt><dd>{{ client.utr or '—' }}</dd></div>
+        <div class="fact"><dt>PAYE reference</dt><dd>{{ client.paye_reference or '—' }}</dd></div>
+        <div class="fact"><dt>Accounts Office Reference</dt><dd>{{ client.accounts_office_reference or '—' }}</dd></div>
       </dl>
       <p class="small muted">
         Engagement / disengagement dates override invoice proxies in the
@@ -336,28 +590,24 @@
       </p>
 
       <h3 id="vat-returns">VAT returns</h3>
-      <dl class="dl-grid">
-        <dt>VAT number</dt><dd>{{ client.vat_number or '—' }}</dd>
-        <dt>Return frequency</dt>
-        <dd>
-          {% if vat_freq_label %}
-          {{ vat_freq_label }}
-          {% else %}
-          <span class="muted">Not set</span>
-          {% endif %}
-        </dd>
-        <dt>Quarterly pattern</dt>
-        <dd>
-          {% if vat_pat_label %}
-          {{ vat_pat_label }}
-          {% elif vat_freq_label == 'Monthly' %}
-          <span class="muted">n/a (monthly)</span>
-          {% elif vat_freq_label == 'Annually' and client.vat_year_end_month %}
-          Year-end month {{ client.vat_year_end_month }}
-          {% else %}
-          <span class="muted">Not set</span>
-          {% endif %}
-        </dd>
+      <dl class="fact-grid">
+        <div class="fact"><dt>VAT number</dt><dd>{{ client.vat_number or '—' }}</dd></div>
+        <div class="fact">
+          <dt>Return frequency</dt>
+          <dd>
+            {% if vat_freq_label %}{{ vat_freq_label }}
+            {% else %}<span class="muted">Not set</span>{% endif %}
+          </dd>
+        </div>
+        <div class="fact">
+          <dt>Quarterly pattern</dt>
+          <dd>
+            {% if vat_pat_label %}{{ vat_pat_label }}
+            {% elif vat_freq_label == 'Monthly' %}<span class="muted">n/a (monthly)</span>
+            {% elif vat_freq_label == 'Annually' and client.vat_year_end_month %}Year-end month {{ client.vat_year_end_month }}
+            {% else %}<span class="muted">Not set</span>{% endif %}
+          </dd>
+        </div>
       </dl>
       {% if vat_needs_setup %}
       <div class="chase-banner chase-banner-info" style="margin-top:0.5rem">
@@ -435,27 +685,33 @@
       </form>
 
       <h3>Billing &amp; retainer</h3>
-      <dl class="dl-grid">
-        <dt>Billing model</dt>
-        <dd>
-          {% if client.is_retainer() %}
-          <span class="badge badge-retainer">Retainer</span>
-          {% else %}
-          {{ client.billing_model or 'Per job' }}
-          {% endif %}
-        </dd>
-        <dt>Retainer amount</dt>
-        <dd>
-          {% if client.retainer_amount %}
-          {{ client.retainer_amount|money2 }}
-          {% if client.retainer_frequency %} · {{ client.retainer_frequency }}{% endif %}
-          {% if client.is_retainer() %}
-          <span class="muted small">(≈ {{ client.retainer_monthly_net()|money2 }}/mo)</span>
-          {% endif %}
-          {% else %}—{% endif %}
-        </dd>
-        <dt>Covers</dt>
-        <dd>{{ client.retainer_notes or '—' }}</dd>
+      <dl class="fact-grid">
+        <div class="fact">
+          <dt>Billing model</dt>
+          <dd>
+            {% if client.is_retainer() %}
+            <span class="badge badge-retainer">Retainer</span>
+            {% else %}
+            {{ client.billing_model or 'Per job' }}
+            {% endif %}
+          </dd>
+        </div>
+        <div class="fact">
+          <dt>Retainer amount</dt>
+          <dd>
+            {% if client.retainer_amount %}
+            {{ client.retainer_amount|money2 }}
+            {% if client.retainer_frequency %} · {{ client.retainer_frequency }}{% endif %}
+            {% if client.is_retainer() %}
+            <span class="muted small">(≈ {{ client.retainer_monthly_net()|money2 }}/mo)</span>
+            {% endif %}
+            {% else %}—{% endif %}
+          </dd>
+        </div>
+        <div class="fact">
+          <dt>Covers</dt>
+          <dd>{{ client.retainer_notes or '—' }}</dd>
+        </div>
       </dl>
       <p class="small muted">
         Retainer annual book is <strong>included in WIP</strong> (split across open jobs for
@@ -463,21 +719,23 @@
       </p>
 
       <h3>Access &amp; codes</h3>
-      <dl class="dl-grid">
-        <dt>Government Gateway ID</dt><dd>{{ client.gov_gateway_username or '—' }}</dd>
-        <dt>Government Gateway password</dt><dd>{% if client.gov_gateway_password %}••••••••{% else %}—{% endif %}</dd>
-        <dt>Accounts software ID</dt><dd>{{ client.accounts_software_id or client.xero_username or '—' }}</dd>
-        <dt>Accounts software password</dt><dd>{% if client.accounts_software_password or client.xero_password %}••••••••{% else %}—{% endif %}</dd>
+      <dl class="fact-grid">
+        <div class="fact"><dt>Government Gateway ID</dt><dd>{{ client.gov_gateway_username or '—' }}</dd></div>
+        <div class="fact"><dt>Government Gateway password</dt><dd>{% if client.gov_gateway_password %}••••••••{% else %}—{% endif %}</dd></div>
+        <div class="fact"><dt>Accounts software ID</dt><dd>{{ client.accounts_software_id or client.xero_username or '—' }}</dd></div>
+        <div class="fact"><dt>Accounts software password</dt><dd>{% if client.accounts_software_password or client.xero_password %}••••••••{% else %}—{% endif %}</dd></div>
         {% if (client.client_type or '') != 'Individual' %}
-        <dt>CH authentication code</dt>
-        <dd>{% if ch_auth_on_file %}<span title="Stored encrypted">{{ ch_auth_masked }}</span> <span class="badge badge-active">Encrypted</span>{% else %}—{% endif %}
-          <a class="small" href="?tab=statutory">Manage on Statutory →</a>
-        </dd>
+        <div class="fact">
+          <dt>CH authentication code</dt>
+          <dd>{% if ch_auth_on_file %}<span title="Stored encrypted">{{ ch_auth_masked }}</span> <span class="badge badge-active">Encrypted</span>{% else %}—{% endif %}
+            <a class="small" href="?tab=statutory">Manage on Statutory →</a>
+          </dd>
+        </div>
         {% endif %}
         {% if (client.client_type or '') == 'Individual' %}
-        <dt>CH personal identification code</dt><dd>{{ client.ch_personal_code or '—' }}</dd>
+        <div class="fact"><dt>CH personal identification code</dt><dd>{{ client.ch_personal_code or '—' }}</dd></div>
         {% endif %}
-        <dt>Source</dt><dd>{{ client.source or '—' }}</dd>
+        <div class="fact"><dt>Source</dt><dd>{{ client.source or '—' }}</dd></div>
       </dl>
 
       {% if client.notes %}
@@ -502,7 +760,7 @@
         <h3>Status</h3>
         <div class="actions" style="align-items:end">
           <div>
-            <label class="small muted" for="overall_status">Client status</label><br>
+            <label for="overall_status">Client status</label><br>
             <select id="overall_status" name="overall_status" class="status-select" style="min-width:12rem">
               <option value="Active" {% if cur == 'Active' %}selected{% endif %}>Active</option>
               <option value="Inactive" {% if cur == 'Inactive' %}selected{% endif %}>Inactive</option>

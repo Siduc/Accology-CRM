@@ -130,7 +130,7 @@ def mask_client_id(client_id: Optional[str] = None) -> str:
 def build_scopes() -> str:
     _sync_cfg()
     return (
-        _cfg.MS_GRAPH_SCOPES or "offline_access User.Read Files.ReadWrite"
+        _cfg.MS_GRAPH_SCOPES or "offline_access User.Read Files.ReadWrite Mail.Send Mail.ReadWrite"
     ).strip()
 
 

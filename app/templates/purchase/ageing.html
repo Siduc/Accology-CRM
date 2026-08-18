@@ -31,7 +31,7 @@
         <tr>
           <td><a href="/purchase/bills/{{ r.bill.id }}">{{ r.bill.number or r.bill.id }}</a></td>
           <td>{{ r.bill.supplier_name }}</td>
-          <td>{{ r.bill.due_date or '—' }}</td>
+          <td>{{ r.bill.due_date|uk_date }}</td>
           <td><span class="badge badge-overdue">{{ r.age }}d</span></td>
           <td>{{r.balance|money2}}</td>
         </tr>

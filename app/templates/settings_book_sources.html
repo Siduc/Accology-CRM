@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Books sources · Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted" style="margin:0 0 0.35rem"><a href="/settings">← Settings</a></p>
+    <h1 class="desk-page-title">Books sources</h1>
+    <p class="desk-page-sub muted small">
+      Guessed from prior-year Excel packs. Change any row — that rewrites the client’s AGENTS.md.
+      Xero / Sage cloud / QuickBooks still need you to Connect in Settings before a live pull.
+    </p>
+  </div>
+</div>
+
+{% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
+
+<p class="small">
+  {% for code, label in sources %}
+  <a class="btn btn-sm {% if filter_source == code %}{% else %}btn-outline{% endif %}" href="/settings/book-sources?source={{ code }}">{{ label }} ({{ counts.get(code, 0) }})</a>
+  {% endfor %}
+  <a class="btn btn-sm btn-outline" href="/settings/book-sources">All ({{ total }})</a>
+</p>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Source</th>
+          <th>Notes</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>
+            <a href="/clients/{{ r.id }}?tab=playbook">{{ r.name }}</a>
+            <div class="small muted">{{ r.company_number }}</div>
+          </td>
+          <td>
+            <form method="post" action="/settings/book-sources/{{ r.id }}" class="stack" style="margin:0">
+              <input type="hidden" name="source" value="{{ filter_source }}">
+              <select name="bookkeeping_source" onchange="this.form.submit()">
+                {% for code, label in sources %}
+                <option value="{{ code }}" {% if r.source == code %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </td>
+          <td class="small">{{ r.notes }}</td>
+          <td><a class="btn btn-sm btn-outline" href="/clients/{{ r.id }}?tab=playbook">Playbook</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

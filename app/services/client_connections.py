@@ -19,12 +19,22 @@ CONNECTION_PROVIDERS = (
     (
         "xero",
         "Xero",
-        "Reserved for accounts software link (not wired yet). Stored as an opt-in flag only.",
+        "Primary books for most clients. API pull / journal post-back comes next.",
     ),
     (
         "sage",
         "Sage",
-        "Reserved for accounts software link (not wired yet). Stored as an opt-in flag only.",
+        "Sage Business Cloud login. Sage 50 desktop stays CSV export into Current/Source.",
+    ),
+    (
+        "qbo",
+        "QuickBooks",
+        "QuickBooks Online. Link the company on the Playbook tab after Settings → Connect.",
+    ),
+    (
+        "iris",
+        "IRIS Elements",
+        "This client is produced in IRIS Elements after Excel working papers.",
     ),
 )
 

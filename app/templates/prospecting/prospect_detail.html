@@ -150,7 +150,7 @@
       <tbody>
         {% for j in active_bucket.jobs %}
         <tr>
-          <td><strong>{{ j.title }}</strong></td>
+          <td><strong>{{ j.title|uk_text }}</strong></td>
           <td class="small">{{ j.detail or '—' }}</td>
           <td class="num"><strong>{{j.fee|money}}</strong></td>
           <td class="num">{{j.pipeline|money}}</td>

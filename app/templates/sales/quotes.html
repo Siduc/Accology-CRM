@@ -19,7 +19,7 @@
         <tr>
           <td>{{ q.number }}</td>
           <td>{% if clients.get(q.client_id) %}{{ clients[q.client_id].display_name() }}{% else %}#{{ q.client_id }}{% endif %}</td>
-          <td>{{ q.issue_date }}</td>
+          <td>{{ q.issue_date|uk_date }}</td>
           <td>{{(q.total or 0)|money2}}</td>
           <td><span class="badge">{{ q.status }}</span></td>
           <td>

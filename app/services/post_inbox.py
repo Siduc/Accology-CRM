@@ -32,6 +32,8 @@ from app.models.post_inbox import (
     PostBatch,
     PostItem,
     PostRule,
+    PostSplitCue,
+    PostSplitLesson,
 )
 from app.services.client_matching import match_clients_ranked, normalize_client_name
 from app.services.company_numbers import normalize_company_number
@@ -264,19 +266,26 @@ _NEW_DOC_MARKERS = (
     r"\bHM\s*Revenue\s*(?:&|and)\s*Customs\b",
     r"\bHMRC\b",
     r"\bCompanies\s+House\b",
+    r"\bStatutory\s+notice\b",
+    r"\bThe\s+Pensions\s+Regulator\b",
+    r"\bautomatic\s+enrolment\b",
     r"\bSelf\s+Assessment\b",
     r"\bCorporation\s+Tax\b",
     r"\bPAYE\b",
     r"\bVAT\s+(?:Return|Notice|Statement)\b",
-    r"\bForm\s+(?:SA\d+|CT\d+|P\d+|VAT\d+)\b",
-    r"\bDear\s+(?:Sir|Madam|Sir/Madam|Mr|Mrs|Ms|Miss)\b",
-    r"\bFinal\s+(?:demand|notice|reminder)\b",
+    r"\bForm\s+(?:SA\d+|CT\d+|P\d+|VAT\d+|SL\d+)\b",
+    r"\bDear\s+\S+",
+    r"\bFinal\s+(?:demand|notice|reminder|letter)\b",
     r"\bLetter\s+before\s+action\b",
     r"\bStatutory\s+demand\b",
     r"\bInvoice\s+(?:No\.?|Number|#)\b",
     r"\bTax\s+Invoice\b",
     r"\bStatement\s+of\s+Account\b",
     r"\bReminder\s+notice\b",
+    r"\bNotice\s+to\s+start\b",
+    r"\bAttendance\s+Requested\b",
+    r"\bIt's\s+time\s+to\s+(?:pay|resolve)\b",
+    r"\bMissed\s+Mortgage\s+Payment\b",
 )
 
 
@@ -415,23 +424,44 @@ def _combined_page_text(page_texts: List[str], limit: int = 12000) -> str:
     return "\n".join(page_texts or "")[:limit]
 
 
-def _looks_like_court_or_legal_pack(page_texts: List[str]) -> bool:
-    """True when OCR/text suggests a court, tribunal or formal legal pack."""
-    low = _combined_page_text(page_texts).lower()
+def _page_looks_like_court(text: str) -> bool:
+    """True if this single page is court/tribunal paperwork (not a passing mention)."""
+    low = (text or "").lower()
     if not low.strip():
         return False
-    hits = sum(1 for k in _COURT_LEGAL_KEYWORDS if k in low)
-    return hits >= 2 or any(
-        k in low
-        for k in (
-            "particulars of claim",
-            "statement of truth",
-            "county court",
-            "high court",
-            "claim form",
-            "witness statement",
-        )
+    strong = (
+        "particulars of claim",
+        "statement of truth",
+        "claim form",
+        "witness statement",
+        "county court",
+        "high court",
+        "magistrates court",
+        "magistrates' court",
     )
+    if any(k in low for k in strong):
+        return True
+    hits = sum(1 for k in _COURT_LEGAL_KEYWORDS if k in low)
+    return hits >= 3
+
+
+def _looks_like_court_or_legal_pack(page_texts: List[str]) -> bool:
+    """
+    True when the *whole file* is a court/tribunal pack.
+
+    A mixed scanner pile (12 different letters) often mentions 'tribunal' or
+    'county court' on one page — that must not glue the entire stack together.
+    Require court language on most pages, or on a small file that is clearly court.
+    """
+    pages = [t for t in (page_texts or []) if (t or "").strip()]
+    if not pages:
+        return False
+    court_pages = sum(1 for t in pages if _page_looks_like_court(t))
+    n = len(pages)
+    if n <= 2:
+        return court_pages == n and _page_looks_like_court(pages[0])
+    # Majority of pages, and at least 3, look like court paperwork
+    return court_pages >= 3 and court_pages >= int(n * 0.6)
 
 
 def _continuous_page_of_total(page_texts: List[str]) -> bool:
@@ -453,27 +483,323 @@ def _continuous_page_of_total(page_texts: List[str]) -> bool:
 
 
 def _strong_new_letter_start(text: str) -> bool:
-    """Only clear 'this is a different letter' cues — not weak form noise."""
-    head = (text or "")[:700]
-    if not head.strip():
+    """Clear 'this is a different letter' cues — not weak form noise."""
+    head = (text or "")[:900]
+    if not head.strip() or head.strip().startswith("[scanned page"):
         return False
     if re.search(
-        r"\bDear\s+(?:Sir|Madam|Sir/Madam|Mr|Mrs|Ms|Miss)\b"
-        r"|\bFinal\s+(?:demand|notice)\b"
+        r"\bDear\s+\S+"
+        r"|\bFinal\s+(?:demand|notice|reminder|letter)\b"
         r"|\bInvoice\s+(?:No\.?|Number)\b"
-        r"|\bForm\s+(?:SA\d+|CT\d+|P\d+)\b"
+        r"|\bForm\s+(?:SA\d+|CT\d+|P\d+|SL\d+)\b"
         r"|\bHM\s*Revenue\s*(?:&|and)\s*Customs\b"
         r"|\bHMRC\b"
-        r"|\bCompanies\s+House\b",
+        r"|\bCompanies\s+House\b"
+        r"|\bStatutory\s+notice\b"
+        r"|\bThe\s+Pensions\s+Regulator\b"
+        r"|\bNotice\s+to\s+start\b"
+        r"|\bAttendance\s+Requested\b"
+        r"|\bIt's\s+time\s+to\s+(?:pay|resolve)\b"
+        r"|\bMissed\s+Mortgage\s+Payment\b"
+        r"|\bThis\s+is\s+a\s+final\s+reminder\b",
         head,
         re.I,
     ):
         return True
     if re.search(r"\bPage\s*1\s*(?:of|/)\s*\d+\b", head, re.I) and re.search(
-        r"\bDear\s+|\bInvoice\b|\bHMRC\b|\bHM\s*Revenue\b", head, re.I
+        r"\bDear\s+|\bInvoice\b|\bHMRC\b|\bHM\s*Revenue\b|\bAldermore\b"
+        r"|\bCompanies\s+House\b|\bRegulator\b",
+        head,
+        re.I,
     ):
         return True
     return False
+
+
+def _sender_key(text: str) -> str:
+    """Coarse sender / brand identity from the top of a page."""
+    head = (text or "")[:480].lower()
+    if not head.strip() or head.lstrip().startswith("[scanned page"):
+        return ""
+    brands = (
+        ("pensions regulator", "pensions-regulator"),
+        ("companies house", "companies-house"),
+        ("employment law advice", "elab"),
+        ("employers compliance", "elab"),
+        ("bpo collections", "bpo"),
+        ("city of york", "york"),
+        ("york council", "york"),
+        ("advantis", "advantis"),
+        ("aldermore", "aldermore"),
+        ("lcsdr", "lcs"),
+        ("1st locate", "lcs"),
+    )
+    for needle, key in brands:
+        if needle in head:
+            return key
+    if re.search(r"\blcs\b", head[:180]):
+        return "lcs"
+    # HMRC only as the letterhead, not a collector chasing an HMRC bill
+    if re.search(r"\bhm\s*revenue|\bhmrc\b", head[:220]):
+        return "hmrc"
+    m = re.search(r"\bdear\s+([a-z0-9][a-z0-9&.'/-]{1,48})", head)
+    if m:
+        return re.sub(r"[^a-z0-9]+", "", m.group(1))[:28]
+    return ""
+
+
+_PRACTICE_ADDRESSEE = (
+    r"\baccology\s+pays\s+(?:limited|ltd)\b",
+    r"\baccology\s+(?:limited|ltd)\b",
+)
+
+
+def _is_practice_mail(text: str) -> bool:
+    """True when the letter is addressed to the practice, not a client c/o Accology."""
+    head = (text or "")[:1100]
+    if not head.strip():
+        return False
+    low = head.lower()
+    if re.search(r"\bdear\s+accology\b", low):
+        return True
+    if re.search(r"\baccology\s+pays\s+(?:limited|ltd)\b", low):
+        return True
+    # First address block line is Accology Limited (not 'c/o Accology')
+    if re.search(r"(?m)^\s*accology\s+(?:limited|ltd)\b", low):
+        return True
+    # Avoid matching 'c/o Accology' client post as practice
+    if "c/o accology" in low or "c/o accology" in low.replace(" ", ""):
+        return False
+    if re.search(r"\baccology\s+(?:limited|ltd)\b", low) and re.search(
+        r"\bdear\s+accology\b|addressed to accology|accology limited[\s,]",
+        low,
+    ):
+        return True
+    return False
+
+
+def find_practice_client(db: Session, text: str = "") -> Optional[Client]:
+    """Accology Pays if the letter names it, otherwise Accology Limited."""
+    low = (text or "").lower()
+    names = []
+    if "accology pays" in low:
+        names.append("Accology Pays Limited")
+    names.extend(["Accology Limited", "Accology"])
+    seen = set()
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        ranked = match_clients_ranked(db, name, limit=1)
+        if ranked and ranked[0][1] >= 70:
+            return ranked[0][0]
+    return None
+
+
+def _header_phrase(text: str) -> str:
+    """First distinctive line — logo / title, not the address."""
+    for ln in (text or "").splitlines():
+        s = ln.strip()
+        if len(s) < 4 or len(s) > 80:
+            continue
+        if s.startswith("[scanned"):
+            continue
+        if re.match(r"^(dear|page\s+\d)\b", s, re.I):
+            continue
+        if re.match(r"^\d{1,2}\s+\w+\s+20\d{2}$", s):
+            continue
+        return s[:80]
+    return ""
+
+
+def _top_sig(profile: Optional[Dict[str, Any]]) -> str:
+    top = (profile or {}).get("top") or []
+    if len(top) < 8:
+        return ""
+    # Quantise so similar letterheads hash the same
+    return ",".join(str(min(15, int(v / 16))) for v in top[:48])
+
+
+def _sig_sim(a: str, b: str) -> float:
+    if not a or not b:
+        return 0.0
+    pa = [int(x) for x in a.split(",") if x.strip().isdigit()]
+    pb = [int(x) for x in b.split(",") if x.strip().isdigit()]
+    n = min(len(pa), len(pb))
+    if n < 8:
+        return 0.0
+    mad = sum(abs(pa[i] - pb[i]) for i in range(n)) / n / 15.0
+    return 1.0 - mad
+
+
+def _phrase_sim(a: str, b: str) -> float:
+    na = re.sub(r"[^a-z0-9]+", " ", (a or "").lower()).strip()
+    nb = re.sub(r"[^a-z0-9]+", " ", (b or "").lower()).strip()
+    if not na or not nb:
+        return 0.0
+    if na == nb:
+        return 1.0
+    if na in nb or nb in na:
+        return 0.85
+    wa, wb = set(na.split()), set(nb.split())
+    if not wa or not wb:
+        return 0.0
+    return len(wa & wb) / max(len(wa | wb), 1)
+
+
+def _looks_like_continuation_page(text: str) -> bool:
+    head = (text or "")[:500].lower()
+    return bool(
+        re.search(
+            r"\bpage\s*[2-9]\s*(?:of|/)\s*\d+\b"
+            r"|\bways to (?:pay|manage)"
+            r"|\bforum details\b"
+            r"|\bwho (?:are we|else can help)\b"
+            r"|\bappendix\b"
+            r"|\bcontinued\b"
+            r"|\bsee the reverse\b",
+            head,
+            re.I,
+        )
+    )
+
+
+def list_split_cues(db: Session) -> List[PostSplitCue]:
+    try:
+        return db.query(PostSplitCue).order_by(PostSplitCue.hit_count.desc()).all()
+    except Exception:
+        return []
+
+
+def _match_start_cue(
+    text: str,
+    profile: Optional[Dict[str, Any]],
+    cues: List[PostSplitCue],
+) -> Optional[PostSplitCue]:
+    starts = [c for c in cues if (c.kind or "") == "start"]
+    if not starts:
+        return None
+    key = _sender_key(text)
+    phrase = _header_phrase(text)
+    sig = _top_sig(profile)
+    best: Optional[Tuple[float, PostSplitCue]] = None
+    for cue in starts:
+        score = 0.0
+        if key and cue.sender_key and key == cue.sender_key:
+            score += 0.4
+        if phrase and cue.header_phrase and _phrase_sim(phrase, cue.header_phrase) >= 0.72:
+            score += 0.45
+        if sig and cue.top_sig and _sig_sim(sig, cue.top_sig) >= 0.84:
+            score += 0.4
+        if score >= 0.44 and (best is None or score > best[0]):
+            best = (score, cue)
+    return best[1] if best else None
+
+
+def _upsert_split_cue(
+    db: Session,
+    *,
+    kind: str,
+    sender_key: str,
+    header_phrase: str,
+    top_sig: str,
+) -> None:
+    sender_key = (sender_key or "").strip()[:80]
+    header_phrase = (header_phrase or "").strip()[:80]
+    top_sig = (top_sig or "").strip()[:400]
+    if not sender_key and not header_phrase and not top_sig:
+        return
+    q = db.query(PostSplitCue).filter(PostSplitCue.kind == kind)
+    if sender_key:
+        q = q.filter(PostSplitCue.sender_key == sender_key)
+    if header_phrase:
+        q = q.filter(PostSplitCue.header_phrase == header_phrase)
+    row = q.first()
+    if row:
+        row.hit_count = int(row.hit_count or 0) + 1
+        if top_sig and not row.top_sig:
+            row.top_sig = top_sig
+        row.updated_at = datetime.utcnow()
+        return
+    db.add(
+        PostSplitCue(
+            kind=kind,
+            sender_key=sender_key or None,
+            header_phrase=header_phrase or None,
+            top_sig=top_sig or None,
+            hit_count=1,
+            notes="Taught from a human letter cut",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+    )
+
+
+def learn_split_cues_from_items(db: Session, batch_id: int) -> int:
+    """
+    Remember what started each letter: logo / typeface / sender — not yesterday's
+    page counts. Next pile uses these to decide where to break.
+    """
+    items = (
+        db.query(PostItem)
+        .filter(
+            PostItem.batch_id == batch_id,
+            PostItem.status != "holding",
+        )
+        .order_by(PostItem.page_start.asc())
+        .all()
+    )
+    if len(items) < 2:
+        return 0
+    batch = db.query(PostBatch).filter(PostBatch.id == batch_id).first()
+    profiles: List[Dict[str, Any]] = []
+    if batch:
+        for cand in (batch.archived_path, batch.source_path):
+            if cand and Path(cand).is_file():
+                profiles = extract_page_visual_profiles(Path(cand))
+                break
+    n = 0
+    for it in items:
+        text = it.text_excerpt or ""
+        ps = int(it.page_start or 1)
+        prof = profiles[ps - 1] if 0 <= ps - 1 < len(profiles) else {}
+        _upsert_split_cue(
+            db,
+            kind="start",
+            sender_key=_sender_key(text),
+            header_phrase=_header_phrase(text),
+            top_sig=_top_sig(prof),
+        )
+        n += 1
+        pe = int(it.page_end or ps)
+        if pe > ps and 0 <= pe - 1 < len(profiles):
+            _upsert_split_cue(
+                db,
+                kind="continue",
+                sender_key=_sender_key(text),
+                header_phrase="continuation",
+                top_sig=_top_sig(profiles[pe - 1]),
+            )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        return 0
+    return n
+
+
+def _almost_same_opening(a: str, b: str) -> bool:
+    """True when two pages look like copies of the same 1-page letter/form."""
+    na = re.sub(r"\s+", " ", (a or "")[:500].lower()).strip()
+    nb = re.sub(r"\s+", " ", (b or "")[:500].lower()).strip()
+    if len(na) < 80 or len(nb) < 80:
+        return False
+    if na[:160] == nb[:160]:
+        return True
+    wa, wb = set(re.findall(r"[a-z0-9]{4,}", na)), set(re.findall(r"[a-z0-9]{4,}", nb))
+    if not wa or not wb:
+        return False
+    return len(wa & wb) / max(len(wa | wb), 1) >= 0.82
 
 
 def _normalize_page_texts_with_ink(
@@ -519,6 +845,7 @@ def detect_document_page_ranges(
     page_texts: List[str],
     ink_ratios: Optional[List[float]] = None,
     visual_profiles: Optional[List[Dict[str, Any]]] = None,
+    split_cues: Optional[List[PostSplitCue]] = None,
 ) -> List[Tuple[int, int, str]]:
     """
     Split a multi-page PDF into documents.
@@ -539,6 +866,7 @@ def detect_document_page_ranges(
 
     profiles = visual_profiles or []
     ink = ink_ratios or [p.get("ink", 0.5) for p in profiles]
+    cues = split_cues or []
 
     def blank(i: int) -> bool:
         t = page_texts[i] if i < len(page_texts) else ""
@@ -578,6 +906,58 @@ def detect_document_page_ranges(
             # else: intentional blank inside same pack — keep together
             continue
 
+        # Learned letterhead / logo: this page looks like a known letter start
+        # and is not a continuation of the current letter's brand.
+        cur_prof = profiles[i] if i < len(profiles) else {}
+        prev_prof = profiles[i - 1] if i - 1 < len(profiles) else {}
+        cur_cue = _match_start_cue(t, cur_prof, cues)
+        prev_cue = _match_start_cue(prev, prev_prof, cues)
+        doc_key = _sender_key(page_texts[starts[-1]] if starts else prev)
+        cur_key = _sender_key(t)
+        if cur_cue and not (
+            cur_key and doc_key and cur_key == doc_key and not _almost_same_opening(t, prev)
+        ):
+            different_brand = bool(
+                prev_cue
+                and cur_cue.sender_key
+                and prev_cue.sender_key
+                and cur_cue.sender_key != prev_cue.sender_key
+            )
+            after_reverse = _looks_like_continuation_page(prev)
+            new_logo = bool(cur_cue and not prev_cue)
+            phrase_changed = (
+                _header_phrase(t)
+                and _header_phrase(prev)
+                and _phrase_sim(_header_phrase(t), _header_phrase(prev)) < 0.55
+            )
+            if different_brand or after_reverse or new_logo or (cur_cue and prev_cue and phrase_changed):
+                if i not in starts:
+                    starts.append(i)
+                    reasons[i] = (
+                        f"learned letterhead ({cur_cue.sender_key or cur_cue.header_phrase or 'start'})"
+                    )
+                continue
+
+        # Two copies of the same 1-page form (near-identical openings / pages)
+        if _almost_same_opening(t, prev):
+            if i not in starts:
+                starts.append(i)
+                reasons[i] = "duplicate 1-page form"
+            continue
+        if i < len(profiles) and i - 1 < len(profiles):
+            prev_idx = i - 1
+            while prev_idx > 0 and blank(prev_idx):
+                prev_idx -= 1
+            full_s = _visual_sim(
+                (profiles[i].get("full") or []),
+                (profiles[prev_idx].get("full") or []),
+            )
+            if full_s >= 0.985 and not blank(i) and not blank(prev_idx):
+                if i not in starts:
+                    starts.append(i)
+                    reasons[i] = "near-identical page (second copy)"
+                continue
+
         # Image-only: letterhead / layout change (same letterhead ⇒ keep together)
         if i < len(profiles) and i - 1 < len(profiles):
             # Look across a preceding blank to the last content page for letterhead
@@ -606,7 +986,13 @@ def detect_document_page_ranges(
             prev_cont = bool(
                 re.search(r"\bPage\s*[2-9]\d*\s*(?:of|/)\s*\d+\b", prev[:400], re.I)
             )
-            if prev_cont and not page1 and not strong_new:
+            start_key = _sender_key(page_texts[starts[-1]] if starts else prev)
+            cur_key = _sender_key(t)
+            same_sender = bool(start_key and cur_key and start_key == cur_key)
+            if prev_cont and not page1 and not (strong_new and not same_sender):
+                continue
+            if same_sender and not page1:
+                # Same brand as the current letter (e.g. TPR pages 2–4)
                 continue
             if strong_new or (page1 and strong_new):
                 if i not in starts:
@@ -692,6 +1078,231 @@ def parse_page_ranges_spec(spec: str, page_count: int) -> List[Tuple[int, int, s
     return cleaned
 
 
+def parse_letter_page_counts(
+    spec: str, page_count: int
+) -> Tuple[List[int], str]:
+    """
+    Parse a letter list: '2,2,1,4' or shorthand '8x2, 2x1, 4, 2'.
+
+    Returns (page_counts, error). Empty error means ok. Counts must sum
+    exactly to page_count.
+    """
+    raw = (spec or "").strip()
+    if not raw:
+        return [], "Enter how many pages each letter has"
+    counts: List[int] = []
+    for part in re.split(r"[,;\n]+", raw):
+        part = part.strip().lower().replace(" ", "")
+        if not part:
+            continue
+        part = part.replace("×", "x").replace("*", "x")
+        if "x" in part:
+            a, _, b = part.partition("x")
+            if not a.isdigit() or not b.isdigit():
+                return [], f"Cannot read '{part}' — use 8x2 or 2"
+            n, size = int(a), int(b)
+            if n < 1 or n > 80 or size < 1 or size > page_count:
+                return [], f"Cannot read '{part}'"
+            counts.extend([size] * n)
+        elif part.isdigit():
+            n = int(part)
+            if n < 1 or n > page_count:
+                return [], f"Letter of {n} page(s) is not valid"
+            counts.append(n)
+        else:
+            return [], f"Cannot read '{part}' — use 2 or 8x2"
+    if not counts:
+        return [], "Enter how many pages each letter has"
+    if len(counts) > 80:
+        return [], "Too many letters (max 80)"
+    total = sum(counts)
+    if total != page_count:
+        if total < page_count:
+            return counts, f"Pages add up to {total}, but the scan has {page_count}"
+        return counts, f"Pages add up to {total}, but the scan only has {page_count}"
+    return counts, ""
+
+
+def page_counts_to_ranges(
+    counts: List[int], *, reason: str = "letter list"
+) -> List[Tuple[int, int, str]]:
+    ranges: List[Tuple[int, int, str]] = []
+    cur = 1
+    for i, n in enumerate(counts):
+        if n < 1:
+            continue
+        ranges.append((cur, cur + n - 1, f"{reason} · letter {i + 1}"))
+        cur += n
+    return ranges
+
+
+def learn_split_pattern(db: Session, counts: List[int]) -> Optional[PostSplitLesson]:
+    """Remember a human-confirmed page-count list so later imports can reuse it."""
+    counts = [int(c) for c in counts if int(c) > 0]
+    if len(counts) < 2:
+        return None
+    key = ",".join(str(c) for c in counts)
+    total = sum(counts)
+    row = (
+        db.query(PostSplitLesson)
+        .filter(
+            PostSplitLesson.total_pages == total,
+            PostSplitLesson.page_counts == key,
+        )
+        .first()
+    )
+    if row:
+        row.hit_count = int(row.hit_count or 0) + 1
+        row.updated_at = datetime.utcnow()
+    else:
+        row = PostSplitLesson(
+            total_pages=total,
+            letter_count=len(counts),
+            page_counts=key,
+            hit_count=1,
+            notes="Taught from letter list",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(row)
+    try:
+        db.commit()
+        db.refresh(row)
+    except Exception:
+        db.rollback()
+        return None
+    return row
+
+
+def suggest_split_counts(
+    db: Session, page_count: int
+) -> Optional[List[int]]:
+    """Best learned page-count list for a scan of this length."""
+    if page_count < 2:
+        return None
+    row = (
+        db.query(PostSplitLesson)
+        .filter(PostSplitLesson.total_pages == page_count)
+        .order_by(
+            PostSplitLesson.hit_count.desc(),
+            PostSplitLesson.updated_at.desc(),
+        )
+        .first()
+    )
+    if not row or not row.page_counts:
+        return None
+    try:
+        counts = [int(x) for x in row.page_counts.split(",") if x.strip().isdigit()]
+    except Exception:
+        return None
+    if sum(counts) != page_count or len(counts) < 2:
+        return None
+    return counts
+
+
+def apply_learned_split_if_needed(
+    db: Session,
+    page_count: int,
+    auto_ranges: List[Tuple[int, int, str]],
+) -> List[Tuple[int, int, str]]:
+    """
+    If auto-split collapsed a mixed pile to one blob (or badly disagrees
+    with a taught pattern), use the learned letter list.
+    """
+    learned = suggest_split_counts(db, page_count)
+    if not learned:
+        return auto_ranges
+    auto_n = len(auto_ranges or [])
+    # One blob vs a taught multi-letter cut — always prefer the lesson
+    if auto_n <= 1 and len(learned) > 1:
+        return page_counts_to_ranges(learned, reason="learned letter list")
+    row = (
+        db.query(PostSplitLesson)
+        .filter(
+            PostSplitLesson.total_pages == page_count,
+            PostSplitLesson.page_counts == ",".join(str(c) for c in learned),
+        )
+        .first()
+    )
+    hits = int(row.hit_count or 0) if row else 0
+    if hits >= 2 and auto_n != len(learned):
+        return page_counts_to_ranges(learned, reason="learned letter list")
+    return auto_ranges
+
+
+def current_batch_page_counts(db: Session, batch_id: int) -> List[int]:
+    items = (
+        db.query(PostItem)
+        .filter(
+            PostItem.batch_id == batch_id,
+            PostItem.status != "holding",
+        )
+        .order_by(PostItem.sort_order.asc(), PostItem.page_start.asc())
+        .all()
+    )
+    counts: List[int] = []
+    for it in items:
+        ps = int(it.page_start or 0)
+        pe = int(it.page_end or 0)
+        if ps and pe and pe >= ps:
+            counts.append(pe - ps + 1)
+    return counts
+
+
+def list_open_split_batches(db: Session) -> List[Dict[str, Any]]:
+    """Batches sitting in review that can be cut with the letter list."""
+    items = list_open_items(db, limit=80)
+    seen: set = set()
+    out: List[Dict[str, Any]] = []
+    for it in items:
+        bid = it.batch_id
+        if not bid or bid in seen or not it.batch:
+            continue
+        seen.add(bid)
+        batch = it.batch
+        n = int(batch.page_count or 0)
+        if n < 2:
+            continue
+        current = current_batch_page_counts(db, bid)
+        out.append(
+            {
+                "batch": batch,
+                "page_count": n,
+                "current_counts": current,
+                "suggested_counts": None,
+                "open_letters": len(current),
+            }
+        )
+    return out
+
+
+def apply_letter_list_split(
+    db: Session, batch_id: int, spec: str
+) -> Tuple[bool, str]:
+    """Cut a scan using a letter page-count list and remember the letterheads."""
+    batch = db.query(PostBatch).filter(PostBatch.id == batch_id).first()
+    if not batch:
+        return False, "Batch not found"
+    n = int(batch.page_count or 0)
+    if n < 1:
+        return False, "Scan has no pages"
+    counts, err = parse_letter_page_counts(spec, n)
+    if err:
+        return False, err
+    ranges = page_counts_to_ranges(counts, reason="letter list")
+    spec_ranges = ", ".join(
+        f"{a}-{b}" if a != b else str(a) for a, b, _ in ranges
+    )
+    ok, msg = reprocess_batch(db, batch_id, ranges_spec=spec_ranges)
+    if not ok:
+        return False, msg
+    taught = learn_split_cues_from_items(db, batch_id)
+    extra = ""
+    if taught:
+        extra = f" · remembered {taught} letterhead(s) for the next pile"
+    return True, f"{msg}{extra}"
+
+
 def _split_pdf_pages(
     source: Path, dest: Path, page_start: int, page_end: int
 ) -> Tuple[bool, str]:
@@ -758,9 +1369,13 @@ def _build_items_for_batch(
     if page_texts and ink_ratios:
         page_texts = _normalize_page_texts_with_ink(page_texts, ink_ratios)
     if ranges is None:
+        cues = list_split_cues(db)
         ranges = (
             detect_document_page_ranges(
-                page_texts, ink_ratios, visual_profiles=profiles
+                page_texts,
+                ink_ratios,
+                visual_profiles=profiles,
+                split_cues=cues,
             )
             if page_texts
             else [(1, n_pages, "whole")]
@@ -992,6 +1607,9 @@ def apply_rules(
     if not low.strip():
         return None, "review", "Other", 0.0
 
+    if _is_practice_mail(text):
+        return None, "file_and_task", "Personal / practice", 0.9
+
     for rule in list_rules(db, active_only=True):
         kws = [
             k.strip().lower()
@@ -1199,6 +1817,152 @@ def ocr_pdf_with_vision(path: Path, *, max_pages: int = 2) -> str:
     return "\n\n".join(chunks)[:20000]
 
 
+def _page_has_real_text(text: str) -> bool:
+    s = re.sub(r"\s+", "", text or "")
+    if s.startswith("[scannedpage"):
+        return False
+    return len(s) >= 30
+
+
+def _pages_need_ocr(page_texts: List[str]) -> bool:
+    if not page_texts:
+        return True
+    real = sum(1 for t in page_texts if _page_has_real_text(t))
+    return real < max(1, (len(page_texts) + 2) // 3)
+
+
+def ocr_pdf_pages_for_split(path: Path, page_count: int) -> List[str]:
+    """
+    Per-page vision OCR for image-only scanner PDFs, used *before* auto-split.
+
+    Split used to run on an empty text layer, so mixed post (different logos /
+    typefaces) was left as one 24-page blob. We only need the header + opening.
+    """
+    from app.config import AI_MODEL, XAI_API_KEY
+
+    out = [""] * max(page_count, 0)
+    if page_count < 1 or not (XAI_API_KEY or "").strip():
+        return out
+    path = Path(path)
+    if not path.is_file():
+        return out
+    try:
+        import httpx
+    except ImportError:
+        return out
+
+    prompt = (
+        "These images are consecutive pages of mixed UK practice post "
+        "(several letters in one scan). For EACH image, transcribe the header "
+        "and opening only: sender/logo name, recipient, subject, page X of Y, "
+        "Dear line, and the first few sentences. "
+        "Prefix every page exactly as ===PAGE n=== where n is the page number "
+        "shown in the user text. Plain text only."
+    )
+
+    batch_size = 3
+    for start in range(0, page_count, batch_size):
+        idxs = list(range(start, min(start + batch_size, page_count)))
+        content: List[Dict[str, Any]] = []
+        used: List[int] = []
+        for i in idxs:
+            b64 = _pdf_page_png_b64(path, i, dpi=110)
+            if not b64:
+                continue
+            used.append(i)
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{b64}"},
+                }
+            )
+            content.append(
+                {
+                    "type": "text",
+                    "text": f"This image is page {i + 1} of {page_count}.",
+                }
+            )
+        if not used:
+            continue
+        content.append({"type": "text", "text": prompt})
+        try:
+            headers = {
+                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Content-Type": "application/json",
+            }
+            body = {
+                "model": AI_MODEL or "grok-4.5",
+                "messages": [{"role": "user", "content": content}],
+                "temperature": 0.1,
+                "max_tokens": 1800,
+            }
+            with httpx.Client(timeout=120.0) as client:
+                r = client.post(
+                    "https://api.x.ai/v1/chat/completions",
+                    headers=headers,
+                    json=body,
+                )
+                if r.status_code >= 400:
+                    logger.warning(
+                        "split-OCR HTTP %s: %s", r.status_code, r.text[:200]
+                    )
+                    continue
+                data = r.json()
+            text = (
+                ((data.get("choices") or [{}])[0].get("message") or {}).get(
+                    "content"
+                )
+                or ""
+            ).strip()
+        except Exception as exc:
+            logger.warning("split-OCR batch %s failed: %s", start + 1, exc)
+            continue
+
+        # Parse ===PAGE n=== blocks; fall back to assigning the whole blob
+        found = {
+            int(m.group(1)): (m.group(2) or "").strip()
+            for m in re.finditer(
+                r"===PAGE\s*(\d+)\s*===\s*(.*?)(?====PAGE\s*\d+\s*===|\Z)",
+                text,
+                re.I | re.S,
+            )
+        }
+        if found:
+            for num, body_txt in found.items():
+                if 1 <= num <= page_count and body_txt:
+                    out[num - 1] = body_txt[:4000]
+        elif len(used) == 1:
+            out[used[0]] = text[:4000]
+        else:
+            # Last resort: one page at a time for this batch
+            for i in used:
+                if out[i]:
+                    continue
+                single = ocr_pdf_with_vision(path, max_pages=1) if i == 0 else ""
+                if i == 0 and single:
+                    out[0] = single[:4000]
+    return out
+
+
+def fill_page_texts_for_split(
+    path: Path, page_texts: List[str]
+) -> List[str]:
+    """OCR empty image-only pages so auto-split can see letterheads."""
+    n = len(page_texts)
+    if n == 0 or not _pages_need_ocr(page_texts):
+        return page_texts
+    logger.info("Split OCR starting for %s (%s image-only pages)", path.name, n)
+    ocr_pages = ocr_pdf_pages_for_split(path, n)
+    merged: List[str] = []
+    for i in range(n):
+        existing = page_texts[i] if i < len(page_texts) else ""
+        if _page_has_real_text(existing):
+            merged.append(existing)
+        else:
+            merged.append((ocr_pages[i] if i < len(ocr_pages) else "") or existing)
+    return merged
+
+
 def enrich_item_text_and_match(
     db: Session, item: PostItem, *, use_vision: bool = True
 ) -> bool:
@@ -1223,6 +1987,16 @@ def enrich_item_text_and_match(
 
     rule, action, category, conf = apply_rules(db, text)
     client, cconf, match_reason = suggest_client(db, text)
+    if _is_practice_mail(text):
+        action = "file_and_task"
+        category = "Personal / practice"
+        conf = max(conf, 0.9)
+        prac = find_practice_client(db, text)
+        if prac:
+            client, cconf = prac, max(cconf, 0.92)
+            match_reason = f"Addressed to the practice ({prac.display_name()})"
+        else:
+            match_reason = "Addressed to Accology — practice mail (file + task)"
     if rule and rule.client_id and not client:
         client = db.query(Client).filter(Client.id == rule.client_id).first()
         if client:
@@ -1563,6 +2337,8 @@ def import_from_inbox(db: Session, *, limit: int = 40) -> Dict[str, Any]:
                 if page_count < 1 and ink_ratios:
                     page_count = len(ink_ratios)
                     page_texts = [""] * page_count
+                if page_texts and _pages_need_ocr(page_texts):
+                    page_texts = fill_page_texts_for_split(proc, page_texts)
             if page_count < 1:
                 page_count = 1
 
@@ -1699,6 +2475,8 @@ def reprocess_batch(
         page_texts = [""] * len(ink)
     if not page_texts:
         return False, "Could not read PDF pages"
+    if not ranges_spec and _pages_need_ocr(page_texts):
+        page_texts = fill_page_texts_for_split(src, page_texts)
 
     n_pages = len(page_texts)
     manual = parse_page_ranges_spec(ranges_spec, n_pages) if ranges_spec else []
@@ -1746,6 +2524,7 @@ def reprocess_batch(
             _normalize_page_texts_with_ink(page_texts, ink) if ink else page_texts,
             ink,
             visual_profiles=profiles,
+            split_cues=list_split_cues(db),
         )
     # Clip out pages already filed/emailed
     if used_pages:
@@ -1971,6 +2750,46 @@ def _pdf_bytes_for_email_attach(
         return raw
 
 
+def _parse_email_addresses(raw: str) -> List[str]:
+    found: List[str] = []
+    for part in re.split(r"[,\s;]+", raw or ""):
+        addr = part.strip().strip("<>")
+        if re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", addr):
+            low = addr.lower()
+            if low not in found:
+                found.append(addr)
+    return found[:8]
+
+
+def _post_pdf_attachments(db: Session, item: PostItem, path: Path) -> List[Dict[str, Any]]:
+    ensure_item_file(db, item)
+    attach_path = Path(item.local_path) if item.local_path else Path()
+    if not attach_path.is_file():
+        attach_path = path if path.is_file() else Path()
+    if not attach_path.is_file():
+        return []
+    try:
+        raw = _pdf_bytes_for_email_attach(attach_path)
+    except Exception as exc:
+        logger.warning("Could not read post PDF for email: %s", exc)
+        return []
+    if not raw:
+        return []
+    safe_name = (
+        f"post_{(item.title or attach_path.stem)[:60]}"
+        .replace("/", "-")
+        .replace("\\", "-")
+        + ".pdf"
+    )
+    return [
+        {
+            "name": safe_name,
+            "content": raw,
+            "content_type": "application/pdf",
+        }
+    ]
+
+
 def apply_item_action(
     db: Session,
     item_id: int,
@@ -1983,8 +2802,13 @@ def apply_item_action(
     learn: bool = False,
     learn_keywords: str = "",
     reviewed_by: str = "",
+    task_title: str = "",
+    task_due: Optional[str] = None,
+    task_priority: str = "Medium",
+    email_to: str = "",
+    email_subject: str = "",
 ) -> Tuple[bool, str]:
-    """File / email / dismiss a post item; optionally learn a rule."""
+    """File / email / dismiss / create a task from a post item."""
     from app.services import documents as docs_svc
     from app.services import practice_emails as mail_svc
 
@@ -2005,6 +2829,11 @@ def apply_item_action(
         "file_hmrc",
         "email_client",
         "file_and_email",
+        "email_other",
+        "file_and_email_other",
+        "file_email_and_task",
+        "file_and_task",
+        "create_task",
         "dismiss",
         "delete",
         "review",
@@ -2014,6 +2843,12 @@ def apply_item_action(
     cid = client_id or item.client_id or item.suggested_client_id
     jid = job_id or item.job_id or item.suggested_job_id
     cat = _category_for_action(action, category or item.category)
+    if action in ("file_and_task", "create_task") and not cid:
+        prac = find_practice_client(db, item.text_excerpt or "")
+        if prac:
+            cid = prac.id
+    if action == "file_and_task" and not cid:
+        return False, "Select a client to file against (Accology for practice mail)"
 
     if action == "dismiss":
         item.status = "dismissed"
@@ -2056,6 +2891,18 @@ def apply_item_action(
     if action in ("file_client", "file_hmrc", "file_and_email", "email_client"):
         if not cid:
             return False, "Select a client first"
+    if action in ("email_other", "file_and_email_other") and not _parse_email_addresses(
+        email_to
+    ):
+        return False, "Enter the email address to send to (not the client)"
+    if action in ("file_and_email_other", "file_email_and_task") and not cid:
+        prac = find_practice_client(db, item.text_excerpt or "")
+        if prac:
+            cid = prac.id
+        elif action == "file_and_email_other":
+            return False, "Select a client to file against (email still goes to the address you typed)"
+        else:
+            return False, "Select a client to file against"
 
     path = Path(item.local_path or "")
     if not path.is_file() and item.batch:
@@ -2067,7 +2914,14 @@ def apply_item_action(
         return False, "Local file missing — re-import the scan"
 
     doc = None
-    if action in ("file_client", "file_hmrc", "file_and_email"):
+    if action in (
+        "file_client",
+        "file_hmrc",
+        "file_and_email",
+        "file_and_email_other",
+        "file_email_and_task",
+        "file_and_task",
+    ):
         content = path.read_bytes()
         fname = path.name
         title = (item.title or path.stem)[:240]
@@ -2096,94 +2950,192 @@ def apply_item_action(
         item.category = item.category or cat
 
     email_msg = ""
-    if action in ("email_client", "file_and_email"):
+    other_addrs = _parse_email_addresses(email_to)
+    send_other = action in ("email_other", "file_and_email_other") or (
+        action == "file_email_and_task" and bool(other_addrs)
+    )
+    send_client = action in ("email_client", "file_and_email") or (
+        action == "file_email_and_task" and not other_addrs
+    )
+    if send_other or send_client:
         client = db.query(Client).filter(Client.id == cid).first() if cid else None
-        if not client:
-            return False, "Client required to email"
-        to = (client.email or "").strip()
-        if not to:
-            # try primary person
-            for p in client.people or []:
-                if (p.email or "").strip():
-                    to = p.email.strip()
-                    break
-        if not to:
-            return False, "Client has no email — add one or file only"
-        subject = f"Correspondence received: {(item.title or 'Document')[:80]}"
-        body = (
-            f"Dear {client.contact_name or client.display_name()},\n\n"
-            f"We have received correspondence which appears to relate to your affairs"
-            f"{' (' + (item.category or '') + ')' if item.category else ''}.\n\n"
-            f"{(notes or '').strip() or 'Please see the attached PDF and let us know if you need us to act.'}\n\n"
-            f"Kind regards,\n"
-        )
+        recipients: List[str] = []
+        if send_other:
+            recipients = other_addrs
+        else:
+            if not client:
+                if action == "file_email_and_task":
+                    send_client = False
+                    recipients = []
+                    email_msg = " (no client to email — filed and task created)"
+                else:
+                    return False, "Client required to email the client"
+            to = (client.email or "").strip()
+            if not to:
+                for p in client.people or []:
+                    if (p.email or "").strip():
+                        to = p.email.strip()
+                        break
+            if not to:
+                if action == "file_email_and_task":
+                    send_client = False
+                    recipients = []
+                    email_msg = " (no client email — filed and task created; type an address to email someone else)"
+                else:
+                    return False, "Client has no email — add one, or use Email this address"
+            else:
+                recipients = [to]
+
+        log_client_id = cid
+        if not log_client_id:
+            prac = find_practice_client(db, item.text_excerpt or "")
+            log_client_id = prac.id if prac else None
+        if not log_client_id:
+            return False, "Select a client to log the email against (it still goes to the address you typed)"
+
+        if send_other:
+            subject = (
+                (email_subject or "").strip()
+                or f"{(item.title or 'Correspondence')[:80]}"
+            )
+            greet = "Hello"
+            body = (
+                f"{greet},\n\n"
+                f"{(notes or '').strip() or 'Please see the attached correspondence.'}\n\n"
+                f"Kind regards,\n"
+            )
+        elif client:
+            subject = f"Correspondence received: {(item.title or 'Document')[:80]}"
+            body = (
+                f"Dear {client.contact_name or client.display_name()},\n\n"
+                f"We have received correspondence which appears to relate to your affairs"
+                f"{' (' + (item.category or '') + ')' if item.category else ''}.\n\n"
+                f"{(notes or '').strip() or 'Please see the attached PDF and let us know if you need us to act.'}\n\n"
+                f"Kind regards,\n"
+            )
+        else:
+            subject = (item.title or "Correspondence")[:80]
+            body = (notes or "").strip() or "Please see the attached correspondence."
         if doc and doc.onedrive_web_url:
             body += f"\nAlso filed on our system: {doc.onedrive_web_url}\n"
 
-        # Always try to attach the scan PDF (split item file preferred)
-        ensure_item_file(db, item)
-        attach_path = Path(item.local_path) if item.local_path else Path()
-        if not attach_path.is_file():
-            attach_path = path if path.is_file() else Path()
-        attachments = []
-        if attach_path.is_file():
-            try:
-                raw = _pdf_bytes_for_email_attach(attach_path)
-                safe_name = (
-                    f"post_{(item.title or attach_path.stem)[:60]}"
-                    .replace("/", "-")
-                    .replace("\\", "-")
-                    + ".pdf"
-                )
-                if raw:
-                    attachments.append(
-                        {
-                            "name": safe_name,
-                            "content": raw,
-                            "content_type": "application/pdf",
-                        }
-                    )
-            except Exception as exc:
-                logger.warning("Could not read post PDF for email: %s", exc)
+        attachments = _post_pdf_attachments(db, item, path)
         if not attachments:
             body += (
-                "\n(Note: the scanned PDF could not be attached from the server. "
-                "Please contact us if you need a copy.)\n"
+                "\n(Note: the scanned PDF could not be attached from the server.)\n"
             )
 
-        try:
-            cap = mail_svc.send_capability(db)
-            if not cap.get("can_send"):
-                if action == "email_client" and not doc:
-                    return False, cap.get("graph_error") or "Email not connected"
-                email_msg = " (email skipped — not connected; document filed)"
-            else:
-                row, flash = mail_svc.send_practice_email(
-                    db,
-                    client_id=cid,
-                    job_id=jid,
-                    to_address=to,
-                    subject=subject,
-                    body=body,
-                    sent_by=reviewed_by or "post-inbox",
-                    attachments=attachments,
-                )
-                if row and (row.status or "") == "sent":
-                    email_msg = (
-                        " and emailed client with PDF attached"
-                        if attachments
-                        else " and emailed client"
-                    )
+        if recipients:
+            try:
+                cap = mail_svc.send_capability(db)
+                if not cap.get("can_send"):
+                    if action in ("email_client", "email_other") and not doc:
+                        return False, cap.get("graph_error") or "Email not connected"
+                    email_msg = " (email skipped — not connected; document filed)"
                 else:
-                    email_msg = f" (email: {flash or row.status if row else 'failed'})"
+                    sent_ok = 0
+                    last_flash = ""
+                    for addr in recipients:
+                        row, flash = mail_svc.send_practice_email(
+                            db,
+                            client_id=log_client_id,
+                            job_id=jid,
+                            to_address=addr,
+                            subject=subject,
+                            body=body,
+                            sent_by=reviewed_by or "post-inbox",
+                            attachments=attachments,
+                        )
+                        last_flash = flash or (row.status if row else "")
+                        if row and (row.status or "") == "sent":
+                            sent_ok += 1
+                    who = "the address you typed" if send_other else "client"
+                    if sent_ok:
+                        email_msg = (
+                            f" and emailed {who}"
+                            + (" with PDF attached" if attachments else "")
+                            + (
+                                f" ({sent_ok} message{'s' if sent_ok != 1 else ''})"
+                                if sent_ok > 1
+                                else ""
+                            )
+                        )
+                    else:
+                        email_msg = f" (email: {last_flash or 'failed'})"
+            except Exception as exc:
+                email_msg = f" (email error: {exc})"
+
+    task_msg = ""
+    if action in ("file_and_task", "file_email_and_task", "create_task"):
+        try:
+            from datetime import date as _date
+
+            from app.services.practice_tasks import create_task as _create_task
+
+            due = None
+            raw_due = (task_due or "").strip()
+            if raw_due:
+                try:
+                    due = _date.fromisoformat(raw_due[:10])
+                except ValueError:
+                    due = None
+            title = (task_title or "").strip() or (item.title or "Post to action")[:200]
+            desc_bits = [
+                f"From scanned post #{item.id}.",
+                (item.match_reason or "").strip(),
+                (notes or "").strip(),
+            ]
+            if item.local_path:
+                desc_bits.append(f"Review: /post/items/{item.id}")
+            task = _create_task(
+                db,
+                title=title,
+                description="\n".join(b for b in desc_bits if b)[:2000],
+                client_id=cid,
+                job_id=jid,
+                notes=(notes or "").strip() or None,
+                priority=(task_priority or "Medium").strip() or "Medium",
+                due_on=due,
+                import_source="post_inbox",
+                import_hash=f"post:{item.id}",
+                post_item_id=item.id,
+                document_id=doc.id if doc else item.document_id,
+                commit=False,
+            )
+            item.task_id = task.id
+            task_msg = f" · task #{task.id}"
         except Exception as exc:
-            email_msg = f" (email error: {exc})"
+            logger.exception("create task from post %s", item.id)
+            if action == "create_task":
+                return False, f"Could not create task: {exc}"
+            task_msg = f" (task failed: {exc})"
 
     if action == "file_hmrc":
         item.action_taken = "file_hmrc"
         item.status = "filed"
     elif action == "file_client":
         item.action_taken = "file_client"
+        item.status = "filed"
+    elif action == "file_and_task":
+        item.action_taken = "file_and_task"
+        item.status = "filed"
+    elif action == "file_email_and_task":
+        item.action_taken = "file_email_and_task"
+        item.status = "filed"
+    elif action == "create_task":
+        item.action_taken = "create_task"
+        # Stay in the inbox so it can still be filed
+        item.status = item.status if item.status in ("inbox", "suggested") else "suggested"
+    elif action == "email_other":
+        item.action_taken = "email_other"
+        item.status = "emailed"
+        if "skipped" in email_msg or "failed" in email_msg or "error" in email_msg:
+            item.status = "error"
+            item.review_notes = email_msg
+            db.commit()
+            return False, email_msg.strip(" ()")
+    elif action == "file_and_email_other":
+        item.action_taken = "file_and_email_other"
         item.status = "filed"
     elif action == "email_client":
         item.action_taken = "email_client"
@@ -2252,6 +3204,9 @@ def apply_item_action(
     if doc:
         msg += f" · document #{doc.id}"
     msg += email_msg
+    msg += task_msg
+    if item.task_id and action in ("file_and_task", "create_task"):
+        msg += f" · open /tasks/{item.task_id}/edit"
     return True, msg
 
 

@@ -20,8 +20,8 @@
 <div class="grid-2">
   <div class="card">
     <dl class="dl-grid">
-      <dt>Issue</dt><dd>{{ bill.issue_date or '—' }}</dd>
-      <dt>Due</dt><dd>{{ bill.due_date or '—' }}</dd>
+      <dt>Issue</dt><dd>{{ bill.issue_date|uk_date }}</dd>
+      <dt>Due</dt><dd>{{ bill.due_date|uk_date }}</dd>
       <dt>Category</dt><dd>{{ bill.category or 'supplier' }}</dd>
       <dt>Net</dt><dd>{{(bill.subtotal or 0)|money2}}</dd>
       <dt>VAT (input)</dt><dd>{{(bill.vat_total or bill.vat_amount or 0)|money2}}</dd>

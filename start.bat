@@ -9,4 +9,5 @@ echo           otherwise local SQLite crm.db
 echo.
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 if errorlevel 1 py -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+if errorlevel 1 "%LocalAppData%\Programs\Python\Python314\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 pause

@@ -1,0 +1,13 @@
+{% extends "website/base_public.html" %}
+{% block title %}Thanks · Accology Pays{% endblock %}
+{% block content %}
+<section class="site-section site-section-top">
+  <div class="site-section-inner" style="max-width:36rem">
+    <p class="site-eyebrow">Accology Pays</p>
+    <h1 class="site-h1">Thanks — we have your details</h1>
+    <p class="site-section-intro">
+      {% if client %}We will register PAYE for {{ client.display_name() }} and come back to you from payroll@accology.co.{% else %}We have your details.{% endif %}
+    </p>
+  </div>
+</section>
+{% endblock %}
