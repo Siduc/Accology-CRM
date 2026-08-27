@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 from app.config import DATABASE_URL, DB_DIALECT, DB_HOST, IS_SQLITE
@@ -14,6 +14,7 @@ logger = logging.getLogger("accountant_crm.database")
 _engine_kwargs: dict = {"pool_pre_ping": True}
 if IS_SQLITE:
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
+    _engine_kwargs["pool_pre_ping"] = False
 else:
     # Render Postgres (often Ohio): keep a warm pool; fail fast on connect.
     # Local CRM over the public internet will still feel slower than SQLite —
@@ -31,6 +32,20 @@ else:
     }
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
+if IS_SQLITE:
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_fast_pragmas(dbapi_conn, _connection_record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.execute("PRAGMA cache_size=-64000")
+        cur.execute("PRAGMA temp_store=MEMORY")
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.close()
+
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -79,6 +94,22 @@ def init_db():
     _seed_service_fees()
     _seed_sales_ledger()
     _seed_dev_backlog()
+    _seed_staff_from_env()
+
+
+
+def _seed_staff_from_env():
+    """Copy AUTH_USERNAME/PASSWORD into staff_users once, if the table is empty."""
+    from app.services.staff_auth import seed_staff_from_env
+
+    db = SessionLocal()
+    try:
+        seed_staff_from_env(db)
+    except Exception:
+        db.rollback()
+        logger.exception("staff user seed failed")
+    finally:
+        db.close()
 
 
 def _seed_sales_ledger():
@@ -149,6 +180,12 @@ def _add_missing_columns():
             ("vat_quarterly_pattern", "VARCHAR"),
             ("vat_year_end_month", "INTEGER"),
             ("payroll_onboarding_json", "TEXT" if not IS_SQLITE else "TEXT"),
+            ("on_hold", "INTEGER DEFAULT 0"),
+            ("hold_reason", "VARCHAR"),
+            ("hold_note", "TEXT" if not IS_SQLITE else "TEXT"),
+            ("hold_set_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+            ("hold_set_by", "VARCHAR"),
+            ("cs_tariff", "VARCHAR DEFAULT 'book'"),
         ],
         "shareholdings": [
             ("is_director", "BOOLEAN DEFAULT FALSE" if not IS_SQLITE else "INTEGER DEFAULT 0"),
@@ -179,6 +216,9 @@ def _add_missing_columns():
             ("import_key", "VARCHAR"),
             ("asana_task_gid", "VARCHAR"),
             ("asana_synced_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+            ("client_approval_status", "VARCHAR"),
+            ("client_approval_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+            ("client_approval_by", "VARCHAR"),
         ],
         "debt_chase_actions": [
             ("stage", "VARCHAR"),
@@ -197,6 +237,9 @@ def _add_missing_columns():
             ("xml_submission_ref", "VARCHAR"),
             ("xml_submission_status", "VARCHAR"),
             ("xml_submission_response", "TEXT"),
+            ("code_requested_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+            ("code_received_at", "TIMESTAMP" if not IS_SQLITE else "DATETIME"),
+            ("code_request_note", "TEXT"),
         ],
         "bank_accounts": [
             ("bank_name", "VARCHAR"),
@@ -206,6 +249,10 @@ def _add_missing_columns():
             ("is_active", "INTEGER DEFAULT 1" if IS_SQLITE else "BOOLEAN DEFAULT TRUE"),
             ("is_primary", "INTEGER DEFAULT 0" if IS_SQLITE else "BOOLEAN DEFAULT FALSE"),
             ("notes", "TEXT" if not IS_SQLITE else "TEXT"),
+            ("xero_account_id", "VARCHAR"),
+        ],
+        "payments": [
+            ("import_key", "VARCHAR"),
         ],
         "bank_transactions": [
             ("reference", "VARCHAR"),

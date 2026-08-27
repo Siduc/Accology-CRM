@@ -158,6 +158,7 @@ class PackResult:
     ok: bool
     pack: Optional[CsPack] = None
     error: str = ""
+    message: str = ""
 
 
 def create_or_refresh_pack(
@@ -176,6 +177,27 @@ def create_or_refresh_pack(
         return PackResult(
             ok=False,
             error="Client needs a valid Companies House company number.",
+        )
+
+    from app.services.practice_hold import is_held
+
+    if is_held(client) and not force_new:
+        existing = (
+            db.query(CsPack)
+            .filter(CsPack.client_id == client_id)
+            .filter(CsPack.status.in_(["draft", "in_review", "ready_to_file"]))
+            .order_by(CsPack.id.desc())
+            .first()
+        )
+        if not existing:
+            return PackResult(
+                ok=False,
+                error="Client is on practice hold - CS pack not created.",
+            )
+    elif is_held(client) and force_new:
+        return PackResult(
+            ok=False,
+            error="Client is on practice hold - CS pack not created.",
         )
 
     fetched = download_cs_bundle(cn)
@@ -198,6 +220,13 @@ def create_or_refresh_pack(
         )
 
     if not pack:
+        from app.services.practice_hold import is_held as _held_pack
+
+        if _held_pack(client):
+            return PackResult(
+                ok=False,
+                error="Client is on practice hold - CS pack not created.",
+            )
         pack = CsPack(client_id=client_id, status="draft")
         db.add(pack)
 
@@ -244,6 +273,11 @@ def _find_or_create_cs_job(
     if job:
         return job.id
 
+    from app.services.practice_hold import is_held
+
+    if is_held(client):
+        return None
+
     # Create a planned CS job from dates
     pe = made_up
     statutory = due
@@ -255,6 +289,18 @@ def _find_or_create_cs_job(
             statutory = due or pe
     if due:
         statutory = due
+    suggested = None
+    try:
+        from app.services.fees import get_suggested_fee
+
+        suggested = get_suggested_fee(
+            db,
+            "Confirmation Statement",
+            period_end=pe,
+            client_id=client.id,
+        )
+    except Exception:
+        suggested = None
     job = Job(
         title=f"Confirmation Statement — {client.display_name()} — {uk_date(pe, empty='pending')}",
         type="Confirmation Statement",
@@ -263,6 +309,7 @@ def _find_or_create_cs_job(
         statutory_due_date=statutory or due,
         target_start=ts,
         target_completion=tc or due,
+        fee=suggested,
         status="Planned",
         is_recurring="Yes",
         source="companies_house",
@@ -1325,15 +1372,35 @@ def mark_filed(db: Session, pack_id: int, *, complete_job: bool = True) -> PackR
     pack.status = "filed"
     pack.filed_at = datetime.utcnow()
     pack.updated_at = datetime.utcnow()
-    if complete_job and pack.job_id:
+    job = None
+    if pack.job_id:
         job = db.query(Job).filter(Job.id == pack.job_id).first()
-        if job and job.status not in ("Completed", "Cancelled"):
-            job.status = "Completed"
-            if not job.actual_completion:
-                job.actual_completion = date.today()
+    if complete_job and job and job.status not in ("Completed", "Cancelled"):
+        job.status = "Completed"
+        if not job.actual_completion:
+            job.actual_completion = date.today()
+    if job:
+        due = job.statutory_due_date or pack.due_on
+        if due is not None and due < date.today():
+            job.was_late = "yes"
     db.commit()
     db.refresh(pack)
-    return PackResult(ok=True, pack=pack)
+
+    invoice_msg = ""
+    try:
+        # Lazy import avoids cycle with cs_readiness.
+        from app.services.cs_readiness import ensure_cs_invoice
+
+        billed = ensure_cs_invoice(db, pack, source="cs_filed", status="draft")
+        invoice_msg = billed.get("message") or ""
+    except Exception as exc:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        invoice_msg = f"Invoice not raised: {exc}"
+
+    return PackResult(ok=True, pack=pack, message=invoice_msg)
 
 
 def export_pack_text(pack: CsPack, client: Optional[Client] = None) -> str:

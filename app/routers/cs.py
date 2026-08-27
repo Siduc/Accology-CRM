@@ -302,7 +302,46 @@ async def cs_filed(
         return RedirectResponse(
             f"/cs/{pack_id}?error={url_quote(result.error)}", status_code=303
         )
-    return RedirectResponse(f"/cs/{pack_id}?msg=filed", status_code=303)
+    msg = "filed"
+    extra = (getattr(result, "message", None) or "").strip()
+    if extra:
+        msg = "filed — " + extra[:160]
+    return RedirectResponse(f"/cs/{pack_id}?msg={url_quote(msg)}", status_code=303)
+
+
+@router.post("/cs/{pack_id:int}/code-requested", response_class=HTMLResponse)
+async def cs_code_requested(
+    pack_id: int,
+    request: Request,
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    from app.services.cs_readiness import stamp_code_requested
+
+    result = stamp_code_requested(db, pack_id, note=note)
+    if not result.get("ok"):
+        return RedirectResponse(
+            f"/cs/{pack_id}?error={url_quote(result.get('error') or 'Failed')}",
+            status_code=303,
+        )
+    return RedirectResponse(f"/cs/{pack_id}?msg=code_requested", status_code=303)
+
+
+@router.post("/cs/{pack_id:int}/code-received", response_class=HTMLResponse)
+async def cs_code_received(
+    pack_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    from app.services.cs_readiness import stamp_code_received
+
+    result = stamp_code_received(db, pack_id)
+    if not result.get("ok"):
+        return RedirectResponse(
+            f"/cs/{pack_id}?error={url_quote(result.get('error') or 'Failed')}",
+            status_code=303,
+        )
+    return RedirectResponse(f"/cs/{pack_id}?msg=code_received", status_code=303)
 
 
 @router.post("/cs/{pack_id:int}/refresh", response_class=HTMLResponse)

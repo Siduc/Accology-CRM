@@ -4,11 +4,15 @@
 !.env.example
 companies_house_api_key.txt
 
-# Local databases
+# Local databases and backups (never commit client data)
 crm.db
 crm.db-*
+*.db
+*.db-shm
+*.db-wal
 *.db.bak
 *.db.bak2
+backup.json
 
 # Python
 __pycache__/
@@ -18,6 +22,8 @@ __pycache__/
 .venv/
 venv/
 env/
+.pytest_cache/
+.mypy_cache/
 
 # IDE / OS
 .idea/
@@ -31,3 +37,13 @@ logs/
 *.log
 .coverage
 htmlcov/
+
+# Local scratch
+_tmp_*.py
+
+# IRIS scrape cache and one-off audit logs (client data)
+data/
+!data/.gitkeep
+docs/enrichment-pass-*.md
+docs/grouping-pass-*.md
+

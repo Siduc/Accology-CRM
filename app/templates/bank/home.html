@@ -11,6 +11,10 @@
   </div>
   <div class="actions">
     <a class="btn wc-touch" href="/bank/accounts/new">Add account</a>
+    <form method="post" action="/settings/xero/sync-practice" style="display:inline"
+          onsubmit="return confirm('Pull Accology Limited bank from Xero since 9 July 2026, skip duplicates, and align invoice numbers? Xero invoices are not imported.');">
+      <button class="btn wc-touch" type="submit">Pull bank from Xero</button>
+    </form>
   </div>
 </div>
 

@@ -13,15 +13,20 @@
     {% endif %}
   </div>
   <div class="actions page-actions-desk">
+    {% if not is_viewer %}
     <a class="btn btn-sm" href="/clients/new">Add Client</a>
+    {% endif %}
     <a class="btn btn-sm btn-outline" href="/export/clients{% if status %}?status={{ status }}{% endif %}">Export CSV</a>
     <a class="btn btn-sm btn-outline" href="/import/csv?dataset=clients">Reimport CSV</a>
+    {% if not is_viewer %}
     <form method="post" action="/clients/shares/seed-all-ch" style="display:inline"
           onsubmit="return confirm('Seed share registers from Companies House for active companies not yet seeded? This may take a few minutes.');">
       <button class="btn btn-sm btn-outline" type="submit" title="Directors + PSCs as potential shareholders">
         Seed all shares from CH
       </button>
     </form>
+    {% endif %}
+    <a class="btn btn-sm btn-outline" href="/clients?hold=yes">On hold</a>
     <a class="btn btn-sm btn-outline" href="/lost/clients">
       Lost{% if lost_count is defined and lost_count %} ({{ lost_count }}){% endif %}
     </a>
@@ -33,10 +38,12 @@
 
 {# Primary navigation tiles — Add / Companies / People (desk + phone) #}
 <div class="action-tiles page-action-tiles page-action-tiles-always" role="navigation" aria-label="Client book actions">
+  {% if not is_viewer %}
   <a class="action-tile action-client" href="/clients/new">
     <span class="action-plus">+</span>
     <span class="action-label">Add Client</span>
   </a>
+  {% endif %}
   <a class="action-tile action-companies {% if view != 'lost' %}is-selected{% endif %}" href="/clients">
     <span class="action-plus">◎</span>
     <span class="action-label">Companies</span>
@@ -92,7 +99,12 @@
         {% for c in clients %}
         {% set cur = c.overall_status or 'Active' %}
         <tr>
-          <td><a href="/clients/{{ c.id }}"><strong>{{ c.display_name() }}</strong></a></td>
+          <td>
+            <a href="/clients/{{ c.id }}"><strong>{{ c.display_name() }}</strong></a>
+            {% if c.is_on_hold() %}
+            <span class="badge badge-overdue" title="{{ c.hold_label() }}">Hold</span>
+            {% endif %}
+          </td>
           <td>{{ c.company_number or '—' }}</td>
           <td>{{ (c.contact_name or '—')|norm_person }}</td>
           <td>{{ c.email or '—' }}</td>

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Approve work · Accologise</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page" style="max-width:36rem;margin:2rem auto;padding:0 1rem">
+    <p class="muted small">Accology / Accologise</p>
+    {% if error == 'expired' %}
+    <h1>This link has expired</h1>
+    <p>Ask your accountant for a new approval link. Links last 14 days.</p>
+    {% elif error == 'missing' %}
+    <h1>Job not found</h1>
+    {% elif done %}
+    <h1>{{ 'Approved' if job.client_approval_status == 'approved' else 'Recorded' }}</h1>
+    <p>Thank you. We have logged your decision on
+      <strong>{{ job.title or job.type }}</strong>
+      {% if job.client %}for {{ job.client.display_name() }}{% endif %}.</p>
+    {% elif job %}
+    <h1>Please review</h1>
+    <p>
+      <strong>{{ job.title or job.type }}</strong><br>
+      {% if job.client %}{{ job.client.display_name() }}<br>{% endif %}
+      {% if job.period_end %}Period end: {{ job.period_end }}{% endif %}
+    </p>
+    {% if job.client_approval_status in ('approved', 'declined') %}
+    <p>This job is already marked <strong>{{ job.client_approval_status }}</strong>
+       {% if job.client_approval_at %}on {{ job.client_approval_at }}{% endif %}.</p>
+    {% else %}
+    <p class="small muted">This does not file anything at Companies House or HMRC. It only records your yes or no on the job.</p>
+    <form method="post" action="/approve/{{ token }}">
+      <label for="actor">Your name</label>
+      <input id="actor" name="actor" required autocomplete="name">
+      <div class="actions" style="margin-top:1rem">
+        <button type="submit" name="decision" value="approved">Approve</button>
+        <button type="submit" name="decision" value="declined">Request changes</button>
+      </div>
+    </form>
+    {% endif %}
+    {% endif %}
+  </main>
+</body>
+</html>

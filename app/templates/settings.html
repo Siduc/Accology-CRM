@@ -9,16 +9,69 @@
   </div>
 </div>
 
+<section class="settings-section" id="settings-book">
+  <h2 class="settings-section-title">This laptop’s book</h2>
+  <div class="card settings-card">
+    <h3>Where today’s numbers live</h3>
+    <p class="muted small">
+      Daily work on the X1 should use the local file <code>crm.db</code>.
+      Render (phone / demo) is a published copy at 17:00, not the live desk.
+    </p>
+    {% if book_banner %}
+    <div class="chase-banner {% if book_banner.kind == 'local' %}chase-banner-info{% else %}chase-banner-practice{% endif %}" role="status">
+      <strong>{% if book_is_local %}Local SQLite{% else %}Cloud Postgres{% endif %}</strong>
+      — {{ book_banner.text }}
+      {% if book_host %}<span class="small"> · host <code>{{ book_host }}</code></span>{% endif %}
+    </div>
+    {% endif %}
+    <ol class="muted small" style="margin:0.75rem 0 0;padding-left:1.2rem">
+      <li>Comment out <code>DATABASE_URL</code> in <code>.env</code>. Leave <code>RENDER_DATABASE_URL</code>.</li>
+      <li>Restart <code>start.bat</code>. The log must say <code>sqlite</code>, not <code>ohio-postgres</code>.</li>
+      <li>The 17:00 task publishes this laptop’s book to Render for the phone.</li>
+    </ol>
+    <p class="small muted" style="margin-top:0.75rem">
+      Do not type on the live website after 17:00 if you also type here — the next publish overwrites Render.
+    </p>
+  </div>
+</section>
+
+{% if is_principal %}
+<section class="settings-section" id="settings-staff">
+  <h2 class="settings-section-title">Staff logins</h2>
+  <div class="card settings-card">
+    <h3>Who can open the CRM</h3>
+    <p class="muted small">Passwords are hashed. Staff cannot open practice Xero / Sage / QBO settings.</p>
+    <table class="table">
+      <thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Active</th></tr></thead>
+      <tbody>
+      {% for u in staff_users %}
+        <tr>
+          <td><code>{{ u.username }}</code></td>
+          <td>{{ u.display_name or u.username }}</td>
+          <td>{{ u.role }}</td>
+          <td>{% if u.is_active %}yes{% else %}no{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No staff_users rows yet — restart the CRM to seed your .env login.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
 <nav class="settings-nav" aria-label="Settings sections">
+  <a href="#settings-book">This laptop</a>
+  {% if is_principal %}<a href="#settings-staff">Staff</a>{% endif %}
   <a href="#settings-alerts">Alerts</a>
   <a href="#settings-ai">Si</a>
   <a href="#settings-task-push">Email → Task</a>
   <a href="#settings-branding">Letterhead &amp; logo</a>
   <a href="#settings-demo">Demo mode</a>
   <a href="#settings-system">System</a>
-  <a href="#settings-xero">Xero</a>
+  {% if is_principal %}<a href="#settings-xero">Xero</a>
   <a href="/settings/sage">Sage</a>
-  <a href="/settings/qbo">QuickBooks</a>
+  <a href="/settings/qbo">QuickBooks</a>{% endif %}
   <a href="#settings-playbooks">Playbooks</a>
   <a href="/settings/book-sources">Books sources</a>
   <a href="#settings-wip">WIP</a>
@@ -613,9 +666,12 @@
       <dd class="small"><code>{{ ch_xml_gateway_url or '—' }}</code></dd>
     </dl>
     <p class="small muted">
-      Apply for a presenter account:
+      Two different CH paths: <strong>OAuth API Filing</strong> (credentials already in <code>.env</code> — Connect below)
+      and this <strong>XML Gateway</strong> (presenter ID + package reference from CH after you apply).
+      Apply:
       <a href="https://www.gov.uk/guidance/apply-to-file-with-companies-house-using-software" target="_blank" rel="noopener">GOV.UK software filing</a>.
-      Open a CS pack → <strong>CS01 XML export</strong> to download.
+      Until then: CS pack → <strong>CS01 XML export</strong> (review/download only; live submit stays off).
+      IRIS still files accounts after client approval.
     </p>
     <div class="actions" style="flex-wrap:wrap">
       <a class="btn btn-outline wc-touch" href="/cs/readiness">CS readiness board</a>
@@ -744,6 +800,7 @@
     </div>
   </div>
 
+  {% if is_principal %}
   <div class="card settings-card" id="settings-xero">
     <h3>Xero</h3>
     <p class="muted small">
@@ -765,9 +822,14 @@
     </div>
     {% else %}
     <div class="chase-banner chase-banner-practice" role="status">
-      <strong>Not configured</strong> — add <code>XERO_CLIENT_ID</code>,
-      <code>XERO_CLIENT_SECRET</code>, <code>XERO_REDIRECT_URI</code> to <code>.env</code>, then restart.
+      <strong>Not configured</strong> — create a Xero web app, put the id/secret in <code>.env</code>, restart, then Connect.
     </div>
+    <ol class="muted small" style="margin:0.65rem 0 0;padding-left:1.2rem">
+      <li>https://developer.xero.com/app/manage → New app → Web app</li>
+      <li>Redirect URI exactly <code>http://localhost:8000/oauth/xero/callback</code></li>
+      <li>Paste <code>XERO_CLIENT_ID</code> / <code>XERO_CLIENT_SECRET</code> into <code>.env</code> and restart</li>
+      <li>Connect here, then on each client Playbook tab link the organisation and Pull</li>
+    </ol>
     {% endif %}
     <div class="actions">
       {% if xero_configured %}
@@ -778,10 +840,20 @@
       <a class="btn btn-outline wc-touch" href="/settings/xero">Manage</a>
     </div>
   </div>
+  {% endif %}
 
+  {% if is_principal %}
   <div class="card settings-card">
     <h3>Sage Business Cloud</h3>
-    <p class="muted small">Same pull / journal path as Xero. Sage 50 desktop cannot log in here — use a CSV export.</p>
+    <p class="muted small">
+      Sage Business Cloud only. Sage 50 desktop cannot log in — drop a trial balance CSV into
+      <code>Current/Source</code>. Sales-ledger-only clients (Adrian) pull invoices and debtors, not a TB.
+    </p>
+    <ol class="muted small" style="margin:0.5rem 0 0;padding-left:1.2rem">
+      <li>https://developer.sage.com/accounting → create an app (Accounting API)</li>
+      <li>Redirect URI exactly <code>http://localhost:8000/oauth/sage/callback</code></li>
+      <li><code>SAGE_CLIENT_ID</code> / <code>SAGE_CLIENT_SECRET</code> in <code>.env</code>, restart, Connect</li>
+    </ol>
     <div class="actions">
       <a class="btn wc-touch" href="/settings/sage">Manage Sage</a>
     </div>
@@ -790,10 +862,17 @@
   <div class="card settings-card">
     <h3>QuickBooks Online</h3>
     <p class="muted small">Connect the practice Intuit app, then link each QBO company on the client Playbook tab.</p>
+    <ol class="muted small" style="margin:0.5rem 0 0;padding-left:1.2rem">
+      <li>https://developer.intuit.com → create an app with Accounting scope</li>
+      <li>Redirect URI exactly <code>http://localhost:8000/oauth/qbo/callback</code></li>
+      <li><code>QBO_CLIENT_ID</code> / <code>QBO_CLIENT_SECRET</code> in <code>.env</code>, restart, Connect</li>
+      <li><code>QBO_ENVIRONMENT=production</code> when you leave sandbox</li>
+    </ol>
     <div class="actions">
       <a class="btn wc-touch" href="/settings/qbo">Manage QuickBooks</a>
     </div>
   </div>
+  {% endif %}
 
   <div class="card settings-card">
     <h3>Asana</h3>

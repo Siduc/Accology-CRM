@@ -354,26 +354,45 @@ def save_token(
     xero_user_id: str = "",
     tenants: Optional[List[Dict[str, Any]]] = None,
 ) -> XeroToken:
-    for old in db.query(XeroToken).filter(XeroToken.status == "active").all():
-        old.status = "revoked"
-        old.updated_at = datetime.utcnow()
-
     expires = None
     if result.expires_in:
         expires = datetime.utcnow() + timedelta(seconds=int(result.expires_in))
 
-    row = XeroToken(
-        access_token=_store_token(result.access_token),
-        refresh_token=_store_token(result.refresh_token) or None,
-        token_type=result.token_type or "Bearer",
-        expires_at=expires,
-        scope=result.scope or build_scopes(),
-        xero_user_id=xero_user_id or None,
-        xero_email=xero_email or None,
-        tenants_json=json.dumps(tenants or []),
-        status="active",
+    row = (
+        db.query(XeroToken)
+        .filter(XeroToken.status == "active")
+        .order_by(XeroToken.id.desc())
+        .first()
     )
-    db.add(row)
+    if row is None:
+        row = (
+            db.query(XeroToken)
+            .order_by(XeroToken.id.desc())
+            .first()
+        )
+    if row is None:
+        row = XeroToken()
+        db.add(row)
+    else:
+        for old in db.query(XeroToken).filter(
+            XeroToken.status == "active", XeroToken.id != row.id
+        ).all():
+            old.status = "revoked"
+            old.updated_at = datetime.utcnow()
+
+    row.access_token = _store_token(result.access_token)
+    if result.refresh_token:
+        row.refresh_token = _store_token(result.refresh_token)
+    row.token_type = result.token_type or "Bearer"
+    row.expires_at = expires
+    row.scope = result.scope or build_scopes()
+    if xero_user_id:
+        row.xero_user_id = xero_user_id
+    if xero_email:
+        row.xero_email = xero_email
+    row.tenants_json = json.dumps(tenants or [])
+    row.status = "active"
+    row.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(row)
     return row

@@ -33,11 +33,22 @@
   <p class="muted">Add client id, secret and redirect URI to <code>.env</code>, then restart.</p>
   {% endif %}
 
-  <dl class="dl-grid">
+  <dl class="dl-stack">
     <dt>Client ID</dt><dd><code>{{ status.client_mask or '—' }}</code></dd>
     <dt>Secret</dt><dd>{% if status.secret_set %}set{% else %}<em>missing</em>{% endif %}</dd>
-    <dt>Redirect URI</dt><dd><code class="small">{{ status.redirect_uri }}</code></dd>
-    <dt>Scopes</dt><dd class="small"><code>{{ status.scopes }}</code></dd>
+    <dt>Redirect URI</dt>
+    <dd><code class="uri-break">{{ status.redirect_uri }}</code></dd>
+    <dt>Scopes</dt>
+    <dd>
+      <ul class="scope-chips">
+        {% for s in (status.scopes or '').split() %}
+        <li>{{ s }}</li>
+        {% endfor %}
+      </ul>
+    </dd>
+    {% if status.expires_at %}
+    <dt>Expires</dt><dd class="small">{{ status.expires_at }}</dd>
+    {% endif %}
   </dl>
 
   <div class="actions" style="margin-top:1rem">
@@ -59,15 +70,26 @@
 
 {% if status.tenants %}
 <div class="card settings-card">
-  <h3>Organisations</h3>
+  <h3>Organisations this login can see</h3>
+  <p class="muted small">
+    {% if status.provider == 'qbo' %}
+    Each Connect adds one QuickBooks company. Repeat Connect for Big Box Art,
+    Chester SA, Production Autos, Tech Hub, and Mrs Anne Campbell (or any other
+    QBO client). Then link that company on the client Playbook tab.
+    {% else %}
+    Sage lists every business on that login. Only link the one that still uses Sage
+    (Adrian Morley, live). Demo / Accology / Buzz / EGS can stay in the list — do not
+    assign them on a Playbook. Archive those businesses in Sage if you want them gone.
+    {% endif %}
+  </p>
   <div class="table-wrap">
     <table class="data">
-      <thead><tr><th>Name</th><th>Id</th></tr></thead>
+      <thead><tr><th>Name</th><th>Use</th></tr></thead>
       <tbody>
         {% for t in status.tenants %}
         <tr>
           <td>{{ t.tenantName or '—' }}</td>
-          <td class="small"><code>{{ t.tenantId }}</code></td>
+          <td class="small muted">Playbook → Sage business</td>
         </tr>
         {% endfor %}
       </tbody>

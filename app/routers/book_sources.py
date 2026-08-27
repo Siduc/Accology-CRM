@@ -164,9 +164,11 @@ async def settings_qbo(request: Request, db: Session = Depends(get_db)):
             "oauth_error": request.query_params.get("oauth_error", ""),
             "oauth_msg": request.query_params.get("oauth_msg", ""),
             "help": (
-                "Create an app at developer.intuit.com. "
-                "Redirect URI must be exactly http://localhost:8000/oauth/qbo/callback. "
-                "Each Connect adds one QuickBooks company (realm)."
+                "Create a Production app at developer.intuit.com (Accounting scope). "
+                "Redirect URI must be exactly https://accology.co/oauth/qbo/callback — "
+                "Intuit will not accept localhost for live companies. "
+                "Connect on the live site, then we copy the token onto this laptop. "
+                "Each Connect adds one QuickBooks company."
             ),
         },
     )

@@ -88,8 +88,11 @@ async def oauth_callback(
 ):
     if error:
         msg = error_description or error
+        scopes = (app_config.XERO_SCOPES or "").strip()
+        if scopes:
+            msg = f"{msg} (we asked for: {scopes})"
         return RedirectResponse(
-            f"/settings/xero?oauth_error={url_quote(msg[:300])}",
+            f"/settings/xero?oauth_error={url_quote(msg[:400])}",
             status_code=303,
         )
     ok, payload, serr = parse_state(state or "")
@@ -142,6 +145,38 @@ async def oauth_disconnect(
     return RedirectResponse(f"{ret}{sep}oauth_msg=disconnected", status_code=303)
 
 
+@router.post("/settings/xero/sync-practice")
+async def sync_practice_from_xero(db: Session = Depends(get_db)):
+    from app.services.xero_practice_sync import sync_practice_ledgers
+
+    result = sync_practice_ledgers(db)
+    if not result.get("ok") and result.get("error"):
+        return RedirectResponse(
+            f"/settings/xero?oauth_error={url_quote(str(result['error'])[:400])}",
+            status_code=303,
+        )
+    inv = result.get("invoices") or {}
+    bank = result.get("bank") or {}
+    cleaned = result.get("cleaned") or {}
+    msg = (
+        f"Since {result.get('cutoff')}: "
+        f"bank +{bank.get('created', 0)} (skipped {bank.get('skipped', 0)}). "
+        f"Invoices matched {inv.get('matched', 0)}."
+    )
+    if cleaned.get("transactions_removed"):
+        msg += f" Removed {cleaned['transactions_removed']} old Xero bank rows."
+    if inv.get("crm_not_in_xero"):
+        msg += " CRM not yet on Xero: " + ", ".join(inv["crm_not_in_xero"][:8])
+    if inv.get("xero_not_in_crm"):
+        msg += " Xero-only (not imported): " + ", ".join(inv["xero_not_in_crm"][:8])
+    if result.get("error"):
+        msg += " " + str(result["error"])[:200]
+    return RedirectResponse(
+        f"/settings/xero?oauth_msg=sync&sync_msg={url_quote(msg[:500])}",
+        status_code=303,
+    )
+
+
 @router.post("/settings/xero/refresh-orgs")
 async def settings_refresh_orgs(db: Session = Depends(get_db)):
     tenants, err = refresh_tenants(db)
@@ -173,6 +208,7 @@ async def settings_xero(request: Request, db: Session = Depends(get_db)):
             "scopes": (app_config.XERO_SCOPES or "").strip(),
             "oauth_error": request.query_params.get("oauth_error", ""),
             "oauth_msg": request.query_params.get("oauth_msg", ""),
+            "sync_msg": request.query_params.get("sync_msg", ""),
         },
     )
 

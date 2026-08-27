@@ -157,6 +157,38 @@
 }
 
 /* Demo / presentation mode */
+.book-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  padding: 0.35rem 1rem;
+  font-size: 0.82rem;
+  line-height: 1.3;
+  border-bottom: 1px solid var(--border);
+}
+.book-banner-local {
+  background: #ecfeff;
+  color: #134e4a;
+}
+.book-banner-slow {
+  background: #fff7ed;
+  color: #9a3412;
+}
+.book-banner-remote {
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+.book-banner strong {
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+}
+.book-banner-link {
+  margin-left: auto;
+  font-weight: 600;
+  color: inherit;
+}
 .demo-banner {
   display: flex;
   flex-wrap: wrap;
@@ -189,6 +221,31 @@
 }
 .demo-banner-exit:hover {
   background: rgba(0, 0, 0, 0.28);
+}
+.viewer-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.85rem;
+  padding: 0.4rem 1rem;
+  background: #334155;
+  color: #f8fafc;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  position: sticky;
+  top: 0;
+  z-index: 199;
+}
+.viewer-banner strong {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+body.is-viewer form[method="post"] button,
+body.is-viewer form[method="post"] button[type="submit"],
+body.is-viewer form[method="POST"] button,
+body.is-viewer form[method="POST"] input[type="submit"] {
+  display: none !important;
 }
 .minibar-logout.demo-toggle-on {
   color: #fbbf24 !important;
@@ -829,6 +886,43 @@ table.data tr:hover td { background: #f8fafc; }
   border-color: #0A0A0A;
 }
 .btn-sm { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
+.btn-email-client {
+  background: #00E5FF;
+  color: #0A0A0A;
+  font-size: 1.05rem;
+  font-weight: 800;
+  padding: 0.72rem 1.35rem;
+  letter-spacing: 0.01em;
+  box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.28);
+}
+.btn-email-client:hover {
+  background: #7ff3ff;
+  color: #0A0A0A;
+}
+.btn-email-client:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.invoice-send-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 0 auto 1rem;
+  max-width: 52rem;
+  padding: 0.9rem 1.1rem;
+  background: #0A0A0A;
+  color: #fff;
+  border-radius: 10px;
+}
+.invoice-send-bar .btn-outline,
+.invoice-send-bar-xero {
+  background: transparent;
+  color: #fff;
+  border-color: #00E5FF;
+}
+.invoice-send-bar .small { color: #cbd5e1; max-width: 28rem; }
 
 .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 
@@ -1068,6 +1162,42 @@ a.wip-metric-vat { border-left-color: #7c3aed; }
 .settings-card {
   max-width: 42rem;
   margin-bottom: 1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dl-stack {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: 0.55rem 1rem;
+  font-size: 0.95rem;
+  margin: 0.75rem 0 0;
+}
+.dl-stack dt { color: var(--muted); font-weight: 600; }
+.dl-stack dd { margin: 0; min-width: 0; }
+.uri-break {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  white-space: normal;
+  font-size: 0.82rem;
+}
+.scope-chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+}
+.scope-chips li {
+  font-size: 0.75rem;
+  font-family: ui-monospace, Consolas, monospace;
+  background: #f1f5f9;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  line-height: 1.3;
 }
 .settings-card h3 {
   margin: 0 0 0.5rem;
@@ -4318,6 +4448,12 @@ a.live-postit.postit-orange { background: #fdba74 !important; color: #7c2d12 !im
 .invoice-doc-lines .num {
   text-align: right;
   white-space: nowrap;
+}
+.invoice-doc-lines-edit select.invoice-line-input {
+  width: 100%;
+  min-width: 8rem;
+  font: inherit;
+  padding: 0.25rem 0.35rem;
 }
 .invoice-doc-lines-edit input.invoice-line-input {
   width: 100%;

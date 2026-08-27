@@ -13,6 +13,12 @@
     <input type="hidden" name="job_id" value="{{ job.id if job else '' }}">
     <div class="form-grid">
       <div>
+        <label for="number">Invoice number</label>
+        <input id="number" name="number" value="{{ next_number or '' }}"
+               title="Next Accology Limited / Xero number">
+        <p class="small muted" style="margin:0.25rem 0 0">Picks up the next Xero number (not INV-0001).</p>
+      </div>
+      <div>
         <label for="client_id">Client *</label>
         <select id="client_id" name="client_id" required>
           <option value="">Select…</option>
@@ -38,13 +44,14 @@
         <select name="line_service_{{ n }}">
           <option value="">— free text —</option>
           {% for s in services %}
-          <option value="{{ s.id }}" data-fee="{{ s.default_fee }}">{{ s.name }} ({{(s.default_fee or 0)|money}})</option>
+          <option value="{{ s.id }}" data-fee="{{ s.default_fee }}"
+            {% if n==2 and is_cs_job and s.code == 'CH_DISB' %}selected{% endif %}>{{ s.name }} ({{(s.default_fee or 0)|money}})</option>
           {% endfor %}
         </select>
       </div>
       <div>
         <label>Description</label>
-        <input name="line_desc_{{ n }}" value="{% if n==1 and job %}{{ (job.title or job.type)|uk_text }}{% endif %}">
+        <input name="line_desc_{{ n }}" value="{% if n==1 and job %}{{ (job.title or job.type)|uk_text }}{% elif n==2 and is_cs_job and cs_disbursement %}{{ cs_disbursement.description }}{% endif %}">
       </div>
       <div>
         <label>Qty</label>
@@ -52,18 +59,18 @@
       </div>
       <div>
         <label>Unit price (£)</label>
-        <input name="line_price_{{ n }}" value="{% if n==1 and job %}{{ '%.2f'|format(job.fee or 0) }}{% else %}0{% endif %}">
+        <input name="line_price_{{ n }}" value="{% if n==1 and job %}{{ '%.2f'|format(job.fee or 0) }}{% elif n==2 and is_cs_job %}50.00{% else %}0{% endif %}">
       </div>
       <div>
         <label>VAT rate (0.2 = 20%)</label>
-        <input name="line_vat_{{ n }}" value="0.2" title="Standard UK VAT 20% — use 0 for zero-rated">
+        <input name="line_vat_{{ n }}" value="{% if n==2 and is_cs_job %}0{% else %}0.2{% endif %}" title="Standard UK VAT 20% — use 0 for disbursements">
       </div>
     </div>
     {% endfor %}
     <label for="notes">Notes</label>
     <textarea id="notes" name="notes"></textarea>
     <div class="form-actions">
-      <button class="btn wc-touch" type="submit">Save &amp; send</button>
+      <button class="btn wc-touch" type="submit">Save draft</button>
       <a class="btn btn-outline" href="/sales/invoices">Cancel</a>
     </div>
   </form>

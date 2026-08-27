@@ -594,15 +594,25 @@ XERO_API_BASE = (
     _env("XERO_API_BASE", "https://api.xero.com/api.xro/2.0")
     or "https://api.xero.com/api.xro/2.0"
 )
-# Broad scopes still work until Sep 2027; override with XERO_SCOPES for granular apps.
-XERO_SCOPES = _env(
-    "XERO_SCOPES",
-    "offline_access openid profile email accounting.transactions "
-    "accounting.reports.read accounting.settings.read accounting.journals.read",
-) or (
-    "offline_access openid profile email accounting.transactions "
-    "accounting.reports.read accounting.settings.read accounting.journals.read"
+# New Xero web apps (from Mar 2026) only accept granular scopes.
+# Broad accounting.transactions / accounting.reports.read cause
+# login.xero.com “Sorry, something went wrong”.
+# Smallest set that still pulls a year-end pack. All names appear on the
+# Xero app catalogue. offline_access / app.connections / write journals
+# have been rejected as "Requested wrong apps scopes" on new 2026 apps.
+_XERO_SCOPES_DEFAULT = (
+    "offline_access "
+    "accounting.settings.read "
+    "accounting.invoices "
+    "accounting.payments.read "
+    "accounting.banktransactions.read "
+    "accounting.manualjournals.read "
+    "accounting.reports.banksummary.read "
+    "accounting.reports.trialbalance.read "
+    "accounting.reports.profitandloss.read "
+    "accounting.reports.balancesheet.read"
 )
+XERO_SCOPES = _env("XERO_SCOPES", _XERO_SCOPES_DEFAULT) or _XERO_SCOPES_DEFAULT
 
 
 def refresh_xero_settings(*, force_dotenv: bool = False) -> dict:
@@ -612,7 +622,7 @@ def refresh_xero_settings(*, force_dotenv: bool = False) -> dict:
     global XERO_API_BASE, XERO_SCOPES
     if force_dotenv:
         try:
-            bootstrap_environment()
+            bootstrap_environment(force=True)
         except Exception:
             pass
     XERO_CLIENT_ID = _env("XERO_CLIENT_ID")
@@ -637,17 +647,18 @@ def refresh_xero_settings(*, force_dotenv: bool = False) -> dict:
         _env("XERO_API_BASE", "https://api.xero.com/api.xro/2.0")
         or "https://api.xero.com/api.xro/2.0"
     )
-    XERO_SCOPES = _env(
-        "XERO_SCOPES",
-        "offline_access openid profile email accounting.transactions "
-        "accounting.reports.read accounting.settings.read accounting.journals.read",
-    ) or XERO_SCOPES
+    XERO_SCOPES = _env("XERO_SCOPES", _XERO_SCOPES_DEFAULT) or _XERO_SCOPES_DEFAULT
     return {
         "client_id_set": bool((XERO_CLIENT_ID or "").strip()),
         "secret_set": bool((XERO_CLIENT_SECRET or "").strip()),
         "redirect_uri": (XERO_REDIRECT_URI or "").strip(),
         "configured": xero_configured(refresh=False),
     }
+
+
+# Accology Limited dual-run: do not import Xero sales/bank before this date
+# (day after the debtors opening-balance cut-off).
+PRACTICE_XERO_CUTOFF = _env("PRACTICE_XERO_CUTOFF", "2026-07-09") or "2026-07-09"
 
 
 def xero_configured(*, refresh: bool = True) -> bool:
@@ -684,7 +695,7 @@ SAGE_COUNTRY = _env("SAGE_COUNTRY", "GB") or "GB"
 def sage_configured(*, refresh: bool = True) -> bool:
     if refresh:
         try:
-            bootstrap_environment()
+            bootstrap_environment(force=True)
         except Exception:
             pass
         global SAGE_CLIENT_ID, SAGE_CLIENT_SECRET, SAGE_REDIRECT_URI
@@ -727,7 +738,7 @@ QBO_ENVIRONMENT = (_env("QBO_ENVIRONMENT", "production") or "production").lower(
 def qbo_configured(*, refresh: bool = True) -> bool:
     if refresh:
         try:
-            bootstrap_environment()
+            bootstrap_environment(force=True)
         except Exception:
             pass
         global QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REDIRECT_URI

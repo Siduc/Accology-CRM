@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Email {{ inv.number }} · Accologise{% endblock %}
+{% block content %}
+<div class="page-header no-print">
+  <div>
+    <p class="small muted"><a href="/sales/invoices/{{ inv.id }}">← Back to invoice {{ inv.number }}</a></p>
+    <h1>Email invoice to client</h1>
+    <p class="muted small">
+      {{ inv.number }}
+      {% if client %} · {{ client.display_name() }}{% endif %}
+      · {{ (inv.total or 0)|money2 }}
+    </p>
+  </div>
+</div>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+{% if msg %}<div class="chase-banner chase-banner-info">{{ msg }}</div>{% endif %}
+
+{% if not cap.can_send %}
+<div class="alert alert-error">
+  Email is not connected yet.
+  <a href="/oauth/microsoft/start?return_to=/sales/invoices/{{ inv.id }}/email">Connect Microsoft</a>
+  with Mail.Send, then return here.
+</div>
+{% endif %}
+
+<div class="card" style="max-width:42rem">
+  <form class="stack" method="post" action="/sales/invoices/{{ inv.id }}/email">
+    <label for="to_address">To (client)</label>
+    <input id="to_address" type="email" name="to_address" value="{{ to_address }}" required
+           placeholder="client@example.com" style="width:100%">
+    {% if not to_address %}
+    <p class="small muted">No email on the client record — type one here (it is not saved back to the client).</p>
+    {% endif %}
+
+    <label for="subject">Subject</label>
+    <input id="subject" type="text" name="subject" value="{{ subject }}" required style="width:100%">
+
+    <label for="body">Message</label>
+    <textarea id="body" name="body" rows="12" required style="width:100%;font-size:0.95rem">{{ body }}</textarea>
+
+    <label class="small" style="display:flex;align-items:center;gap:0.45rem">
+      <input type="checkbox" name="attach_pdf" value="yes" checked>
+      Attach invoice PDF ({{ inv.number }}.pdf)
+    </label>
+    {% if (inv.issuer or 'accology') != 'accology_pays' %}
+    <label class="small" style="display:flex;align-items:center;gap:0.45rem">
+      <input type="checkbox" name="push_xero" value="yes" checked>
+      After sending, push this invoice to Accology Limited Xero (same number)
+    </label>
+    {% endif %}
+
+    <div class="actions" style="margin-top:0.75rem">
+      <button class="btn btn-email-client wc-touch" type="submit" {% if not cap.can_send %}disabled title="Connect Microsoft first"{% endif %}>
+        Email to client
+      </button>
+      <a class="btn btn-outline" href="/sales/invoices/{{ inv.id }}">Cancel</a>
+      <a class="btn btn-outline" href="/sales/invoices/{{ inv.id }}/pdf">Preview PDF</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -278,7 +278,9 @@
     {% endif %}
 
     <div class="form-actions">
+      {% if not is_viewer %}
       <button class="btn" type="submit">Save</button>
+      {% endif %}
       <a class="btn btn-outline" href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}">Cancel</a>
     </div>
   </form>

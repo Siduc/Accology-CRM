@@ -12,6 +12,9 @@
     </p>
   </div>
   <div class="actions" style="flex-wrap:wrap">
+    {% if (inv.issuer or 'accology') != 'accology_pays' and (inv.status or '')|lower not in ('void', 'written_off') %}
+    <a class="btn btn-email-client wc-touch" href="/sales/invoices/{{ inv.id }}/email">Email to client</a>
+    {% endif %}
     <a class="btn" href="/sales/invoices/{{ inv.id }}/edit">Edit invoice</a>
     {% if (inv.status or '')|lower == 'draft' %}
     <form method="post" action="/sales/invoices/{{ inv.id }}/status" style="display:inline"
@@ -31,6 +34,13 @@
     </form>
     {% endif %}
     {# Dual-run with Xero: allow payment on draft/sent while balance remains #}
+    {% if (inv.issuer or 'accology') != 'accology_pays' and (inv.status or '')|lower not in ('void', 'written_off') %}
+    <form method="post" action="/sales/invoices/{{ inv.id }}/push-xero" style="display:inline"
+          onsubmit="return confirm('Create or update this invoice on Accology Limited Xero? Lines come from the CRM (job invoice), not Xero projects.');">
+      <button class="btn btn-outline" type="submit">Push to Xero</button>
+    </form>
+    <a class="btn btn-outline" href="/sales/invoices/{{ inv.id }}/pdf">Download PDF</a>
+    {% endif %}
     {% if inv.balance > 0.001 and (inv.status or '')|lower not in ('void', 'written_off') %}
     <a class="btn btn-outline" href="/sales/payments/new?client_id={{ inv.client_id }}&invoice_id={{ inv.id }}">Record payment</a>
     {% if overdue >= 7 and (inv.status or '')|lower not in ('draft',) %}
@@ -49,6 +59,17 @@
     </form>
   </div>
 </div>
+
+{% if (inv.issuer or 'accology') != 'accology_pays' and (inv.status or '')|lower not in ('void', 'written_off') %}
+<div class="invoice-send-bar no-print">
+  <a class="btn btn-email-client wc-touch" href="/sales/invoices/{{ inv.id }}/email">Email to client</a>
+  <form method="post" action="/sales/invoices/{{ inv.id }}/push-xero" style="display:inline;margin:0"
+        onsubmit="return confirm('Push {{ inv.number }} to Accology Limited Xero after (or without) emailing?');">
+    <button class="btn btn-outline invoice-send-bar-xero" type="submit">Push to Xero</button>
+  </form>
+  <span class="small">Email the client from here, then push the same invoice to Xero so both ledgers keep the number {{ inv.number }}.</span>
+</div>
+{% endif %}
 
 {% if msg %}
 <div class="chase-banner chase-banner-info no-print">{{ msg }}</div>
@@ -237,7 +258,8 @@
         {% for ln in inv.lines %}
         <tr>
           <td>
-            {% if ln.service %}{{ ln.service.name }}
+            {% if ln.description %}{{ ln.description }}
+            {% elif ln.service %}{{ ln.service.name }}
             {% elif job and job.type %}{{ job.type }}
             {% else %}—{% endif %}
           </td>

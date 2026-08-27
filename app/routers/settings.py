@@ -108,6 +108,18 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
     except Exception:
         xero_status = {"configured": False, "connected": False, "fresh": False, "tenant_count": 0}
 
+    staff_rows = []
+    try:
+        from app.models.staff_user import StaffUser
+
+        staff_rows = (
+            db.query(StaffUser)
+            .order_by(StaffUser.role.asc(), StaffUser.username.asc())
+            .all()
+        )
+    except Exception:
+        staff_rows = []
+
     return render(
         request,
         "settings.html",
@@ -172,6 +184,7 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "xero_configured": xero_is_configured(refresh=True),
             "xero_status": xero_status,
             "xero_client_mask": xero_mask_client_id(XERO_CLIENT_ID),
+            "staff_users": staff_rows,
         },
     )
 

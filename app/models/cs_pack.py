@@ -34,6 +34,10 @@ class CsPack(Base):
     prepared_by = Column(String, nullable=True)
     ready_at = Column(DateTime, nullable=True)
     filed_at = Column(DateTime, nullable=True)
+    # CH auth / personal code chase (does not change pack.status)
+    code_requested_at = Column(DateTime, nullable=True)
+    code_received_at = Column(DateTime, nullable=True)
+    code_request_note = Column(Text, nullable=True)  # e.g. who chased, personal vs company
     # API Filing prep (OAuth / transactions — not full CS01 submit yet)
     ch_transaction_id = Column(String, nullable=True)
     filing_prep_json = Column(Text, nullable=True)

@@ -10,8 +10,20 @@ from app.models.person import person_clients
 RETAINER_FREQUENCIES = ("Monthly", "Quarterly", "Annual")
 BILLING_MODELS = ("Per job", "Retainer")
 
+# CS billing tariff: orthogonal to overall_status and on_hold.
+# book = existing £50+VAT+£50 CH; product = introduced £10+VAT+£50 CH.
+CS_TARIFFS = ("book", "product")
+
 # Client VAT filing scheme (HMRC return frequency)
 VAT_FREQUENCIES = ("none", "monthly", "quarterly", "annually")
+
+
+def normalise_cs_tariff(raw: Optional[str]) -> str:
+    """book (default) | product. Unknown values fall back to book."""
+    v = (raw or "book").strip().lower()
+    if v in ("product", "introduced", "cs_product", "10"):
+        return "product"
+    return "book"
 
 
 class Client(Base):
@@ -67,6 +79,14 @@ class Client(Base):
     source = Column(String, nullable=True, default="manual")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Practice-wide hold: orthogonal to overall_status. Bots must skip held clients.
+    on_hold = Column(Integer, default=0)  # SQLite-friendly 0/1
+    hold_reason = Column(String, nullable=True)  # bad_payer | no_submissions | disengaging | client_request | other
+    hold_note = Column(Text, nullable=True)
+    hold_set_at = Column(DateTime, nullable=True)
+    hold_set_by = Column(String, nullable=True)
+    # CS tariff: book (practice default) | product (introduced £10). Orthogonal to hold/status.
+    cs_tariff = Column(String, default="book")  # book | product
 
     people = relationship(
         "Person",
@@ -172,3 +192,40 @@ class Client(Base):
                 if 1 <= m <= 12:
                     return f"{base} · YE {months[m]}"
         return base
+
+    def is_on_hold(self) -> bool:
+        """True if practice hold is set (on_hold in 1 / True / '1' / 'yes')."""
+        v = self.on_hold
+        if v in (1, True, "1", "yes"):
+            return True
+        if isinstance(v, str) and v.strip().lower() in ("1", "yes", "true", "on"):
+            return True
+        try:
+            return int(v) == 1
+        except (TypeError, ValueError):
+            return False
+
+    def hold_label(self) -> str:
+        """Short UI label, empty when not held."""
+        if not self.is_on_hold():
+            return ""
+        labels = {
+            "bad_payer": "Bad payer / debt",
+            "no_submissions": "Letting company slide (no filings)",
+            "disengaging": "Disengaging / notice given",
+            "client_request": "Client asked us to pause",
+            "other": "Other",
+        }
+        reason = labels.get((self.hold_reason or "").strip().lower(), "")
+        if reason:
+            return f"On hold — {reason}"
+        return "On hold"
+
+    def is_cs_product(self) -> bool:
+        """True when this client is on the introduced £10 CS product."""
+        return (self.cs_tariff or "book").strip().lower() == "product"
+
+    def cs_tariff_label(self) -> str:
+        if self.is_cs_product():
+            return "Introduced £10 CS"
+        return "Book CS"

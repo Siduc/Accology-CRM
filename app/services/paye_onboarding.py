@@ -285,7 +285,8 @@ def write_pays_proforma_pdf(path, *, issuer: Client, client: Client, number: str
     cnv.setFont("Helvetica", 8)
     for line in (
         "This is a pro forma invoice from Accology Pays Limited. It is not a VAT invoice.",
-        "Accology Pays Limited is not VAT registered. Bank details will follow.",
+        "Accology Pays Limited is not VAT registered.",
+        "Pay Accology Pays Limited. Sort code 04-29-09. Account 80402194.",
         "Please reply to payroll@accology.co.",
     ):
         cnv.drawString(left, y, line)

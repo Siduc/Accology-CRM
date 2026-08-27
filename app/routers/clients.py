@@ -120,6 +120,7 @@ async def list_clients(
     book: str = Query(""),
     as_of: str = Query(""),
     cohort: str = Query(""),
+    hold: str = Query(""),
     db: Session = Depends(get_db),
 ):
     """Live **companies** — excludes Inactive and individual/person shells.
@@ -197,6 +198,15 @@ async def list_clients(
             (Client.overall_status.is_(None))
             | (Client.overall_status != "Inactive")
         )
+    hold_key = (hold or "").strip().lower()
+    hold_filter = hold_key in ("1", "yes", "true", "on")
+    if hold_filter:
+        query = query.filter(Client.on_hold == 1)
+        page_title = "Companies on hold"
+        book_note = (
+            "Practice hold: bots skip these clients (CS, accounts, VAT, chase). "
+            "Active unless also Inactive/lost."
+        )
     clients = query.order_by(Client.company_name).all()
     lost_q = filter_company_clients(
         db.query(Client).filter(Client.overall_status == "Inactive")
@@ -216,6 +226,8 @@ async def list_clients(
             "view": "live",
             "all_statuses": STATUSES,
             "lost_count": lost_q.count(),
+            "hold": hold,
+            "hold_filter": hold_filter,
         },
     )
 
@@ -731,6 +743,10 @@ async def client_detail(
         message = "Playbook saved. Current folder and AGENTS.md updated."
     elif saved == "pack":
         message = request.query_params.get("pack_msg") or "Client pack folders checked."
+    elif saved == "iris":
+        message = request.query_params.get("iris_msg") or "IRIS export finished."
+    elif saved == "papers":
+        message = request.query_params.get("papers_msg") or "Draft working papers finished."
     elif saved == "pattern":
         n = request.query_params.get("pattern_jobs", "")
         message = "Billing pattern saved. New jobs of that type will use it (you can still override the fee on each job)."
@@ -871,6 +887,7 @@ async def client_detail(
     )
     from app.models.sales import SERVICE_QUARTERLY_PATTERNS
     from app.templating import _client_vat_scheme_label
+    from app.services.practice_hold import HOLD_REASONS
 
     # Plain strings for the template (no Jinja filter dependency)
     vat_freq_raw = (getattr(client, "vat_frequency", None) or "").strip().lower()
@@ -1000,6 +1017,7 @@ async def client_detail(
             "over_total": request.query_params.get("total", ""),
             "over_member": request.query_params.get("member", ""),
             "over_reason": request.query_params.get("reason", ""),
+            "hold_reasons": HOLD_REASONS,
         },
     )
 
@@ -1217,6 +1235,52 @@ async def ensure_client_pack_route(
     )
 
 
+@router.post("/{client_id:int}/iris/export")
+async def export_iris_tb(client_id: int, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    from app.services.iris_elements import export_client_iris
+
+    result = export_client_iris(db, client)
+    if result.ok:
+        extra = f" Net {result.net:,.2f}."
+        if result.unknown:
+            extra += f" Unmapped {len(result.unknown)} name(s) — check the mapping CSV."
+        msg = url_quote(
+            f"IRIS Elements TB written ({result.mapped}/{result.rows} mapped).{extra}"[:400]
+        )
+    else:
+        msg = url_quote((result.error or "IRIS export failed.")[:400])
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=playbook&saved=iris&iris_msg={msg}",
+        status_code=303,
+    )
+
+
+@router.post("/{client_id:int}/working-papers/build")
+async def build_working_papers(client_id: int, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    from app.services.working_papers import build_client_pack
+
+    result = build_client_pack(db, client)
+    if result.ok:
+        extra = f" Net {result.net:,.2f}."
+        if result.queries:
+            extra += f" {len(result.queries)} query(ies) in the pack."
+        msg = url_quote(
+            f"Draft working papers written ({result.mapped}/{result.rows} mapped).{extra}"[:400]
+        )
+    else:
+        msg = url_quote((result.error or "Working papers failed.")[:400])
+    return RedirectResponse(
+        f"/clients/{client_id}?tab=playbook&saved=papers&papers_msg={msg}",
+        status_code=303,
+    )
+
+
 @router.post("/{client_id:int}/details")
 async def update_client_details(
     client_id: int,
@@ -1253,6 +1317,7 @@ async def update_client_details(
     retainer_notes: str = Form(""),
     notes: str = Form(""),
     primary_person_id: str = Form(""),
+    cs_tariff: str = Form(""),
     db: Session = Depends(get_db),
 ):
     """Save editable details from the client detail screen."""
@@ -1290,9 +1355,8 @@ async def update_client_details(
     client.paye_reference = paye_reference or None
     client.accounts_office_reference = accounts_office_reference or None
     client.gov_gateway_username = gov_gateway_username or None
-    client.gov_gateway_password = gov_gateway_password or None
+    # Passwords are no longer stored on the client row (AML/cyber).
     client.accounts_software_id = accounts_software_id or None
-    client.accounts_software_password = accounts_software_password or None
     client.ch_authentication_code = _store_ch_auth_code(
         client.ch_authentication_code, ch_authentication_code
     )
@@ -1317,6 +1381,10 @@ async def update_client_details(
         freq = "Monthly"
     client.retainer_frequency = freq if client.retainer_amount or model == "Retainer" else None
     client.retainer_notes = (retainer_notes or "").strip() or None
+    if (cs_tariff or "").strip():
+        from app.models.client import normalise_cs_tariff
+
+        client.cs_tariff = normalise_cs_tariff(cs_tariff)
     if model == "Retainer" and not client.retainer_amount:
         # still mark as retainer even if amount to fill later
         client.billing_model = "Retainer"
@@ -1642,6 +1710,85 @@ async def update_client_status(
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
+def _session_username(request: Request) -> str:
+    try:
+        return (request.session.get("user") or "")[:80]
+    except Exception:
+        return ""
+
+
+@router.post("/{client_id:int}/hold")
+async def client_set_hold(
+    client_id: int,
+    request: Request,
+    reason: str = Form(""),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Set practice-wide hold. Bots skip this client until cleared."""
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    from app.services.practice_hold import set_hold
+
+    set_hold(
+        db,
+        client,
+        reason=reason,
+        note=note,
+        by=_session_username(request),
+    )
+    return RedirectResponse(
+        f"/clients/{client_id}?msg="
+        + url_quote("Practice hold set. Bots will skip this client."),
+        status_code=303,
+    )
+
+
+@router.post("/{client_id:int}/hold/clear")
+async def client_clear_hold(
+    client_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Clear practice hold. Last reason/note kept for audit."""
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    from app.services.practice_hold import clear_hold
+
+    clear_hold(db, client, by=_session_username(request))
+    return RedirectResponse(
+        f"/clients/{client_id}?msg=" + url_quote("Practice hold cleared."),
+        status_code=303,
+    )
+
+
+@router.post("/{client_id:int}/cs-tariff")
+async def client_set_cs_tariff(
+    client_id: int,
+    cs_tariff: str = Form("book"),
+    db: Session = Depends(get_db),
+):
+    """Set CS book vs introduced product tariff. Staff can tag marketed clients later."""
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return RedirectResponse("/clients", status_code=303)
+    from app.models.client import normalise_cs_tariff
+
+    client.cs_tariff = normalise_cs_tariff(cs_tariff)
+    client.updated_at = datetime.utcnow()
+    db.commit()
+    if client.cs_tariff == "product":
+        msg = "CS tariff: introduced £10 (+VAT + £50 CH)."
+    else:
+        msg = "CS tariff: book (£50+VAT+£50 CH)."
+    return RedirectResponse(
+        f"/clients/{client_id}?msg=" + url_quote(msg),
+        status_code=303,
+    )
+
+
 @router.get("/{client_id:int}/edit", response_class=HTMLResponse)
 async def edit_client_form(
     client_id: int, request: Request, db: Session = Depends(get_db)
@@ -1744,9 +1891,7 @@ async def update_client(
     form = await request.form()
     if "gov_gateway_username" in form:
         client.gov_gateway_username = form.get("gov_gateway_username") or None
-        client.gov_gateway_password = form.get("gov_gateway_password") or None
         client.accounts_software_id = form.get("accounts_software_id") or None
-        client.accounts_software_password = form.get("accounts_software_password") or None
         client.ch_authentication_code = _store_ch_auth_code(
             client.ch_authentication_code, form.get("ch_authentication_code")
         )

@@ -108,8 +108,8 @@
       <table class="invoice-doc-lines invoice-doc-lines-edit">
         <thead>
           <tr>
-            <th>Service id</th>
-            <th>Description</th>
+            <th>Service</th>
+            <th>Description (prints on invoice)</th>
             <th>Period end</th>
             <th class="num">Qty</th>
             <th class="num">Unit £</th>
@@ -121,12 +121,16 @@
           {% set n = loop.index %}
           <tr>
             <td>
-              <input name="line_service_{{ n }}" value="{{ ln.service_id if ln and ln.service_id else '' }}"
-                placeholder="id" class="invoice-line-input num-input" title="Service catalogue id (optional)">
+              <select name="line_service_{{ n }}" class="invoice-line-input" title="Catalogue service (optional)">
+                <option value="">— free text —</option>
+                {% for s in services %}
+                <option value="{{ s.id }}" {% if ln and ln.service_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                {% endfor %}
+              </select>
             </td>
             <td>
               <input name="line_desc_{{ n }}" value="{{ ln.description if ln else '' }}"
-                placeholder="Description" class="invoice-line-input">
+                placeholder="Description shown on the invoice" class="invoice-line-input">
             </td>
             <td>
               <input type="date" name="line_period_{{ n }}"
@@ -150,7 +154,7 @@
         </tbody>
       </table>
       <p class="muted small" style="margin:0.5rem 0 0">
-        Service + period end print as columns. Client notes only below — Xero/system text goes under Internal.
+        The description column is what the client sees (not the job type). Confirmation statements include a £50 Companies House disbursement at 0% VAT by default.
       </p>
     </div>
 

@@ -27,6 +27,7 @@ NOMINAL_CATEGORIES = [
     ("transfer", "Transfer (own accounts)"),
     ("other_income", "Other income"),
     ("other_expense", "Other expense"),
+    ("travel_subsistence", "Travel & subsistence"),
 ]
 
 CATEGORY_LABELS = {c: lab for c, lab in NOMINAL_CATEGORIES}

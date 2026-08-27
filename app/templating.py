@@ -286,6 +286,58 @@ def render(request, name: str, context: dict | None = None, status_code: int = 2
     locked = is_demo_locked(request)
     ctx["demo_mode"] = demo
     ctx["demo_locked"] = locked
+    from app.services.staff_rbac import is_principal, is_read_only, is_viewer, staff_role
+
+    logged_in = bool(request.session.get("user"))
+    ctx.setdefault("staff_role", staff_role(request) if logged_in else "")
+    ctx.setdefault("is_principal", bool(logged_in and is_principal(request)))
+    ctx.setdefault("is_viewer", bool(logged_in and is_viewer(request)))
+    ctx.setdefault("is_read_only", bool(logged_in and is_read_only(request)))
+    try:
+        from app.config import DB_DIALECT, DB_HOST, IS_SQLITE
+
+        ctx.setdefault("book_is_local", bool(IS_SQLITE))
+        ctx.setdefault("book_dialect", DB_DIALECT)
+        ctx.setdefault("book_host", DB_HOST or "")
+        host = (DB_HOST or "").lower()
+        if IS_SQLITE:
+            stamp = ""
+            try:
+                from pathlib import Path
+
+                stamp_path = Path(__file__).resolve().parent.parent / "logs" / "last-render-push.txt"
+                if stamp_path.is_file():
+                    stamp = stamp_path.read_text(encoding="utf-8").strip()[:32]
+            except Exception:
+                stamp = ""
+            ctx.setdefault(
+                "book_banner",
+                {
+                    "kind": "local",
+                    "text": "Local book on this laptop (crm.db). Phone / demo catch up at 17:00.",
+                    "stamp": stamp,
+                },
+            )
+        elif "ohio" in host:
+            ctx.setdefault(
+                "book_banner",
+                {
+                    "kind": "slow",
+                    "text": "Using Ohio Postgres — every page waits on the Atlantic. Comment out DATABASE_URL and restart to use local crm.db.",
+                    "stamp": "",
+                },
+            )
+        else:
+            ctx.setdefault(
+                "book_banner",
+                {
+                    "kind": "remote",
+                    "text": f"Using Postgres {DB_HOST}. Daily work is faster on local crm.db.",
+                    "stamp": "",
+                },
+            )
+    except Exception:
+        ctx.setdefault("book_banner", None)
     # Accology brand assets (logo) on every page
     try:
         from app.services.branding import practice_branding_context

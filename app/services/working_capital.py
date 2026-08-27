@@ -613,6 +613,8 @@ def wip_list_status(job: Job, today: Optional[date] = None) -> str:
     if getattr(job, "is_on_hold", lambda: False)():
         return "On hold"
     st = (job.status or "").strip().lower()
+    if st in ("ready for review", "review"):
+        return "Ready for review"
     if st == "today":
         return "Today"
     if st == "tomorrow":
@@ -654,7 +656,7 @@ def job_focus_band(job: Job, today: Optional[date] = None) -> str:
     )():
         return "later"
     st = (job.status or "").strip().lower()
-    if st == "today":
+    if st in ("today", "ready for review", "review"):
         return "today"
     if st == "tomorrow":
         return "tomorrow"

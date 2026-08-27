@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Approval link · {{ job.title or job.type }}{% endblock %}
+{% block content %}
+<p class="small muted"><a href="/jobs/{{ job.id }}">← Back to job</a></p>
+<h1>Client approval link</h1>
+<p>Send this to the client. It expires in 14 days. It does not email them from here, and it does not file anything.</p>
+<p><input readonly value="{{ approval_url }}" style="width:100%" onclick="this.select()"></p>
+<p class="small muted">Current status: {{ job.client_approval_status or 'none' }}</p>
+{% endblock %}

@@ -33,6 +33,7 @@ class BankAccount(Base):
     is_active = Column(Boolean, default=True)
     is_primary = Column(Boolean, default=False)
     notes = Column(Text, nullable=True)
+    xero_account_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     transactions = relationship(

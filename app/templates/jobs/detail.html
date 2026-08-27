@@ -24,6 +24,10 @@
     </p>
   </div>
   <div class="actions">
+    <a class="btn btn-sm" href="/jobs/{{ job.id }}/approval-link">Client approval link</a>
+    {% if job.client_approval_status %}
+    <span class="badge">Approval: {{ job.client_approval_status }}{% if job.client_approval_by %} ({{ job.client_approval_by }}){% endif %}</span>
+    {% endif %}
     {% set bill_st = (job.billing_status or '')|lower %}
     {% set is_retainer = job.client and job.client.is_retainer() %}
     {% set default_billing = job_done_default_billing if job_done_default_billing else ('none' if is_retainer else 'draft') %}

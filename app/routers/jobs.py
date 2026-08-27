@@ -168,8 +168,8 @@ def _list_jobs_page(
         jobs = [
             j
             for j in jobs
-            if j.display_status(today) in ("Today", "Overdue")
-            or (j.status or "") == "Today"
+            if j.display_status(today) in ("Today", "Overdue", "Ready for review")
+            or (j.status or "") in ("Today", "Ready for review", "Review")
         ]
     elif status == "Tomorrow":
         jobs = [
@@ -875,6 +875,10 @@ def _spawn_next_recurring_job(db: Session, job: Job) -> Optional[Job]:
     if is_vat and client and (getattr(client, "vat_frequency", None) or "").strip():
         is_rec = True
     if not is_rec:
+        return None
+    from app.services.practice_hold import is_held
+
+    if is_held(client):
         return None
     pe = job.period_end
     if not pe or not job.client_id:

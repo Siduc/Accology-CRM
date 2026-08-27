@@ -717,7 +717,6 @@ PEOPLE_EXPORT_HEADERS = [
     "ni_number",
     "ch_code",
     "gov_gateway_username",
-    "gov_gateway_password",
     "company_numbers",
     "company_names",
     "notes",
@@ -735,7 +734,6 @@ PEOPLE_UPDATABLE = {
     "ni_number",
     "ch_code",
     "gov_gateway_username",
-    "gov_gateway_password",
     "notes",
 }
 
@@ -764,7 +762,6 @@ def export_people_csv(db: Session) -> str:
                 "ni_number": p.ni_number or "",
                 "ch_code": p.ch_code or "",
                 "gov_gateway_username": p.gov_gateway_username or "",
-                "gov_gateway_password": p.gov_gateway_password or "",
                 "company_numbers": ";".join(
                     (c.company_number or "") for c in cos if c.company_number
                 ),
@@ -856,7 +853,6 @@ def reimport_people(db: Session, text: str, *, allow_create: bool = True) -> Exc
             ni_number=(row.get("ni_number") or "").strip() or None,
             ch_code=(row.get("ch_code") or "").strip() or None,
             gov_gateway_username=(row.get("gov_gateway_username") or "").strip() or None,
-            gov_gateway_password=(row.get("gov_gateway_password") or "").strip() or None,
             notes=(row.get("notes") or "").strip() or None,
         )
         cns = (row.get("company_numbers") or "").strip()

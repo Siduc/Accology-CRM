@@ -112,13 +112,10 @@
         </p>
       </div>
       <div>
-        <label for="gov_gateway_password">Government Gateway password</label>
-        {# Never put the real password in value= — browsers treat it as a password
-           field and can overwrite Phone with the saved password (e.g. nokia123). #}
-        <input id="gov_gateway_password" name="gov_gateway_password" type="password"
-               value=""
-               placeholder="{% if person and person.gov_gateway_password %}•••••••• — leave blank to keep{% else %}Optional{% endif %}"
-               autocomplete="new-password">
+        <p class="small muted" style="margin-top:1.6rem">
+          Government Gateway passwords are not stored in the CRM. Use a password manager.
+          {% if person and person.gov_gateway_password %}A legacy value is still in the database — ask to have it cleared.{% endif %}
+        </p>
       </div>
       <div>
         <label for="person_status">Status</label>

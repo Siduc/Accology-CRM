@@ -27,6 +27,16 @@ from app.services.working_capital import AgeBucket
 # Standard UK VAT for practice sales / Xero sync (0.20 = 20%)
 DEFAULT_SALES_VAT_RATE = 0.20
 
+# Dual-run with Accology Limited Xero: live sequence is INV-05xx…INV-08xx.
+# Never fill unused INV-0001 when raising a new invoice.
+LIVE_INVOICE_SEQ_FLOOR = 100
+
+# Confirmation statements always carry a Companies House disbursement line.
+CS_DISBURSEMENT_NET = 50.0
+CS_DISBURSEMENT_CODE = "CH_DISB"
+CS_DISBURSEMENT_DESC = "Companies House confirmation statement disbursement"
+ZERO_RATED_SERVICE_CODES = frozenset({CS_DISBURSEMENT_CODE})
+
 # Patterns that must never appear on the client-facing invoice notes
 _INTERNAL_NOTE_MARKERS = (
     "finalised in crm",
@@ -159,6 +169,29 @@ DEFAULT_SERVICES_SEED = [
         "description": "Companies House confirmation statement.",
         "default_fee": 50.0,
         "category": "compliance",
+        "unit": "job",
+        "recurrence": "annually",
+    },
+    {
+        "code": "CS_PRODUCT",
+        "name": "Confirmation Statement (introduced)",
+        "description": (
+            "Introduced confirmation statement product (£10 + VAT). "
+            "Only for clients with cs_tariff=product; CH disbursement still applies."
+        ),
+        "default_fee": 10.0,
+        "default_vat_rate": 0.2,
+        "category": "compliance",
+        "unit": "job",
+        "recurrence": "annually",
+    },
+    {
+        "code": "CH_DISB",
+        "name": "Companies House disbursement",
+        "description": "Companies House confirmation statement filing fee (disbursement, outside VAT).",
+        "default_fee": 50.0,
+        "default_vat_rate": 0.0,
+        "category": "disbursement",
         "unit": "job",
         "recurrence": "annually",
     },
@@ -332,7 +365,12 @@ def seed_services(db: Session) -> int:
         )
         added += 1
     # Ensure existing sellable services default to 20% when still 0
+    # (never overwrite explicit zero-rated disbursements)
     for svc in db.query(Service).filter(Service.is_active.is_(True)).all():
+        if (svc.code or "").strip().upper() in ZERO_RATED_SERVICE_CODES:
+            continue
+        if (svc.category or "").strip().lower() == "disbursement":
+            continue
         if float(svc.default_vat_rate or 0) <= 1e-9:
             svc.default_vat_rate = DEFAULT_SALES_VAT_RATE
             updated += 1
@@ -414,23 +452,187 @@ def format_invoice_number(seq: int) -> str:
     return f"INV-{n:04d}"
 
 
+def _crm_live_invoice_seq_max(db: Session) -> int:
+    """Highest Accology Limited invoice sequence currently on the CRM."""
+    mx = 0
+    for (num,) in db.query(Invoice.number).all():
+        s = str(num or "").strip().upper()
+        if s.startswith("AP-"):
+            continue
+        seq = invoice_number_seq(s)
+        if seq >= LIVE_INVOICE_SEQ_FLOOR and seq > mx:
+            mx = seq
+    return mx
+
+
 def next_invoice_number(db: Session) -> str:
+    """Next Accology Limited number = max(CRM live sequence, Xero) + 1.
+
+    Dual-run with Xero: do not reuse INV-0001 just because that gap is empty.
+    Accology Pays invoices use next_pays_invoice_number (AP-0001…).
     """
-    Next invoice number: fill the lowest free sequence first so deleted
-    invoice numbers are reused (helps Xero sequence alignment), otherwise max+1.
-    """
-    used = {
-        invoice_number_seq(row[0])
-        for row in db.query(Invoice.number).all()
-        if str(row[0] or "").upper().startswith("INV") and invoice_number_seq(row[0]) > 0
+    crm_max = _crm_live_invoice_seq_max(db)
+    xero_max = 0
+    try:
+        from app.services.xero_practice_sync import peek_xero_invoice_seq_max
+
+        xero_max = int(peek_xero_invoice_seq_max(db) or 0)
+    except Exception:
+        xero_max = 0
+    n = max(crm_max, xero_max, 0) + 1
+    return format_invoice_number(n)
+
+
+def is_placeholder_invoice_number(number: Optional[str]) -> bool:
+    """True for INV-0001 / 0001 — not a live Xero sequence number."""
+    s = (number or "").strip().upper()
+    if not s or s.startswith("AP-"):
+        return False
+    seq = invoice_number_seq(s)
+    return 0 < seq < LIVE_INVOICE_SEQ_FLOOR
+
+
+def assign_live_invoice_number(db: Session, raw: Optional[str] = None) -> str:
+    """Normalise a typed number, replacing INV-0001-style placeholders."""
+    if raw and str(raw).strip():
+        num = normalise_invoice_number(str(raw).strip())
+        if num and not is_placeholder_invoice_number(num):
+            return num
+    return next_invoice_number(db)
+
+
+def is_cs_job(job: Optional[Job]) -> bool:
+    if job is None:
+        return False
+    t = (job.type or "").strip().lower()
+    if "confirmation" in t or t in ("cs", "c.s.", "c/s"):
+        return True
+    title = (job.title or "").strip().lower()
+    if "confirmation statement" in title:
+        return True
+    return title.startswith("cs ") or title.startswith("cs—") or title.startswith("cs-")
+
+
+def is_disbursement_line(row) -> bool:
+    if row is None:
+        return False
+    desc = ""
+    code = ""
+    if isinstance(row, dict):
+        desc = str(row.get("description") or "")
+        code = str(row.get("service_code") or "")
+    else:
+        desc = str(getattr(row, "description", None) or "")
+        svc = getattr(row, "service", None)
+        code = str(getattr(svc, "code", None) or "")
+    blob = f"{desc} {code}".lower()
+    return "disbursement" in blob or "companies house" in blob or code.upper() == CS_DISBURSEMENT_CODE
+
+
+def cs_disbursement_service(db: Session) -> Optional[Service]:
+    seed_services(db)
+    return db.query(Service).filter(Service.code == CS_DISBURSEMENT_CODE).first()
+
+
+def cs_disbursement_line_dict(
+    db: Session, *, period_end: Optional[date] = None
+) -> dict:
+    svc = cs_disbursement_service(db)
+    return {
+        "service_id": svc.id if svc else None,
+        "description": CS_DISBURSEMENT_DESC,
+        "period_end": period_end,
+        "qty": 1,
+        "unit_price": CS_DISBURSEMENT_NET,
+        "vat_rate": 0.0,
     }
-    if not used:
-        return format_invoice_number(1)
-    max_n = max(used)
-    for i in range(1, max_n + 2):
-        if i not in used:
-            return format_invoice_number(i)
-    return format_invoice_number(max_n + 1)
+
+
+def with_cs_disbursement(
+    db: Session,
+    lines: Sequence[dict],
+    *,
+    job: Optional[Job] = None,
+    period_end: Optional[date] = None,
+    force: bool = False,
+) -> list:
+    """Append the £50 CH disbursement when this is a confirmation-statement invoice."""
+    out = [dict(row) for row in (lines or [])]
+    looks = force or is_cs_job(job)
+    if not looks:
+        for row in out:
+            blob = str(row.get("description") or "").lower()
+            if "confirmation statement" in blob or blob.strip() in ("cs",):
+                looks = True
+                break
+    if not looks:
+        return out
+    if any(is_disbursement_line(row) for row in out):
+        return out
+    pe = period_end
+    if pe is None and job is not None:
+        pe = job.period_end
+    if pe is None:
+        for row in out:
+            if row.get("period_end"):
+                pe = row.get("period_end")
+                break
+    out.append(cs_disbursement_line_dict(db, period_end=pe))
+    return out
+
+
+def ensure_cs_disbursement_on_invoice(
+    db: Session,
+    invoice: Invoice,
+    *,
+    job: Optional[Job] = None,
+    commit: bool = False,
+) -> bool:
+    """Add the £50 disbursement line to an existing CS invoice if missing."""
+    if invoice is None:
+        return False
+    if job is None and invoice.job_id:
+        job = db.query(Job).filter(Job.id == invoice.job_id).first()
+    looks_cs = is_cs_job(job)
+    if not looks_cs:
+        for ln in invoice.lines or []:
+            blob = (ln.description or "").lower()
+            svc = getattr(ln, "service", None)
+            name = (svc.name if svc else "") or ""
+            if "confirmation statement" in blob or "confirmation statement" in name.lower():
+                looks_cs = True
+                break
+    if not looks_cs:
+        return False
+    if any(is_disbursement_line(ln) for ln in (invoice.lines or [])):
+        return False
+    pe = None
+    if job and job.period_end:
+        pe = job.period_end
+    elif invoice.lines:
+        pe = invoice.lines[0].period_end
+    row = cs_disbursement_line_dict(db, period_end=pe)
+    db.add(
+        InvoiceLine(
+            invoice_id=invoice.id,
+            service_id=row.get("service_id"),
+            description=row["description"],
+            period_end=pe,
+            qty=1,
+            unit_price=CS_DISBURSEMENT_NET,
+            vat_rate=0.0,
+            line_total=CS_DISBURSEMENT_NET,
+        )
+    )
+    db.flush()
+    recompute_invoice_totals(db, invoice)
+    if job and invoice.subtotal is not None:
+        job.fee = float(invoice.subtotal)
+        job.gross_amount = float(invoice.total or 0)
+        job.vat_amount = float(invoice.vat_total or 0)
+    if commit:
+        db.commit()
+    return True
 
 
 def next_pays_invoice_number(db: Session) -> str:
@@ -545,14 +747,13 @@ def create_invoice(
 ) -> Invoice:
     inv_number = number
     issuer_key = (issuer or "accology").strip().lower() or "accology"
-    if inv_number:
-        inv_number = inv_number.strip()
-        if issuer_key != "accology_pays":
-            inv_number = normalise_invoice_number(inv_number)
-    elif issuer_key == "accology_pays":
-        inv_number = next_pays_invoice_number(db)
+    if issuer_key == "accology_pays":
+        if inv_number:
+            inv_number = inv_number.strip()
+        else:
+            inv_number = next_pays_invoice_number(db)
     else:
-        inv_number = next_invoice_number(db)
+        inv_number = assign_live_invoice_number(db, inv_number)
     client_notes, internal_from_notes = split_invoice_notes(notes)
     inv = Invoice(
         number=inv_number,
@@ -642,7 +843,10 @@ def update_invoice(
     if client_id is not None:
         invoice.client_id = client_id
     if number is not None:
-        num = normalise_invoice_number(number)
+        if (invoice.issuer or "accology") == "accology_pays":
+            num = (number or "").strip() or invoice.number
+        else:
+            num = assign_live_invoice_number(db, number)
         if num:
             clash = (
                 db.query(Invoice)
@@ -1912,6 +2116,14 @@ def invoice_from_job(
     seed_services(db)
     existing = find_invoice_for_job(db, job)
     if existing:
+        if is_placeholder_invoice_number(existing.number) and (
+            existing.issuer or "accology"
+        ) != "accology_pays":
+            existing.number = next_invoice_number(db)
+            job.invoice_reference = existing.number
+            db.flush()
+        ensure_cs_disbursement_on_invoice(db, existing, job=job, commit=True)
+        db.refresh(existing)
         return existing
 
     if not job.client_id:
@@ -1935,7 +2147,10 @@ def invoice_from_job(
 
     pe = job.period_end
     # Description stays clean — Service + Period end are separate invoice columns
-    desc = (job.title or job.type or "Professional services").strip()
+    if is_cs_job(job):
+        desc = (svc.name if svc else None) or "Confirmation Statement"
+    else:
+        desc = (job.title or job.type or "Professional services").strip()
     # Strip accidental "period end YYYY-MM-DD" from titles for display cleanliness
     desc = re.sub(
         r"\s*[—\-–]\s*period end\s+\d{4}-\d{2}-\d{2}\s*$",
@@ -1949,6 +2164,17 @@ def invoice_from_job(
     internal = f"Raised from job #{job.id}"
     if inv_status == "draft":
         internal += " (held as draft)"
+    lines = [
+        {
+            "service_id": svc.id if svc else None,
+            "description": desc,
+            "period_end": pe,
+            "qty": 1,
+            "unit_price": amount,
+            "vat_rate": vat_rate,
+        }
+    ]
+    lines = with_cs_disbursement(db, lines, job=job, period_end=pe)
     inv = create_invoice(
         db,
         client_id=int(job.client_id),
@@ -1959,16 +2185,7 @@ def invoice_from_job(
         status=inv_status,
         import_key=f"job-{job.id}",
         notes=internal,
-        lines=[
-            {
-                "service_id": svc.id if svc else None,
-                "description": desc,
-                "period_end": pe,
-                "qty": 1,
-                "unit_price": amount,
-                "vat_rate": vat_rate,
-            }
-        ],
+        lines=lines,
     )
     return inv
 

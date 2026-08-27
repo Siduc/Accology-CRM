@@ -52,6 +52,7 @@ from app.models.client_billing import ClientJobPattern
 from app.models.client_playbook import ClientPlaybook
 from app.models.xero_token import XeroToken
 from app.models.book_oauth_token import BookOauthToken
+from app.models.staff_user import StaffUser
 
 __all__ = [
     "Client",
@@ -59,6 +60,7 @@ __all__ = [
     "ClientPlaybook",
     "XeroToken",
     "BookOauthToken",
+    "StaffUser",
     "ClientConnection",
     "PracticeGroup",
     "PracticeGroupMember",

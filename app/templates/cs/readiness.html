@@ -49,6 +49,21 @@
     <div class="wc-box-value">{{ counts.missing }}</div>
     <div class="wc-box-meta">More work</div>
   </a>
+  <a class="wc-box wc-box-wip wc-touch {% if filter in ('missing_auth','awaiting_code') %}is-selected{% endif %}" href="/cs/readiness?filter=missing_auth">
+    <div class="wc-box-head"><span class="wc-box-title">Missing auth</span></div>
+    <div class="wc-box-value">{{ counts.missing_auth }}</div>
+    <div class="wc-box-meta">CH code</div>
+  </a>
+  <a class="wc-box wc-box-debtors wc-touch {% if filter == 'unbilled' %}is-selected{% endif %}" href="/cs/readiness?filter=unbilled">
+    <div class="wc-box-head"><span class="wc-box-title">Unbilled</span></div>
+    <div class="wc-box-value">{{ counts.unbilled }}</div>
+    <div class="wc-box-meta">Ready, no invoice</div>
+  </a>
+  <a class="wc-box wc-box-creditors wc-touch {% if filter in ('on_hold','held') %}is-selected{% endif %}" href="/cs/readiness?filter=on_hold">
+    <div class="wc-box-head"><span class="wc-box-title">On hold</span></div>
+    <div class="wc-box-value">{{ counts.held or 0 }}</div>
+    <div class="wc-box-meta">Bots skip</div>
+  </a>
 </div>
 
 <div class="card">
@@ -59,6 +74,8 @@
           <th>Client</th>
           <th>Due</th>
           <th>Status</th>
+          <th>Stage</th>
+          <th>Bill</th>
           <th>Auth</th>
           <th>Shares</th>
           <th>Pack</th>
@@ -74,6 +91,9 @@
         <tr>
           <td>
             <a href="/clients/{{ c.id }}"><strong>{{ c.display_name() }}</strong></a>
+            {% if r.on_hold %}
+            <div class="badge badge-overdue">{{ r.hold_label or 'On hold' }}</div>
+            {% endif %}
             <div class="muted small">{{ c.company_number or '—' }}
               {% if job %} · <a href="/jobs/{{ job.id }}">Job #{{ job.id }}</a>{% endif %}
             </div>
@@ -95,6 +115,14 @@
             {% endif %}
             <div class="muted small">{{ r.ok_count }}/{{ r.total }}</div>
           </td>
+          <td class="small">{{ (r.workflow_stage or 'preparing')|replace('_', ' ') }}</td>
+          <td class="small">
+            {% if r.billed %}
+              {{ r.invoice_ref or 'billed' }}
+            {% else %}
+              <span class="muted">unbilled</span>
+            {% endif %}
+          </td>
           <td class="num">{% for i in r.checklist if i.key == 'auth_code' %}{% if i.ok %}✓{% else %}·{% endif %}{% endfor %}</td>
           <td class="num">{% for i in r.checklist if i.key == 'share_register' %}{% if i.ok %}✓{% else %}·{% endif %}{% endfor %}</td>
           <td class="num">{% for i in r.checklist if i.key == 'cs_pack' %}{% if i.ok %}✓{% else %}·{% endif %}{% endfor %}</td>
@@ -109,7 +137,15 @@
             <a class="btn btn-sm btn-outline" href="/clients/{{ c.id }}?tab=statutory">Statutory / CH</a>
             {% if pack %}
             <a class="btn btn-sm btn-outline" href="/cs/{{ pack.id }}">Pack</a>
-            {% if r.practice_ready and pack.status != 'ready_to_file' and pack.status != 'filed' %}
+            {% if r.missing_auth %}
+            <form method="post" action="/cs/{{ pack.id }}/code-requested" style="display:inline">
+              <button class="btn btn-sm btn-outline" type="submit">Code requested</button>
+            </form>
+            {% endif %}
+            {% if r.on_hold %}
+            {# Bots skip held clients - no Ready+invoice #}
+            {% elif r.practice_ready and pack.status != 'ready_to_file' and pack.status != 'filed' %}
+            {% if not is_viewer %}
             <form method="post" action="/cs/{{ pack.id }}/ready" style="display:inline">
               <input type="hidden" name="raise_invoice" value="yes">
               <button class="btn btn-sm" type="submit"
@@ -117,6 +153,7 @@
                 Ready + invoice
               </button>
             </form>
+            {% endif %}
             {% elif pack.status == 'ready_to_file' %}
             <span class="badge badge-active">Ready to file</span>
             {% endif %}
@@ -128,7 +165,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="empty">No CS work on this filter.</td></tr>
+        <tr><td colspan="10" class="empty">No CS work on this filter.</td></tr>
         {% endfor %}
       </tbody>
     </table>

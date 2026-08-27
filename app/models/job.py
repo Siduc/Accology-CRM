@@ -56,6 +56,10 @@ class Job(Base):
     # Staff alert (surfaces in top notify banner when due)
     alert_on = Column(Date, nullable=True, index=True)
     alert_note = Column(String, nullable=True)
+    # Client approval via signed link (not a portal login)
+    client_approval_status = Column(String, nullable=True)  # none/sent/approved/declined
+    client_approval_at = Column(DateTime, nullable=True)
+    client_approval_by = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -65,6 +69,7 @@ class Job(Base):
         "Planned",
         "In Progress",
         "Review",
+        "Ready for review",
         "Today",
         "Tomorrow",
         "This week",
@@ -156,8 +161,8 @@ class Job(Base):
         if self.is_closed() or self.is_on_hold():
             return self.status or "—"
         st = (self.status or "").strip()
-        if st in ("Today", "Tomorrow", "This week"):
-            return st
+        if st in ("Today", "Tomorrow", "This week", "Ready for review", "Review"):
+            return "Ready for review" if st in ("Ready for review", "Review") else st
         today = today or date.today()
         try:
             from app.services.working_capital import wip_list_status

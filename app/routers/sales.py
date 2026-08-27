@@ -42,10 +42,14 @@ from app.services.sales_ledger import (
     coerce_sales_vat_rate,
     create_invoice,
     create_quote,
+    cs_disbursement_line_dict,
     delete_invoice,
     debtor_age_tiles,
     debtors_total,
     import_opening_balances,
+    is_cs_job,
+    is_placeholder_invoice_number,
+    next_invoice_number,
     sales_day_book,
     invoice_age_days,
     invoice_from_quote,
@@ -55,6 +59,7 @@ from app.services.sales_ledger import (
     seed_services,
     suggested_chase_action,
     update_invoice,
+    with_cs_disbursement,
 )
 from app.templating import render
 
@@ -340,6 +345,8 @@ async def invoice_new_form(
     )
     services = db.query(Service).filter(Service.is_active.is_(True)).order_by(Service.name).all()
     job = db.query(Job).filter(Job.id == job_id).first() if job_id else None
+    cs_job = is_cs_job(job)
+    disb = cs_disbursement_line_dict(db, period_end=job.period_end if job else None) if cs_job else None
     return render(
         request,
         "sales/invoice_form.html",
@@ -350,6 +357,9 @@ async def invoice_new_form(
             "job": job,
             "error": None,
             "today": date.today(),
+            "next_number": next_invoice_number(db),
+            "is_cs_job": cs_job,
+            "cs_disbursement": disb,
         },
     )
 
@@ -359,6 +369,7 @@ async def invoice_create(
     request: Request,
     client_id: int = Form(...),
     job_id: str = Form(""),
+    number: str = Form(""),
     issue_date: str = Form(""),
     due_date: str = Form(""),
     notes: str = Form(""),
@@ -403,6 +414,10 @@ async def invoice_create(
     if not lines:
         return RedirectResponse("/sales/invoices/new?error=1", status_code=303)
     jid = int(job_id) if (job_id or "").isdigit() else None
+    job = db.query(Job).filter(Job.id == jid).first() if jid else None
+    lines = with_cs_disbursement(
+        db, lines, job=job, period_end=job.period_end if job else None
+    )
     inv = create_invoice(
         db,
         client_id=client_id,
@@ -411,10 +426,14 @@ async def invoice_create(
         due_date=_parse_date(due_date),
         notes=notes or None,
         source="job" if jid else "manual",
-        status="sent",
+        status="draft",
+        number=number or None,
         lines=lines,
     )
-    return RedirectResponse(f"/sales/invoices/{inv.id}", status_code=303)
+    return RedirectResponse(
+        f"/sales/invoices/{inv.id}?msg={url_quote('Draft saved — email the client, then push to Xero')}",
+        status_code=303,
+    )
 
 
 @router.get("/invoices/{invoice_id:int}", response_class=HTMLResponse)
@@ -429,6 +448,19 @@ async def invoice_detail(
     )
     if not inv:
         return RedirectResponse("/sales/invoices", status_code=303)
+    remumber_msg = ""
+    if is_placeholder_invoice_number(inv.number) and (
+        inv.issuer or "accology"
+    ) != "accology_pays":
+        old = inv.number
+        inv.number = next_invoice_number(db)
+        if inv.job_id:
+            linked = db.query(Job).filter(Job.id == inv.job_id).first()
+            if linked:
+                linked.invoice_reference = inv.number
+        db.commit()
+        db.refresh(inv)
+        remumber_msg = f"Number {old} was not the Xero sequence — this invoice is now {inv.number}."
     # Move Xero/system text off the printed notes field
     try:
         from app.services.sales_ledger import (
@@ -487,7 +519,7 @@ async def invoice_detail(
         "chase_live": CHASE_LIVE_MODE,
         "smtp_ok": smtp_configured(),
         "client_email": _client_email(client),
-        "msg": request.query_params.get("msg", ""),
+        "msg": remumber_msg or request.query_params.get("msg", ""),
         "error": request.query_params.get("error", ""),
     }
     ctx.update(_practice_branding())
@@ -534,8 +566,24 @@ async def invoice_edit_form(
         .order_by(Service.name)
         .all()
     )
-    # Pad lines to at least 5 editable rows
+    # Pad lines to at least 5 editable rows; CS invoices get the £50 disbursement row
     lines = list(inv.lines or [])
+    from app.services.sales_ledger import is_disbursement_line
+
+    if is_cs_job(job) and not any(is_disbursement_line(ln) for ln in lines if ln):
+        from types import SimpleNamespace
+
+        row = cs_disbursement_line_dict(db, period_end=job.period_end if job else None)
+        lines.append(
+            SimpleNamespace(
+                service_id=row.get("service_id"),
+                description=row["description"],
+                period_end=row.get("period_end"),
+                qty=row["qty"],
+                unit_price=row["unit_price"],
+                vat_rate=row["vat_rate"],
+            )
+        )
     while len(lines) < 5:
         lines.append(None)
     ctx = {
@@ -583,6 +631,14 @@ async def invoice_edit_save(
             s = db.query(Service).filter(Service.id == sid).first()
             if s:
                 row["description"] = s.name
+
+    job_for_cs = db.query(Job).filter(Job.id == inv.job_id).first() if inv.job_id else None
+    lines = with_cs_disbursement(
+        db,
+        lines,
+        job=job_for_cs,
+        period_end=job_for_cs.period_end if job_for_cs else None,
+    )
 
     if not lines:
         return RedirectResponse(
@@ -729,8 +785,197 @@ async def invoice_status(
             msg = "?msg=" + url_quote(
                 "Finalised — no email sent. You can record a payment (or use Paid in Xero)."
             )
+        elif st == "sent":
+            from app.services.xero_practice_sync import maybe_push_invoice_on_send
+
+            note = maybe_push_invoice_on_send(db, inv)
+            if note:
+                msg = "?msg=" + url_quote(note)
         return RedirectResponse(f"/sales/invoices/{invoice_id}{msg}", status_code=303)
     return RedirectResponse(f"/sales/invoices/{invoice_id}", status_code=303)
+
+
+@router.post("/invoices/{invoice_id:int}/push-xero")
+async def invoice_push_xero(invoice_id: int, db: Session = Depends(get_db)):
+    from app.services.xero_practice_sync import push_invoice_to_xero
+
+    result = push_invoice_to_xero(db, invoice_id)
+    if result.get("ok"):
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}?msg={url_quote('Pushed to Xero Accology Limited')}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/sales/invoices/{invoice_id}?error={url_quote((result.get('error') or 'Push failed')[:300])}",
+        status_code=303,
+    )
+
+
+def _invoice_email_bits(db: Session, inv: Invoice, client: Client | None, job: Job | None) -> dict:
+    from app.services.practice_emails import build_context, get_template, render_template
+    from app.services.sales_ledger import format_uk_date
+
+    ctx = build_context(client, job) if client else {}
+    ctx.update(
+        {
+            "invoice_number": inv.number or str(inv.id),
+            "invoice_total": f"£{float(inv.total or 0):,.2f}",
+            "invoice_due": format_uk_date(inv.due_date) or format_uk_date(inv.issue_date),
+        }
+    )
+    tmpl = get_template(db, code="invoice_send") if client else None
+    subject, body = ("", "")
+    if tmpl:
+        subject, body = render_template(tmpl, ctx)
+    if not subject:
+        subject = f"Invoice {inv.number} — {client.display_name() if client else ''}".strip(" —")
+    if not body:
+        due = ctx.get("invoice_due") or "on issue"
+        body = (
+            f"Dear {ctx.get('contact_name') or 'Sir/Madam'},\n\n"
+            f"Please find invoice {inv.number} attached.\n\n"
+            f"Total due: {ctx.get('invoice_total')}\n"
+            f"Due date: {due}\n\n"
+            "Kind regards\n"
+        )
+    return {"subject": subject, "body": body, "template_id": tmpl.id if tmpl else None}
+
+
+@router.get("/invoices/{invoice_id:int}/pdf")
+async def invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
+    from app.services.invoice_pdf import build_invoice_pdf_bytes
+
+    inv = (
+        db.query(Invoice)
+        .options(joinedload(Invoice.lines).joinedload(InvoiceLine.service))
+        .filter(Invoice.id == invoice_id)
+        .first()
+    )
+    if not inv:
+        return RedirectResponse("/sales/invoices", status_code=303)
+    client = db.query(Client).filter(Client.id == inv.client_id).first()
+    job = db.query(Job).filter(Job.id == inv.job_id).first() if inv.job_id else None
+    pdf = build_invoice_pdf_bytes(inv, client, job)
+    fname = f"{inv.number or 'invoice'}.pdf".replace('"', "")
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@router.get("/invoices/{invoice_id:int}/email", response_class=HTMLResponse)
+async def invoice_email_form(
+    invoice_id: int, request: Request, db: Session = Depends(get_db)
+):
+    from app.services.practice_emails import send_capability
+
+    inv = (
+        db.query(Invoice)
+        .options(joinedload(Invoice.lines).joinedload(InvoiceLine.service))
+        .filter(Invoice.id == invoice_id)
+        .first()
+    )
+    if not inv:
+        return RedirectResponse("/sales/invoices", status_code=303)
+    client = db.query(Client).filter(Client.id == inv.client_id).first()
+    job = db.query(Job).filter(Job.id == inv.job_id).first() if inv.job_id else None
+    bits = _invoice_email_bits(db, inv, client, job)
+    cap = send_capability(db)
+    ctx = {
+        "inv": inv,
+        "client": client,
+        "job": job,
+        "to_address": _client_email(client),
+        "subject": bits["subject"],
+        "body": bits["body"],
+        "cap": cap,
+        "error": request.query_params.get("error", ""),
+        "msg": request.query_params.get("msg", ""),
+    }
+    ctx.update(_practice_branding())
+    return render(request, "sales/invoice_email.html", ctx)
+
+
+@router.post("/invoices/{invoice_id:int}/email")
+async def invoice_email_send(
+    invoice_id: int,
+    request: Request,
+    to_address: str = Form(""),
+    subject: str = Form(""),
+    body: str = Form(""),
+    attach_pdf: str = Form(""),
+    push_xero: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    from app.services.invoice_pdf import build_invoice_pdf_bytes
+    from app.services.practice_emails import send_practice_email
+    from app.services.xero_practice_sync import maybe_push_invoice_on_send
+
+    inv = (
+        db.query(Invoice)
+        .options(joinedload(Invoice.lines).joinedload(InvoiceLine.service))
+        .filter(Invoice.id == invoice_id)
+        .first()
+    )
+    if not inv:
+        return RedirectResponse("/sales/invoices", status_code=303)
+    if (inv.issuer or "accology") == "accology_pays":
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}?error={url_quote('Accology Pays invoices are emailed from the Pays letterhead flow')}",
+            status_code=303,
+        )
+    client = db.query(Client).filter(Client.id == inv.client_id).first()
+    job = db.query(Job).filter(Job.id == inv.job_id).first() if inv.job_id else None
+    to = (to_address or "").strip() or _client_email(client)
+    if not to:
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}/email?error={url_quote('Add a client email address first')}",
+            status_code=303,
+        )
+    atts = []
+    if (attach_pdf or "yes").strip().lower() in ("1", "yes", "on", "true"):
+        pdf = build_invoice_pdf_bytes(inv, client, job)
+        atts.append(
+            {
+                "name": f"{inv.number or 'invoice'}.pdf",
+                "content": pdf,
+                "content_type": "application/pdf",
+            }
+        )
+    bits = _invoice_email_bits(db, inv, client, job)
+    _row, flash = send_practice_email(
+        db,
+        client_id=int(inv.client_id),
+        job_id=inv.job_id,
+        to_address=to,
+        subject=(subject or "").strip() or bits["subject"],
+        body=(body or "").strip() or bits["body"],
+        template_id=bits.get("template_id"),
+        sent_by=_session_user(request) or "",
+        attachments=atts,
+    )
+    notes = []
+    if _row.status == "sent":
+        if (inv.status or "").lower() == "draft":
+            inv.status = "sent"
+            if job:
+                job.billing_status = "invoiced"
+                job.invoice_reference = inv.number
+            db.commit()
+        notes.append(flash or "Email sent.")
+        if (push_xero or "").strip().lower() in ("1", "yes", "on", "true"):
+            xnote = maybe_push_invoice_on_send(db, inv)
+            if xnote:
+                notes.append(xnote)
+        return RedirectResponse(
+            f"/sales/invoices/{invoice_id}?msg={url_quote(' '.join(notes))}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/sales/invoices/{invoice_id}/email?error={url_quote(flash or 'Email was not sent')}",
+        status_code=303,
+    )
 
 
 @router.post("/invoices/{invoice_id:int}/xero-paid", response_class=HTMLResponse)
@@ -1282,6 +1527,13 @@ async def chase_send(
     if not inv:
         return RedirectResponse("/sales/chase", status_code=303)
     client = db.query(Client).filter(Client.id == inv.client_id).first()
+    from app.services.practice_hold import is_held
+
+    if is_held(client):
+        return RedirectResponse(
+            "/sales/chase?msg=" + url_quote("Client is on practice hold - chase skipped."),
+            status_code=303,
+        )
     today = date.today()
     overdue = invoice_overdue_days(inv, today)
     st = (stage or "polite").strip().lower()
@@ -1376,6 +1628,10 @@ async def chase_batch(
             continue
         inv = r["inv"]
         client = clients.get(inv.client_id)
+        from app.services.practice_hold import is_held
+
+        if is_held(client):
+            continue
         to, subject, body = build_chase_email(
             stage=st,
             client_name=client.display_name() if client else f"Client {inv.client_id}",

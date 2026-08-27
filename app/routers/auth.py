@@ -3,9 +3,12 @@
 import os
 import secrets
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from sqlalchemy.orm import Session
+
+from app.database import get_db
 from app.templating import render
 
 router = APIRouter(tags=["auth"])
@@ -118,10 +121,12 @@ async def login(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
+    db: Session = Depends(get_db),
 ):
     from urllib.parse import quote as url_quote
 
     from app.services.demo_mode import enter_demo_locked
+    from app.services.staff_auth import authenticate_staff
 
     u = (username or "").strip()
     p = password or ""
@@ -134,12 +139,13 @@ async def login(
         request.session[SESSION_TUTORIAL_DONE] = False
         return RedirectResponse("/demo/tutorial", status_code=303)
 
-    # 2) Staff / full practice login
-    expected_user, expected_pass = _expected_credentials()
-    if _creds_match(u, p, expected_user, expected_pass):
+    # 2) Staff / full practice login (staff_users table, env fallback)
+    staff = authenticate_staff(db, u, p)
+    if staff:
         request.session.clear()
-        request.session["user"] = u
-        # Staff starts on live data; they can enable demo mode themselves
+        request.session["user"] = staff.username
+        request.session["staff_id"] = staff.id
+        request.session["staff_role"] = staff.role or "staff"
         return RedirectResponse("/dashboard", status_code=303)
 
     # Failed log-in: return to landing (or dedicated /login) with message

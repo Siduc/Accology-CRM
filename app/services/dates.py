@@ -135,6 +135,7 @@ JOB_STATUSES = [
     "Planned",
     "In Progress",
     "Review",
+    "Ready for review",
     "Today",
     "Tomorrow",
     "This week",

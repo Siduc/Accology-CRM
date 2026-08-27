@@ -185,6 +185,8 @@ def send_email(
     """
     Attempt SMTP send. Returns (ok, message).
     Caller must enforce CHASE_LIVE_MODE before calling.
+    Skip practice-held clients in chase_send / chase_batch
+    (app.services.practice_hold.is_held) - this helper has no client.
 
     attachments: optional list of {name, content (bytes), content_type}.
     """

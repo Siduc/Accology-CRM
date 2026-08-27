@@ -23,10 +23,14 @@
 
 {% if msg == 'saved' %}
 <div class="chase-banner chase-banner-info">Review saved.</div>
-{% elif msg == 'ready' %}
-<div class="chase-banner chase-banner-info">Marked <strong>ready to file</strong>. Complete filing on Companies House WebFiling, then mark filed here.</div>
-{% elif msg == 'filed' %}
-<div class="chase-banner chase-banner-info">Marked filed in Accologise (practice record). Linked CS job completed if open.</div>
+{% elif msg == 'ready' or msg.startswith('ready') %}
+<div class="chase-banner chase-banner-info">Marked <strong>ready to file</strong>. Complete filing on Companies House WebFiling, then mark filed here.{% if msg != 'ready' %} {{ msg }}{% endif %}</div>
+{% elif msg == 'filed' or msg.startswith('filed') %}
+<div class="chase-banner chase-banner-info">Marked filed in Accologise (practice record). Linked CS job completed if open.{% if msg != 'filed' %} {{ msg }}{% endif %}</div>
+{% elif msg == 'code_requested' %}
+<div class="chase-banner chase-banner-info">CH code chase recorded on this pack.</div>
+{% elif msg == 'code_received' %}
+<div class="chase-banner chase-banner-info">CH code received timestamp recorded.</div>
 {% elif msg == 'refreshed' %}
 <div class="chase-banner chase-banner-info">Refreshed from Companies House public data.</div>
 {% elif msg == 'address_fixed' %}
@@ -560,6 +564,13 @@
     {% endfor %}
   </ul>
   {% endif %}
+  {% if pack.code_requested_at %}
+  <p class="small muted">
+    Code requested {{ pack.code_requested_at }}
+    {% if pack.code_request_note %} · {{ pack.code_request_note }}{% endif %}
+    {% if pack.code_received_at %} · received {{ pack.code_received_at }}{% endif %}
+  </p>
+  {% endif %}
   <div class="actions" style="flex-wrap:wrap;align-items:flex-end">
     <form method="post" action="/cs/{{ pack.id }}/ready" class="stack" style="min-width:14rem">
       <label style="display:flex;align-items:center;gap:0.4rem;font-weight:500">
@@ -570,10 +581,20 @@
       <input name="fee" inputmode="decimal" placeholder="Default from fee schedule" style="max-width:10rem">
       <button class="btn btn-secondary wc-touch" type="submit">Mark ready to file</button>
     </form>
+    <form method="post" action="/cs/{{ pack.id }}/code-requested" class="stack" style="min-width:12rem">
+      <label class="small muted">Code chase note (optional)</label>
+      <input name="note" placeholder="who chased · personal vs company" style="max-width:14rem">
+      <button class="btn btn-outline wc-touch" type="submit">Code requested</button>
+    </form>
+    <form method="post" action="/cs/{{ pack.id }}/code-received">
+      <button class="btn btn-outline wc-touch" type="submit">Code received</button>
+    </form>
     <a class="btn wc-touch" href="{{ webfiling_url }}" target="_blank" rel="noopener">Open Companies House to file</a>
+    {% if not is_viewer %}
     <form method="post" action="/cs/{{ pack.id }}/filed" onsubmit="return confirm('Confirm CS has been filed on Companies House?')">
       <button class="btn btn-outline wc-touch" type="submit">Mark filed in Accologise</button>
     </form>
+    {% endif %}
     <a class="btn btn-outline wc-touch" href="/cs/{{ pack.id }}/export">Export file note (.txt)</a>
     <a class="btn wc-touch" href="/cs/{{ pack.id }}/xml">CS01 XML export</a>
     <form method="post" action="/cs/{{ pack.id }}/refresh" onsubmit="return confirm('Refresh from Companies House? This reloads public data into the pack.')">

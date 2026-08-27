@@ -67,12 +67,17 @@
 <body>
   <div class="card">
     <div class="mark" aria-hidden="true">A</div>
-    <h1>You’re offline</h1>
+    <h1>CRM is not running</h1>
     <p>
-      Accologise needs a connection for live practice data.
-      Reconnect and try again.
+      On this laptop that usually means the Accologise window has stopped —
+      not that the hotspot is down. Double-click <code>start.bat</code> in
+      the accountant-crm folder, then open
+      <strong>http://127.0.0.1:8000</strong> (not the live website).
     </p>
-    <button type="button" onclick="location.reload()">Retry</button>
+    <p>
+      The phone site (accology.co) does need your hotspot.
+    </p>
+    <button type="button" onclick="location.href='http://127.0.0.1:8000/login'">Open local CRM</button>
   </div>
 </body>
 </html>

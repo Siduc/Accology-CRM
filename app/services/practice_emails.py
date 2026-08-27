@@ -63,6 +63,25 @@ Kind regards,
 """,
     },
     {
+        "code": "invoice_send",
+        "name": "Send invoice",
+        "category": "Sales",
+        "sort_order": 15,
+        "subject_template": "Invoice {{invoice_number}} — {{client_name}}",
+        "body_template": """Dear {{contact_name}},
+
+Please find invoice {{invoice_number}} for {{client_name}} attached.
+
+Total due: {{invoice_total}}
+Due date: {{invoice_due}}
+
+Kind regards,
+{{practice_name}}
+{{practice_email}}
+{{practice_phone}}
+""",
+    },
+    {
         "code": "cs_reminder",
         "name": "Confirmation statement reminder",
         "category": "Admin",

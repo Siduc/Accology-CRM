@@ -68,6 +68,7 @@ from app.routers import (
     xero,
     book_sources,
     payroll_onboarding,
+    client_approval,
 )
 
 app = FastAPI(
@@ -100,7 +101,7 @@ _PUBLIC_EXACT = frozenset(
         "/demo/tour",
     }
 )
-_PUBLIC_PREFIXES = ("/static/", "/payroll/")
+_PUBLIC_PREFIXES = ("/static/", "/payroll/", "/approve/")
 
 
 def _is_public_path(path: str) -> bool:
@@ -200,6 +201,13 @@ async def security_and_auth(request: Request, call_next):
 
     # ─── API paths: short-circuit before any browser session redirect ───
     if _is_api_path(path):
+        if request.session.get("user"):
+            from app.services.staff_rbac import viewer_blocked_write
+
+            if viewer_blocked_write(request):
+                return _security_headers(
+                    _json_api_error(403, "View only — changes are not saved.")
+                )
         provided = _header_api_key(request)
         expected = _api_key_configured()
         # Temporary diagnostics (no secret values logged)
@@ -262,6 +270,33 @@ async def security_and_auth(request: Request, call_next):
     if not _is_public_path(path) and not request.session.get("user"):
         return RedirectResponse("/login", status_code=303)
 
+    from app.services.staff_rbac import (
+        is_principal,
+        is_principal_only_path,
+        viewer_blocked_write,
+    )
+
+    if request.session.get("user") and is_principal_only_path(path) and not is_principal(request):
+        from fastapi.responses import HTMLResponse
+
+        return HTMLResponse(
+            "This area is for the practice principal only.",
+            status_code=403,
+        )
+
+    # Viewer: GET/HEAD/OPTIONS allowed. Writes blocked after login (not 303 to login).
+    if request.session.get("user") and viewer_blocked_write(request):
+        from fastapi.responses import HTMLResponse
+
+        if _is_api_path(path):
+            return _security_headers(
+                _json_api_error(403, "View only — changes are not saved.")
+            )
+        return HTMLResponse(
+            "View only — changes are not saved.",
+            status_code=403,
+        )
+
     from app.services.demo_mode import (
         SESSION_KEY as _DEMO_KEY,
         SESSION_LOCKED_KEY as _DEMO_LOCK,
@@ -304,6 +339,7 @@ app.include_router(lost.router)
 app.include_router(clients.router)
 app.include_router(companies_house.router)
 app.include_router(jobs.router)
+app.include_router(client_approval.router)
 app.include_router(people.router)
 app.include_router(imports.router)
 app.include_router(services.router)

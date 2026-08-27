@@ -205,6 +205,7 @@ class Payment(Base):
         Integer, ForeignKey("bank_transactions.id"), nullable=True
     )
     notes = Column(Text, nullable=True)
+    import_key = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     allocations = relationship(

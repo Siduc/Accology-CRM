@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass  # noqa: F401
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session, joinedload
@@ -12,6 +12,7 @@ from app.models import Client, Job
 from app.models.cs_pack import CsPack
 from app.services.company_numbers import normalize_company_number
 from app.services.cs_automation import latest_pack_for_client
+from app.services.practice_hold import is_held
 from app.services.share_register import (
     client_is_ch_entity,
     has_ch_auth_code,
@@ -20,12 +21,196 @@ from app.services.share_register import (
 )
 
 
+def _client_is_held(client: Optional[Client]) -> bool:
+    return is_held(client)
+
+
+def _hold_label(client: Optional[Client]) -> str:
+    if client is None:
+        return ""
+    fn = getattr(client, "hold_label", None)
+    if callable(fn):
+        try:
+            return str(fn() or "")
+        except Exception:
+            return ""
+    return ""
+
+
+CS_WORKFLOW_STAGES = (
+    "awaiting_auth_code",
+    "awaiting_personal_code",
+    "code_requested",
+    "preparing",
+    "ready_to_file",
+    "billed",
+    "filed",
+    "late",
+)
+
+_BILLED_STATUSES = frozenset({"invoiced", "paid", "sent"})
+
+
 @dataclass
 class ReadinessItem:
     key: str
     ok: bool
     label: str
     detail: str = ""
+
+
+def _due_date(pack: Optional[CsPack], job: Optional[Job]) -> Optional[date]:
+    if job is not None and job.statutory_due_date:
+        return job.statutory_due_date
+    if pack is not None and pack.due_on:
+        return pack.due_on
+    return None
+
+
+def _is_billed(job: Optional[Job]) -> bool:
+    if job is None:
+        return False
+    status = (job.billing_status or "").strip().lower()
+    if status in _BILLED_STATUSES:
+        return True
+    return bool((job.invoice_reference or "").strip())
+
+
+def _is_filed(pack: Optional[CsPack], job: Optional[Job]) -> bool:
+    if pack is not None and (pack.status or "") == "filed":
+        return True
+    if job is not None and (job.status or "") == "Completed":
+        return True
+    return False
+
+
+def workflow_stage(
+    pack: Optional[CsPack],
+    job: Optional[Job],
+    client: Optional[Client],
+    today: Optional[date] = None,
+) -> str:
+    """Operational CS stage for the Confirmation Statement Bot (first match wins)."""
+    today = today or date.today()
+    if _is_filed(pack, job):
+        return "filed"
+    due = _due_date(pack, job)
+    if due is not None and due < today:
+        return "late"
+    if _is_billed(job):
+        return "billed"
+    if pack is not None and (pack.status or "") == "ready_to_file":
+        return "ready_to_file"
+
+    auth_ok = has_ch_auth_code(client) if client is not None else False
+    code_requested_at = getattr(pack, "code_requested_at", None) if pack is not None else None
+    code_received_at = getattr(pack, "code_received_at", None) if pack is not None else None
+    note = ((getattr(pack, "code_request_note", None) or "") if pack is not None else "").strip()
+
+    if code_requested_at and not code_received_at and not auth_ok:
+        return "code_requested"
+    if not auth_ok:
+        return "awaiting_auth_code"
+    if auth_ok and not code_received_at and note.lower().startswith("personal"):
+        return "awaiting_personal_code"
+    return "preparing"
+
+
+def stamp_code_requested(
+    db: Session, pack_id: int, *, note: str = ""
+) -> Dict[str, Any]:
+    """Stamp CH code chase on a pack (does not file, does not email)."""
+    pack = db.query(CsPack).filter(CsPack.id == pack_id).first()
+    if not pack:
+        return {"ok": False, "error": "Pack not found.", "pack": None}
+    now = datetime.utcnow()
+    if not pack.code_requested_at:
+        pack.code_requested_at = now
+    note = (note or "").strip()
+    if note:
+        pack.code_request_note = note
+    pack.updated_at = now
+    db.commit()
+    db.refresh(pack)
+    return {"ok": True, "pack": pack, "error": ""}
+
+
+def stamp_code_received(db: Session, pack_id: int) -> Dict[str, Any]:
+    """Stamp that a CH code arrived (does not store the code itself)."""
+    pack = db.query(CsPack).filter(CsPack.id == pack_id).first()
+    if not pack:
+        return {"ok": False, "error": "Pack not found.", "pack": None}
+    now = datetime.utcnow()
+    pack.code_received_at = now
+    if not pack.code_requested_at:
+        pack.code_requested_at = now
+    pack.updated_at = now
+    db.commit()
+    db.refresh(pack)
+    return {"ok": True, "pack": pack, "error": ""}
+
+
+def ensure_cs_invoice(
+    db: Session,
+    pack: CsPack,
+    *,
+    source: str,
+    status: str = "draft",
+) -> Dict[str, Any]:
+    """
+    Raise (or return existing) CS invoice for pack.job_id. Idempotent.
+
+    Does not email. status='sent' for mark-ready; 'draft' as filed safety net.
+    """
+    from app.services.fees import get_suggested_fee
+    from app.services.sales_ledger import find_invoice_for_job, invoice_from_job
+
+    if not pack or not pack.job_id:
+        return {"invoice": None, "message": "No job on pack — invoice skipped."}
+
+    job = db.query(Job).filter(Job.id == pack.job_id).first()
+    if not job:
+        return {"invoice": None, "message": "No CS job linked — invoice skipped."}
+
+    from app.services.practice_hold import is_held
+
+    cl = job.client
+    if cl is None and job.client_id:
+        cl = db.query(Client).filter(Client.id == job.client_id).first()
+    if is_held(cl):
+        return {"invoice": None, "message": "Client is on practice hold - invoice skipped."}
+
+    existing = find_invoice_for_job(db, job)
+    if existing:
+        return {
+            "invoice": existing,
+            "message": f"Invoice {existing.number or existing.id} already exists.",
+        }
+
+    if not job.fee or float(job.fee or 0) <= 0:
+        pe = job.period_end or pack.made_up_to or date.today()
+        from app.services.fees import CS_PRODUCT_FEE, is_cs_product
+
+        fallback = CS_PRODUCT_FEE if is_cs_product(cl) else 50.0
+        try:
+            job.fee = float(
+                get_suggested_fee(
+                    db,
+                    "Confirmation Statement",
+                    period_end=pe,
+                    client_id=job.client_id,
+                )
+                or fallback
+            )
+        except Exception:
+            job.fee = fallback
+        db.commit()
+
+    inv = invoice_from_job(db, job, status=status, source=source)
+    return {
+        "invoice": inv,
+        "message": f"Invoice raised ({inv.number or inv.id}).",
+    }
 
 
 def assess_client(
@@ -125,6 +310,11 @@ def assess_client(
     if due:
         days_to_due = (due - today).days
 
+    billed = _is_billed(job)
+    invoice_ref = (job.invoice_reference or "").strip() if job else ""
+    practice_ready = n_block == 0
+    pack_ready = bool(pack and (pack.status or "") == "ready_to_file")
+
     return {
         "client": client,
         "pack": pack,
@@ -135,13 +325,22 @@ def assess_client(
         "ok_count": sum(1 for i in items if i["ok"]),
         "total": len(items),
         "level": level,
-        "practice_ready": n_block == 0,
+        "practice_ready": practice_ready,
         "due": due,
         "days_to_due": days_to_due,
         "overdue": bool(due and days_to_due is not None and days_to_due < 0),
         "due_soon": bool(
             due and days_to_due is not None and 0 <= days_to_due <= 30
         ),
+        "workflow_stage": workflow_stage(pack, job, client, today),
+        "billed": billed,
+        "invoice_ref": invoice_ref or None,
+        "code_requested_at": getattr(pack, "code_requested_at", None) if pack else None,
+        "missing_auth": not auth_ok,
+        "unbilled": (practice_ready or pack_ready) and not billed,
+        "on_hold": _client_is_held(client),
+        "hold_reason": (getattr(client, "hold_reason", None) or "") if client else "",
+        "hold_label": _hold_label(client),
     }
 
 
@@ -154,7 +353,8 @@ def list_cs_readiness_board(
     """
     Board of CS work: open Confirmation Statement jobs + readiness.
 
-    filter_key: open | overdue | due_soon | ready | almost | missing | all
+    filter_key: open | overdue | due_soon | ready | almost | missing
+                | missing_auth | awaiting_code | unbilled | on_hold | all
     """
     today = today or date.today()
     jobs = (
@@ -203,18 +403,31 @@ def list_cs_readiness_board(
         rows.append(row)
         pack_client_ids.add(client.id)
 
+    n_held = sum(1 for r in rows if r.get("on_hold"))
     fk = (filter_key or "open").strip().lower()
-    if fk == "overdue":
-        rows = [r for r in rows if r.get("overdue")]
-    elif fk in ("due_soon", "soon"):
-        rows = [r for r in rows if r.get("due_soon") or r.get("overdue")]
-    elif fk == "ready":
-        rows = [r for r in rows if r.get("level") == "ready"]
-    elif fk == "almost":
-        rows = [r for r in rows if r.get("level") == "almost"]
-    elif fk == "missing":
-        rows = [r for r in rows if r.get("level") == "missing"]
-    # open / all → all rows
+    active_rows = [r for r in rows if not r.get("on_hold")]
+    n_missing_auth = sum(1 for r in active_rows if r.get("missing_auth"))
+    n_unbilled = sum(1 for r in active_rows if r.get("unbilled"))
+    if fk in ("on_hold", "held"):
+        # Held clients that would otherwise be on the CS board (open CS job or open pack)
+        rows = [r for r in rows if r.get("on_hold")]
+    else:
+        rows = active_rows
+        if fk == "overdue":
+            rows = [r for r in rows if r.get("overdue")]
+        elif fk in ("due_soon", "soon"):
+            rows = [r for r in rows if r.get("due_soon") or r.get("overdue")]
+        elif fk == "ready":
+            rows = [r for r in rows if r.get("level") == "ready"]
+        elif fk == "almost":
+            rows = [r for r in rows if r.get("level") == "almost"]
+        elif fk == "missing":
+            rows = [r for r in rows if r.get("level") == "missing"]
+        elif fk in ("missing_auth", "awaiting_code"):
+            rows = [r for r in rows if r.get("missing_auth")]
+        elif fk == "unbilled":
+            rows = [r for r in rows if r.get("unbilled")]
+        # open / all: remaining non-held rows
 
     # Sort: overdue first, then due soon, then by due date, then missing worst first
     def sort_key(r: Dict[str, Any]):
@@ -237,6 +450,9 @@ def list_cs_readiness_board(
             "missing": sum(1 for r in rows if r.get("level") == "missing"),
             "overdue": sum(1 for r in rows if r.get("overdue")),
             "due_soon": sum(1 for r in rows if r.get("due_soon")),
+            "missing_auth": n_missing_auth,
+            "unbilled": n_unbilled,
+            "held": n_held,
         },
     }
 
@@ -249,9 +465,7 @@ def mark_ready_with_invoice(
     fee: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Mark CS pack ready; optionally raise sales invoice from linked job."""
-    from app.services.cs_automation import get_pack, mark_ready
-    from app.services.fees import get_suggested_fee
-    from app.services.sales_ledger import find_invoice_for_job, invoice_from_job
+    from app.services.cs_automation import mark_ready
 
     result = mark_ready(db, pack_id)
     if not result.ok or not result.pack:
@@ -260,43 +474,21 @@ def mark_ready_with_invoice(
     pack = result.pack
     inv = None
     inv_msg = ""
-    if raise_invoice and pack.job_id:
-        job = db.query(Job).filter(Job.id == pack.job_id).first()
-        if job:
-            existing = find_invoice_for_job(db, job)
-            if existing:
-                inv = existing
-                inv_msg = f"Invoice {existing.number or existing.id} already exists."
-            else:
-                if fee is not None:
-                    try:
-                        job.fee = float(fee)
-                    except (TypeError, ValueError):
-                        pass
-                if not job.fee or float(job.fee or 0) <= 0:
-                    pe = job.period_end or pack.made_up_to or date.today()
-                    try:
-                        job.fee = float(
-                            get_suggested_fee(
-                                db,
-                                "Confirmation Statement",
-                                period_end=pe,
-                                client_id=job.client_id,
-                            )
-                            or 50
-                        )
-                    except Exception:
-                        job.fee = 50.0
-                    db.commit()
+    if raise_invoice:
+        if fee is not None and pack.job_id:
+            job = db.query(Job).filter(Job.id == pack.job_id).first()
+            if job:
                 try:
-                    inv = invoice_from_job(db, job, status="sent", source="cs_ready")
-                    inv_msg = f"Invoice raised ({inv.number or inv.id})."
-                except Exception as exc:
-                    inv_msg = f"Invoice not raised: {exc}"
-        else:
-            inv_msg = "No CS job linked — invoice skipped."
-    elif raise_invoice:
-        inv_msg = "No job on pack — invoice skipped."
+                    job.fee = float(fee)
+                    db.commit()
+                except (TypeError, ValueError):
+                    pass
+        try:
+            billed = ensure_cs_invoice(db, pack, source="cs_ready", status="sent")
+            inv = billed.get("invoice")
+            inv_msg = billed.get("message") or ""
+        except Exception as exc:
+            inv_msg = f"Invoice not raised: {exc}"
 
     return {
         "ok": True,

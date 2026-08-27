@@ -435,7 +435,6 @@ async def create_person(
         ni_number=(ni_number or "").strip() or None,
         ch_code=(ch_code or "").strip() or None,
         gov_gateway_username=(gov_gateway_username or "").strip() or None,
-        gov_gateway_password=(gov_gateway_password or "").strip() or None,
     )
     # Company links are managed from the company record / Groups — not this form.
     db.add(person)
@@ -523,10 +522,7 @@ async def update_person(
     person.ni_number = (ni_number or "").strip() or None
     person.ch_code = (ch_code or "").strip() or None
     person.gov_gateway_username = (gov_gateway_username or "").strip() or None
-    # Password: blank submit keeps existing (browser often blanks password fields)
-    gpw = (gov_gateway_password or "").strip()
-    if gpw:
-        person.gov_gateway_password = gpw
+    # Passwords are no longer stored on the person row.
     # Do not change company links here — company page Contacts / Groups manage those.
 
     if individual:

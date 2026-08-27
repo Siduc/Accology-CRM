@@ -21,6 +21,9 @@ SERVICE_SA = "Self Assessment"
 SERVICE_VAT = "VAT Return"
 SERVICE_PAYROLL = "Payroll"
 
+# Introduced CS product fee (client.cs_tariff == 'product'). Not a year schedule.
+CS_PRODUCT_FEE = 10.0
+
 DEFAULT_SERVICES = [
     SERVICE_ACCOUNTS,
     SERVICE_CS,
@@ -35,6 +38,19 @@ PRIOR_YEAR_UPLIFT = 0.05  # +5%
 
 # Baseline only when no prior client fee and no schedule row exists
 ACCOUNTS_BASELINE_FEE = 2000.0
+
+
+def is_cs_product(client) -> bool:
+    """True when client.cs_tariff == 'product'. Safe if client is None."""
+    if client is None:
+        return False
+    fn = getattr(client, "is_cs_product", None)
+    if callable(fn):
+        try:
+            return bool(fn())
+        except Exception:
+            pass
+    return (getattr(client, "cs_tariff", None) or "book").strip().lower() == "product"
 
 
 def service_code_for_job_type(job_type: str) -> str:
@@ -134,7 +150,8 @@ def get_suggested_fee(
 
     Order:
       0. Client job pattern (fixed fee, including £0 for retainer-covered work)
-      1. Client's previous-year job fee × 1.05
+      0b. CS introduced product: client.cs_tariff == 'product' → £10
+      1. Client's previous-year job fee × 1.05 (book clients; not skipped)
       2. Service fee schedule for the year
       3. Previous schedule year × 1.05
       4. Accounts only: baseline £2000 (then uplifted chain via seed)
@@ -152,6 +169,17 @@ def get_suggested_fee(
             fixed = pattern_fixed_fee(db, client_id, job_type)
             if fixed is not None:
                 return _round_fee(fixed)
+        except Exception:
+            pass
+
+    # 0b) Introduced CS product — tariff on the client, not a year schedule
+    if client_id and code == SERVICE_CS:
+        try:
+            from app.models.client import Client
+
+            cl = db.get(Client, client_id)
+            if is_cs_product(cl):
+                return CS_PRODUCT_FEE
         except Exception:
             pass
 
@@ -188,7 +216,8 @@ def seed_default_fees(db: Session) -> int:
     Insert starter fee rows if missing.
 
     Accounts: base 2025 = £2000, then each later year = prior × 1.05
-    Confirmation Statement: £50 flat 2025–2027
+    Confirmation Statement: £50 flat 2025–2027 (book tariff).
+    The introduced £10 CS product is client.cs_tariff, not a year schedule row.
     """
     accounts_2025 = ACCOUNTS_BASELINE_FEE
     accounts_2026 = _round_fee(accounts_2025 * (1.0 + PRIOR_YEAR_UPLIFT))

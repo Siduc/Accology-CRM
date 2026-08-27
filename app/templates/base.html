@@ -18,14 +18,22 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=client-labels1">
+  <link rel="stylesheet" href="/static/style.css?v=viewer1">
   <script src="/static/dashboard_view.js?v=dual2" defer></script>
   <script src="/static/table_sort.js?v=1" defer></script>
-  <script src="/static/pwa.js?v=2" defer></script>
+  <script src="/static/pwa.js?v=3" defer></script>
   {# Always load on authenticated pages (incl. dashboard hub with hide_nav) #}
   <script src="/static/ai_assistant.js?v=6" defer></script>
 </head>
-<body class="dash-auto {% if hide_nav %}body-hub{% else %}body-page{% endif %} {% if demo_mode %}is-demo-mode{% endif %} {% block body_extra_class %}{% endblock %}">
+<body class="dash-auto {% if hide_nav %}body-hub{% else %}body-page{% endif %} {% if demo_mode %}is-demo-mode{% endif %} {% if is_viewer %}is-viewer{% endif %} {% block body_extra_class %}{% endblock %}">
+  {% if book_banner and not demo_locked %}
+  <div class="book-banner book-banner-{{ book_banner.kind }}" role="status">
+    <strong>{% if book_banner.kind == 'local' %}Local book{% elif book_banner.kind == 'slow' %}Slow book{% else %}Cloud book{% endif %}</strong>
+    <span>{{ book_banner.text }}</span>
+    {% if book_banner.stamp %}<span class="muted">Last published {{ book_banner.stamp }}</span>{% endif %}
+    <a class="book-banner-link" href="/settings#settings-book">Settings</a>
+  </div>
+  {% endif %}
   {% if demo_mode %}
   <div class="demo-banner" role="status">
     <strong>{% if demo_locked %}Demo login{% else %}Demo mode{% endif %}</strong>
@@ -38,6 +46,12 @@
     {% endif %}
   </div>
   {% endif %}
+  {% if is_viewer %}
+  <div class="viewer-banner" role="status">
+    <strong>View only</strong>
+    <span>— changes are not saved.</span>
+  </div>
+  {% endif %}
   {% if notify_unread_count and not demo_locked %}
   <div class="notify-banner" role="status">
     <strong>{% if notify_unread_count == 1 %}1 new alert{% else %}{{ notify_unread_count }} new alerts{% endif %}</strong>
@@ -46,10 +60,12 @@
     <a class="notify-banner-link" href="/notifications/{{ notify_preview[0].id }}/open">Open</a>
     {% endif %}
     <a class="notify-banner-link" href="/notifications?unread=1">View all</a>
+    {% if not is_viewer %}
     <form method="post" action="/notifications/read-all" class="notify-banner-form">
       <input type="hidden" name="return_to" value="{{ request.url.path }}">
       <button type="submit" class="notify-banner-dismiss">Dismiss all</button>
     </form>
+    {% endif %}
   </div>
   {% endif %}
   {% if not hide_nav %}

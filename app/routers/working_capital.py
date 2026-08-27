@@ -363,6 +363,7 @@ async def wc_wip(
                 elif filter_status == "Today" and list_st not in (
                     "Today",
                     "Overdue",
+                    "Ready for review",
                 ):
                     continue
                 elif filter_status == "Tomorrow" and list_st not in (
