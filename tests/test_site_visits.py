@@ -1,30 +1,30 @@
 LOGIN = {"username": "teststaff", "password": "test-password-not-live"}
 
 
-def test_public_home_counts_a_browser_hit(client):
-    r = client.get("/", headers={"User-Agent": "Mozilla/5.0", "Host": "accology.co"})
-    assert r.status_code == 200
+def _visit_count():
     from app.database import SessionLocal
     from app.models.site_visit import SiteVisit
 
     db = SessionLocal()
     n = db.query(SiteVisit).count()
     db.close()
-    assert n == 1
+    return n
+
+
+def test_public_home_counts_a_browser_hit(client):
+    before = _visit_count()
+    r = client.get("/", headers={"User-Agent": "Mozilla/5.0", "Host": "accology.co"})
+    assert r.status_code == 200
+    assert _visit_count() == before + 1
 
 
 def test_bot_and_loopback_are_skipped(client):
-    client.get("/", headers={"User-Agent": "Googlebot/2.1", "Host": "accology.co"})
-    # TestClient host is not loopback; bot UA should skip.
-    from app.database import SessionLocal
-    from app.models.site_visit import SiteVisit
     from app.services.site_visits import _is_loopback
 
     assert _is_loopback("127.0.0.1")
-    db = SessionLocal()
-    bots = db.query(SiteVisit).filter(SiteVisit.ua_kind == "bot").count()
-    db.close()
-    assert bots == 0
+    before = _visit_count()
+    client.get("/", headers={"User-Agent": "Googlebot/2.1", "Host": "accology.co"})
+    assert _visit_count() == before
 
 
 def test_staff_hub_shows_counter(client):
