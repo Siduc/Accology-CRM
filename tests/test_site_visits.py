@@ -12,8 +12,13 @@ def _visit_count():
 
 
 def test_public_home_counts_a_browser_hit(client):
+    client.get("/logout")
     before = _visit_count()
-    r = client.get("/", headers={"User-Agent": "Mozilla/5.0", "Host": "accology.co"})
+    r = client.get(
+        "/",
+        headers={"User-Agent": "Mozilla/5.0", "Host": "accology.co"},
+        follow_redirects=False,
+    )
     assert r.status_code == 200
     assert _visit_count() == before + 1
 
@@ -22,8 +27,13 @@ def test_bot_and_loopback_are_skipped(client):
     from app.services.site_visits import _is_loopback
 
     assert _is_loopback("127.0.0.1")
+    client.get("/logout")
     before = _visit_count()
-    client.get("/", headers={"User-Agent": "Googlebot/2.1", "Host": "accology.co"})
+    client.get(
+        "/",
+        headers={"User-Agent": "Googlebot/2.1", "Host": "accology.co"},
+        follow_redirects=False,
+    )
     assert _visit_count() == before
 
 
