@@ -19,7 +19,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger("accountant_crm.book_sync")
 
-SKIP_TABLES = {"sqlite_sequence", "alembic_version"}
+# site_visits stay on the serving app (Render for accology.co). Do not wipe
+# public hits when the 17:00 local book is pushed.
+SKIP_TABLES = {"sqlite_sequence", "alembic_version", "site_visits"}
 BATCH = 250
 
 

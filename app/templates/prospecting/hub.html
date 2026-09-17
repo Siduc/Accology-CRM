@@ -51,6 +51,15 @@
       <div class="wc-box-meta">{{stats.by_status_value.quote_sent|default(0)|money}} · next step</div>
     </a>
   </div>
+  <a class="wc-box wc-box-wip wc-touch" href="/prospecting/site-visits" style="margin-top:0.65rem;display:block">
+    <div class="wc-box-head"><span class="wc-box-title">accology.co visits</span><span class="wc-box-link">Log →</span></div>
+    <div class="wc-box-value">{{ site_visits.today|default(0) }}</div>
+    <div class="wc-box-meta">
+      today · {{ site_visits.today_unique|default(0) }} unique ·
+      {{ site_visits.week|default(0) }} this week
+      (no cookies; bots and this laptop skipped)
+    </div>
+  </a>
   <a class="wc-net-banner wc-net-result wc-total-banner wc-net-pos wc-net-centered wc-touch" href="/prospecting/campaigns" style="margin-top:0.65rem">
     <div class="wc-net-main">
       <div class="wc-net-label">Campaign pipeline</div>
@@ -107,6 +116,11 @@
       <span class="live-sub">{{stats.by_status_value.quote_sent|default(0)|money}}</span>
     </a>
   </div>
+  <a class="live-tile live-tile-wide tile-wip" href="/prospecting/site-visits" style="margin-top:0.55rem">
+    <span class="live-kicker">accology.co visits</span>
+    <span class="live-value">{{ site_visits.today|default(0) }}</span>
+    <span class="live-sub">today · {{ site_visits.today_unique|default(0) }} unique · {{ site_visits.week|default(0) }} this week</span>
+  </a>
   <a class="live-tile live-tile-wide tile-prospects" href="/prospecting/campaigns" style="margin-top:0.55rem">
     <span class="live-kicker">Campaign pipeline</span>
     <span class="live-value">{{stats.campaign_pipeline_value|default(0)|money}}</span>

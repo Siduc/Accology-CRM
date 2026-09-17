@@ -45,10 +45,13 @@ def _home_ctx(
 
 
 @router.get("/", response_class=HTMLResponse)
-async def public_home(request: Request):
+async def public_home(request: Request, db: Session = Depends(get_db)):
     """Accology landing (Imagine design) with embedded CRM log-in."""
     if request.session.get("user"):
         return RedirectResponse("/dashboard", status_code=303)
+    from app.services.site_visits import record_visit
+
+    record_visit(db, request, path="/")
     sent = request.query_params.get("sent") in ("1", "true", "yes")
     return render(
         request,

@@ -72,10 +72,13 @@ def _login_context(request: Request, *, error: str | None = None) -> dict:
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
+async def login_page(request: Request, db: Session = Depends(get_db)):
     """CRM log in — public site is GET /."""
     if request.session.get("user"):
         return RedirectResponse("/dashboard", status_code=303)
+    from app.services.site_visits import record_visit
+
+    record_visit(db, request, path="/login")
     return render(request, "login.html", _login_context(request))
 
 

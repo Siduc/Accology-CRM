@@ -53,6 +53,7 @@ from app.models.client_playbook import ClientPlaybook
 from app.models.xero_token import XeroToken
 from app.models.book_oauth_token import BookOauthToken
 from app.models.staff_user import StaffUser
+from app.models.site_visit import SiteVisit
 
 __all__ = [
     "Client",
@@ -109,4 +110,5 @@ __all__ = [
     "PostSplitLesson",
     "PostSplitCue",
     "ClientJobPattern",
+    "SiteVisit",
 ]

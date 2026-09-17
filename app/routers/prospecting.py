@@ -85,6 +85,9 @@ async def prospecting_hub(request: Request, db: Session = Depends(get_db)):
         limit=8,
     )
     campaign_rows = campaign_list_with_values(db, limit=8)
+    from app.services.site_visits import visit_summary
+
+    site_visits = visit_summary(db)
     return render(
         request,
         "prospecting/hub.html",
@@ -93,8 +96,23 @@ async def prospecting_hub(request: Request, db: Session = Depends(get_db)):
             "campaigns": [r["campaign"] for r in campaign_rows],
             "campaign_rows": campaign_rows,
             "recent": recent,
+            "site_visits": site_visits,
             "pipeline_labels": PIPELINE_LABELS,
             "ch_key": has_api_key(),
+        },
+    )
+
+
+@router.get("/site-visits", response_class=HTMLResponse)
+async def prospecting_site_visits(request: Request, db: Session = Depends(get_db)):
+    from app.services.site_visits import recent_visits, visit_summary
+
+    return render(
+        request,
+        "prospecting/site_visits.html",
+        {
+            "summary": visit_summary(db),
+            "rows": recent_visits(db, limit=80),
         },
     )
 

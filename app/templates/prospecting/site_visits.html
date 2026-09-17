@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}accology.co visits · Prospecting{% endblock %}
+{% block minibar_title %}accology.co visits{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="small muted"><a href="/prospecting">← Prospecting</a></p>
+    <h1 class="desk-page-title" style="font-size:clamp(1.55rem,3vw,1.95rem)">accology.co visits</h1>
+    <p class="desk-page-sub">No cookies. IP is hashed. Bots, health checks and this laptop are skipped. Public hits land on the Render app; this page shows the database this CRM is using.</p>
+  </div>
+</div>
+<div class="wc-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:1.1rem">
+  <div class="wc-box wc-box-wip">
+    <div class="wc-box-head"><span class="wc-box-title">Today</span></div>
+    <div class="wc-box-value">{{ summary.today }}</div>
+    <div class="wc-box-meta">{{ summary.today_unique }} unique</div>
+  </div>
+  <div class="wc-box wc-box-cash">
+    <div class="wc-box-head"><span class="wc-box-title">This week</span></div>
+    <div class="wc-box-value">{{ summary.week }}</div>
+    <div class="wc-box-meta">{{ summary.week_unique }} unique</div>
+  </div>
+  <div class="wc-box wc-box-debtors">
+    <div class="wc-box-head"><span class="wc-box-title">Last {{ summary.since_days }} days</span></div>
+    <div class="wc-box-value">{{ summary.since }}</div>
+    <div class="wc-box-meta">{{ summary.since_unique }} unique</div>
+  </div>
+</div>
+<table class="table">
+  <thead>
+    <tr><th>When (UTC)</th><th>Host</th><th>Path</th><th>Kind</th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td>
+      <td>{{ r.host or '—' }}</td>
+      <td>{{ r.path }}</td>
+      <td>{{ r.ua_kind }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">No counted visits yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
