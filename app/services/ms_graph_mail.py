@@ -1,10 +1,16 @@
 """Microsoft Graph mail: send + move (archive) for practice emails / tasks."""
 
 from __future__ import annotations
+try:
+    from app.services.email_signature import append_limited_signature
+except Exception:  # pragma: no cover
+    def append_limited_signature(body_html, *, from_mailbox="simon@accology.co"):
+        return body_html
+
 
 import json
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -26,6 +32,7 @@ def _request(
     data: Optional[bytes] = None,
     content_type: str = "application/json",
     timeout: int = 60,
+    extra_headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[bool, Any, str, int]:
     url = path if path.startswith("http") else f"{_api_base()}{path}"
     headers = {
@@ -33,6 +40,10 @@ def _request(
         "User-Agent": "AccologiseCRM/1.0 (MS-Graph-Mail)",
         "Accept": "application/json",
     }
+    if extra_headers:
+        for key, val in extra_headers.items():
+            if key and val:
+                headers[str(key)] = str(val)
     if data is not None:
         headers["Content-Type"] = content_type
     req = Request(url, data=data, method=method.upper(), headers=headers)
@@ -129,6 +140,45 @@ def get_message_web_link(
     return "", err or "message not found in mailbox"
 
 
+def search_messages(
+    access_token: str,
+    kql: str,
+    *,
+    top: int = 15,
+    select: str = (
+        "id,subject,from,toRecipients,receivedDateTime,bodyPreview,body,"
+        "conversationId,internetMessageId,webLink,isDraft,parentFolderId"
+    ),
+    folder: str = "",
+) -> Tuple[List[Dict[str, Any]], str]:
+    """KQL $search on the signed-in mailbox (Simon@). folder='inbox' to limit."""
+    token = (access_token or "").strip()
+    if not token:
+        return [], "no token"
+    q = (kql or "").strip()
+    if not q:
+        return [], "empty search"
+    search = quote(q, safe=":@()")
+    select_q = quote(select, safe=",")
+    well = (folder or "").strip().lower()
+    base = f"/me/mailFolders/{well}/messages" if well else "/me/messages"
+    path = (
+        f"{base}?$top={int(top)}"
+        f"&$select={select_q}"
+        f"&$search=%22{search}%22"
+    )
+    ok, data, err, _status = _request(
+        "GET",
+        path,
+        token,
+        extra_headers={"Prefer": 'outlook.body-content-type="text"'},
+    )
+    if ok and isinstance(data, dict):
+        rows = [r for r in (data.get("value") or []) if isinstance(r, dict)]
+        return rows, ""
+    return [], err or "graph search failed"
+
+
 def send_mail(
     access_token: str,
     *,
@@ -139,6 +189,7 @@ def send_mail(
     attachments: Optional[list] = None,
     reply_to: str = "",
     cc: Optional[list] = None,
+    html: bool = False,
 ) -> Tuple[bool, str]:
     """
     Send mail via Graph. Returns (ok, error_or_empty).
@@ -154,7 +205,10 @@ def send_mail(
         return False, "no_recipient_email"
     message: Dict[str, Any] = {
         "subject": subject or "(no subject)",
-        "body": {"contentType": "Text", "content": body or ""},
+        "body": {
+            "contentType": "HTML" if html else "Text",
+            "content": body or "",
+        },
         "toRecipients": [
             {"emailAddress": {"address": to}},
         ],
@@ -219,8 +273,13 @@ def send_mail_as(
     reply_to: str = "",
     cc: Optional[list] = None,
     attachments: Optional[list] = None,
+    fallback_to_signed_in: bool = True,
+    from_name: str = "",
 ) -> Tuple[bool, str]:
-    """Send as a shared mailbox (Send As). Falls back to send_mail if mailbox is empty."""
+    """Send as a shared mailbox (Send As).
+
+    If fallback_to_signed_in is False, never send as the signed-in user.
+    """
     box = (mailbox or "").strip()
     if not box:
         return send_mail(
@@ -237,13 +296,13 @@ def send_mail_as(
         return False, "no_recipient_email"
     message: Dict[str, Any] = {
         "subject": subject or "(no subject)",
-        "body": {"contentType": "Text", "content": body or ""},
+        "body": {"contentType": "HTML", "content": append_limited_signature(body or "", from_mailbox=box)},
         "toRecipients": [{"emailAddress": {"address": to}}],
-        "from": {"emailAddress": {"address": box, "name": "Accology Pays"}},
+        "from": {"emailAddress": {"address": box, "name": (from_name or "").strip() or "Accology"}},
     }
     reply = (reply_to or box).strip()
     if reply and "@" in reply:
-        message["replyTo"] = [{"emailAddress": {"address": reply, "name": "Accology Payroll"}}]
+        message["replyTo"] = [{"emailAddress": {"address": reply, "name": (from_name or "").strip() or "Accology"}}]
     cc_rows = []
     for addr in cc or []:
         a = (addr or "").strip()
@@ -274,14 +333,25 @@ def send_mail_as(
         if atts_out:
             message["attachments"] = atts_out
     payload = {"message": message, "saveToSentItems": bool(save_to_sent)}
+    # /me/sendMail with From is what Graph Send As granted to Simon@ actually accepts.
     ok, _data, err, status = _request(
         "POST",
-        f"/users/{box}/sendMail",
+        "/me/sendMail",
         access_token,
         data=json.dumps(payload).encode("utf-8"),
     )
     if ok or status in (202, 200):
         return True, ""
+    ok2, _data2, err2, status2 = _request(
+        "POST",
+        f"/users/{box}/sendMail",
+        access_token,
+        data=json.dumps(payload).encode("utf-8"),
+    )
+    if ok2 or status2 in (202, 200):
+        return True, ""
+    if not fallback_to_signed_in:
+        return False, err2 or err or "send_as_denied"
     # Shared send-as not granted — send from the signed-in mailbox with Reply-To.
     return send_mail(
         access_token,
@@ -303,24 +373,36 @@ def create_outlook_draft(
     body: str,
     reply_to: str = "",
     cc: Optional[list] = None,
+    extra_to: Optional[list] = None,
 ) -> Tuple[Optional[Dict[str, Any]], str]:
     """
     Create a draft in the signed-in mailbox for review/send in Outlook.
     Returns (message_dict_with_webLink, error).
+    extra_to is additional To: addresses (firstname@ guess) — does not replace `to`.
     """
     to = (to or "").strip()
     if not to:
         return None, "no_recipient_email"
+    to_rows = [{"emailAddress": {"address": to}}]
+    seen = {to.lower()}
+    for addr in extra_to or []:
+        a = (addr or "").strip()
+        if a and "@" in a and a.lower() not in seen:
+            to_rows.append({"emailAddress": {"address": a}})
+            seen.add(a.lower())
     payload: Dict[str, Any] = {
         "subject": subject or "(no subject)",
-        "body": {"contentType": "Text", "content": body or ""},
-        "toRecipients": [
-            {"emailAddress": {"address": to}},
-        ],
+        "body": {"contentType": "HTML", "content": append_limited_signature(body or "", from_mailbox=(reply_to or "simon@accology.co"))},
+        "toRecipients": to_rows,
     }
     reply = (reply_to or "").strip()
     if reply and "@" in reply:
-        payload["replyTo"] = [{"emailAddress": {"address": reply, "name": "Accology Payroll"}}]
+        reply_name = (
+            "Accology Accounts"
+            if reply.lower().startswith("accounts@")
+            else "Accology"
+        )
+        payload["replyTo"] = [{"emailAddress": {"address": reply, "name": reply_name}}]
     cc_rows = []
     for addr in cc or []:
         a = (addr or "").strip()
@@ -438,3 +520,33 @@ def archive_message(
     if not folder_id:
         return False, err or "Archive folder unavailable", {}
     return move_message(access_token, message_id, folder_id)
+
+def create_reply_draft(
+    access_token: str,
+    message_id: str,
+    *,
+    body_html: str,
+    from_mailbox: str = "simon@accology.co",
+    mailbox: str = "me",
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Create reply draft via Graph createReply; patch HTML body + Limited signature. Does not send."""
+    mid = (message_id or "").strip()
+    if not mid:
+        return None, "no_message_id"
+    mb = (mailbox or "me").strip()
+    root = "/me" if mb.lower() in ("", "me") else f"/users/{quote(mb)}"
+    ok, created, err, status = _request("POST", f"{root}/messages/{quote(mid)}/createReply", access_token)
+    if not (ok and isinstance(created, dict) and created.get("id")):
+        return None, err or f"createReply_failed_{status}"
+    draft_id = str(created["id"])
+    html = append_limited_signature(body_html or "", from_mailbox=from_mailbox or "simon@accology.co")
+    payload = {"body": {"contentType": "HTML", "content": html}}
+    ok2, updated, err2, status2 = _request(
+        "PATCH",
+        f"{root}/messages/{quote(draft_id)}",
+        access_token,
+        data=json.dumps(payload).encode("utf-8"),
+    )
+    if (ok2 or status2 in (200, 202)) and isinstance(updated, dict):
+        return updated, ""
+    return created, err2 or f"body_patch_failed_{status2}"
